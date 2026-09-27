@@ -1,0 +1,33 @@
+{
+  "signed.json": {
+    "valid": true,
+    "content_hash": "jcs-sha256:32de102e74d3141a3770c679871dae312691fb3ba522d3f3594f24489c6c704a",
+    "publisher_id": "reconciler-labs.example",
+    "kid": "rfc8037-a1"
+  },
+  "tampered.json": {
+    "valid": false,
+    "code": "invalid_signature",
+    "path": "/signature/sig"
+  },
+  "unknown-kid.json": {
+    "valid": false,
+    "code": "unknown_key",
+    "path": "/signature/kid"
+  },
+  "unknown-publisher.json": {
+    "valid": false,
+    "code": "unknown_publisher",
+    "path": "/manifest/publisher/id"
+  },
+  "wrong-publisher.json": {
+    "valid": false,
+    "code": "unknown_key",
+    "path": "/signature/kid"
+  },
+  "cross-signature.json": {
+    "valid": false,
+    "code": "invalid_signature",
+    "path": "/signature/sig"
+  }
+}

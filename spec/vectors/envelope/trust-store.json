@@ -1,0 +1,16 @@
+{
+  "reconciler-labs.example": {
+    "rfc8037-a1": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+    }
+  },
+  "other-publisher.example": {
+    "rfc8032-test2": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw"
+    }
+  }
+}
