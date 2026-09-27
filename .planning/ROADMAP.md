@@ -14,7 +14,7 @@ Stint v0.1 goes from a normative spec to a working lease runtime proven by an en
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & ALP Spec** - Cross-platform monorepo with CI, normative `spec/ALP.md`, and the validated, typed, hashed and signed manifest (`@stint/spec`) (completed 2026-09-27)
-- [ ] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core`
+- [x] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core` (completed 2026-09-27)
 - [ ] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh
 - [ ] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`)
 - [ ] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording
@@ -59,7 +59,7 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans:** 6/6 plans executed (waves 1-4)
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -165,7 +165,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 6/6 | In Progress|  |
+| 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
