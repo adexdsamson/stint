@@ -95,7 +95,27 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans**: TBD
+**Plans:** 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md - Receipts tracer: receipt/checkpoint draft-07 schemas + codegen + generated types, chain.ts appendEntry/verifyChain over the single canonical serializer, golden-hash vector, and spec/ALP.md section 11 resolution (RCPT-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md - Ed25519 signed checkpoints (jose, injectable keypair) + verifyChain exact break-locus anchored to the last checkpoint: hash_mismatch, reordered, truncated, checkpoint_sig_invalid (RCPT-03, RCPT-06)
+- [ ] 03-05-PLAN.md - Licensing tracer: PASETO v4.public issue/verify, one shared implicit-assertion derivation, explicit clock-skew tolerance, spec/ALP.md section 8 resolution + license vector; paseto legitimacy gate (LIC-01, LIC-02)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-03-PLAN.md - Attested chain independent verification via the reused @stint/spec trust model + display-only merged timeline (RCPT-04, RCPT-05)
+- [ ] 03-06-PLAN.md - Bounded license refresh (clamped, never outlives the lease) + opaque HeldLicense custody + LicenseIssuer port + mock issuer + license barrel (LIC-03)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-04-PLAN.md - ReceiptStore contract + in-memory double + reusable contract-test factory (@stint/core/testing) + receipts public API barrel (RCPT-02, RCPT-03 persistence)
+
 **Research flag**: yes - `paseto@4.0.1` uses panva's new factory-composition API (weeks old at research time). Pin exactly, wrap thinly, and confirm implicit-assertion handling and clock-skew options before planning.
 
 ### Phase 4: MCP Proxy & Credential Vault
@@ -166,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
-| 3. Receipts & Licensing | 0/TBD | Not started | - |
+| 3. Receipts & Licensing | 0/6 | Planned | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
