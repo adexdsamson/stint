@@ -91,24 +91,31 @@ const REFERENCE_RFCS = [
   "RFC 8707",
 ];
 
-// Plan 01-05 writes section 4 first (Task 1); sections 5, 6 and 15 remain
-// pending until Task 2. Every other leaf section already carries real
-// prose. "## 7. Lease Lifecycle" is a container heading with no direct
-// body of its own (its content lives entirely in the 7.x subsections), so
-// it is excluded from the non-empty-body check too.
-const PENDING_HEADINGS = new Set([
-  "## 5. Signed Manifest Envelope and Content Hash",
-  "## 6. Consent",
-  "## 15. Conformance",
-]);
+// Sections 4, 5, 6 and 15 were written by plan 01-05, completing the
+// document; every leaf section now carries real prose. "## 7. Lease
+// Lifecycle" is a container heading with no direct body of its own (its
+// content lives entirely in the 7.x subsections), so it is excluded from
+// the non-empty-body check.
+const PENDING_HEADINGS = new Set();
 const CONTAINER_HEADINGS = new Set(["## 7. Lease Lifecycle"]);
 const PENDING_MARKER = "<!-- ALP-PENDING: 01-05 -->";
+// Plan 01-05 tightens the checker to reject any remaining interim marker,
+// with or without its surrounding HTML comment.
+const ALP_PENDING_TEXT = "ALP-PENDING";
 
-// Plan 01-05 Task 1 (D-21, D-25): the section 4 annotated example must
-// never drift from the payment-reconciler conformance vector it is copied
-// from.
+// Plan 01-05 (D-21, D-25): the section 4 annotated example must never drift
+// from the payment-reconciler conformance vector it is copied from.
 const ANNOTATED_EXAMPLE_HEADING = "## 4. Manifest";
 const ANNOTATED_EXAMPLE_VECTOR_PATH = "spec/vectors/valid/payment-reconciler.json";
+
+// Plan 01-05: sections 5, 6 and 15 must each name the algorithm/vocabulary
+// terms a non-TypeScript implementer needs to reproduce the wire format.
+const SECTION5_HEADING = "## 5. Signed Manifest Envelope and Content Hash";
+const SECTION5_PHRASES = ["jcs-sha256:", "eyJhbGciOiJFZERTQSJ9", "RFC 8785"];
+const SECTION6_HEADING = "## 6. Consent";
+const SECTION6_PHRASES = ["attested"];
+const SECTION15_HEADING = "## 15. Conformance";
+const SECTION15_PHRASES = ["Runtime", "Publisher", "spec/vectors/"];
 
 const OPEN_MARKER_RE = /\[OPEN[^\]]*\]/g;
 const WELLFORMED_OPEN_RE = /^\[OPEN: Phase [2-7]\]$/;
@@ -298,9 +305,9 @@ function checkAuthModes(lines, failures) {
 function checkSequenceDiagrams(text, failures) {
   const mermaidBlocks = [...text.matchAll(/```mermaid\n([\s\S]*?)```/g)].map((m) => m[1]);
   const sequenceDiagramBlocks = mermaidBlocks.filter((b) => b.includes("sequenceDiagram"));
-  if (sequenceDiagramBlocks.length < 2) {
+  if (sequenceDiagramBlocks.length < 3) {
     failures.push(
-      `expected at least two mermaid sequenceDiagram blocks, found ${sequenceDiagramBlocks.length}`,
+      `expected at least three mermaid sequenceDiagram blocks, found ${sequenceDiagramBlocks.length}`,
     );
   }
 }
@@ -437,6 +444,23 @@ function checkSchemaNotPasted(text, failures) {
   }
 }
 
+/** Plan 01-05 completes every remaining section; no interim marker may survive, in any form. */
+function checkNoPendingMarker(text, failures) {
+  if (text.includes(ALP_PENDING_TEXT)) {
+    failures.push(`document still contains an "${ALP_PENDING_TEXT}" marker`);
+  }
+}
+
+/** Generic "this section must name these exact substrings" check. */
+function checkSectionPhrases(lines, heading, phrases, failures) {
+  const section = getSection(lines, heading) ?? "";
+  for (const phrase of phrases) {
+    if (!section.includes(phrase)) {
+      failures.push(`section "${heading}" missing required phrase "${phrase}"`);
+    }
+  }
+}
+
 function checkNonEmptyBodies(lines, failures) {
   for (const heading of FIXED_OUTLINE) {
     if (heading === FIXED_OUTLINE[0]) continue; // title line, not a section
@@ -488,6 +512,10 @@ function main() {
   checkManifestSchemaLink(lines, failures);
   checkAnnotatedExample(lines, failures);
   checkSchemaNotPasted(text, failures);
+  checkNoPendingMarker(text, failures);
+  checkSectionPhrases(lines, SECTION5_HEADING, SECTION5_PHRASES, failures);
+  checkSectionPhrases(lines, SECTION6_HEADING, SECTION6_PHRASES, failures);
+  checkSectionPhrases(lines, SECTION15_HEADING, SECTION15_PHRASES, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");

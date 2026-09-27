@@ -193,11 +193,73 @@ Two semantic rules apply after schema validation passes, since neither is expres
 
 ## 5. Signed Manifest Envelope and Content Hash
 
-<!-- ALP-PENDING: 01-05 -->
+A publisher distributes a manifest as a signed envelope: `{ manifest, signature: { alg, kid, sig } }`. The hash and the signature both cover the `manifest` member only; nothing outside `manifest` is signed, so the envelope itself carries no extension fields and no publisher-supplied metadata that could ride along unsigned.
+
+The content hash of a manifest is `"jcs-sha256:"` followed by the lowercase hexadecimal SHA-256 digest of the UTF-8 bytes produced by serializing the manifest object under RFC 8785, the JSON Canonicalization Scheme (JCS). For example, the annotated manifest in Section 4 hashes to:
+
+```
+jcs-sha256:32de102e74d3141a3770c679871dae312691fb3ba522d3f3594f24489c6c704a
+```
+
+Rationale: the prefix names both the canonicalization scheme and the digest algorithm, so an implementer cannot mistake this value for a hash of the manifest's raw file bytes. A bare `sha256:` prefix, as used for example by OCI image digests, conventionally means exactly that, a hash of uninterpreted bytes, and would invite an implementation to hash whatever bytes it happened to read from disk rather than the one canonical serialization every implementation must agree on.
+
+The signing input is `ASCII(eyJhbGciOiJFZERTQSJ9)` followed by the single ASCII byte `.` followed by `BASE64URL(JCS(manifest))`, where `JCS(manifest)` is the RFC 8785 canonical serialization's UTF-8 bytes. `eyJhbGciOiJFZERTQSJ9` is the fixed, unvarying base64url encoding of the JSON text `{"alg":"EdDSA"}`; it is not computed per manifest and carries no `kid` (the key identifier lives only in the envelope's `signature.kid`, never in the signed header, so the header stays a content-free constant). This signing input is exactly a JWS (RFC 7515) using Appendix F's detached-content form: `eyJhbGciOiJFZERTQSJ9` is the base64url protected header, the payload is `BASE64URL(JCS(manifest))`, and the two are joined by `.` before signing, but the payload itself is never carried in the envelope, only re-derived by every verifier from the manifest it already has. The signature algorithm is EdDSA over Curve25519 (RFC 8032, profiled for JOSE by RFC 8037); `signature.sig` is the base64url encoding of the raw 64-byte Ed25519 signature over the signing input, with no padding, 86 characters.
+
+A runtime verifies a signed envelope with the following procedure, in exactly this order. Any failure at any step MUST reject the envelope; no later step MUST run once an earlier one has failed.
+
+1. Validate the envelope's shape: it MUST be `{ manifest, signature: { alg, kid, sig } }` with no other top-level members, `signature.alg` MUST be the literal string `"EdDSA"`, and `signature.kid` and `signature.sig` MUST match their fixed formats. A RECOMMENDED envelope size cap of 262144 bytes MUST be checked, against the envelope's raw UTF-8 byte length, before any parsing.
+2. Read `manifest.publisher.id` from the not-yet-validated manifest. This is the only manifest field a verifier reads before the manifest itself has been validated in step 8.
+3. Look up `manifest.publisher.id` in the runtime's trust store, a host- or runtime-configured mapping from publisher id to one or more public keys, each identified by its own `kid`. Key trust comes only from this configured store; this protocol defines no key discovery or fetching mechanism. A publisher id absent from the trust store MUST be rejected.
+4. Look up `signature.kid` under that publisher's entry. A publisher MAY have more than one `kid` registered at once, which is how key rotation works: a publisher adds a new key under a new `kid`, starts signing with it, and only later removes the old `kid`, so manifests signed under either key verify during the overlap. A `kid` absent under that publisher, or a key entry of the wrong type, MUST be rejected.
+5. Canonicalize `manifest` under RFC 8785. A value outside the strict JSON data model, for example a non-finite number, or nesting deeper than a runtime-defined bound, MUST be rejected as not canonicalizable.
+6. Verify the detached EdDSA signature over the canonical bytes from step 5, using the public key found in step 4. A failure at this step MUST be reported as a single fixed rejection; a runtime MUST NOT forward any underlying cryptographic library's exception text, since that text can vary by library and by failure mode in ways that leak information about why verification failed.
+7. Re-parse the canonical text from step 5. This re-parsed value, not the value a caller originally supplied, is the manifest every later step operates on, closing a class of bugs where a caller's object differs from the bytes actually signed.
+8. Validate the re-parsed manifest from step 7 against the canonical schema and its semantic rules (Section 4). Only a manifest that both verifies its signature and passes this validation exists as a trusted manifest.
+9. Compute the content hash from the same canonical bytes already produced in step 5; a runtime MUST NOT re-canonicalize a second time for this purpose, since two independently computed canonicalizations could in principle diverge even when the underlying implementation is correct.
+10. The manifest is now verified: its content hash, publisher id and `kid` are established facts a runtime can rely on for consent (Section 6) and for binding to a lease (Section 7).
+
+Implementations MUST NOT accept an unsigned manifest under any configuration; there is no verification mode that skips signature checking. A lease binds the content hash computed in step 9, never the envelope itself; re-signing identical manifest content under a different `kid`, for example during key rotation, therefore produces the same bound content hash and does not itself invalidate a lease already granted against that content.
+
+Reproducible values for every step above are published in [spec/vectors/jcs/](vectors/jcs/) (the RFC 8785 conformance sample and the manifest golden hash) and [spec/vectors/envelope/](vectors/envelope/) (a trust store, a valid signed envelope and five distinct rejection cases); see [spec/vectors/README.md](vectors/README.md) for how to reproduce every value without depending on Stint's own code.
 
 ## 6. Consent
 
-<!-- ALP-PENDING: 01-05 -->
+A runtime MUST request consent only for a manifest that has already passed the full verification procedure in Section 5 and whose `spec_version` this runtime supports (Section 4); a manifest that fails verification, or names an unsupported `spec_version`, MUST NOT reach the user as a consent request.
+
+The consent display, rendered by the host through its HostAdapter, MUST show the user at least:
+
+- the `agent` and `publisher` the manifest names;
+- every scope the manifest requests, with its resource and its full list of access classes;
+- the manifest's `limits`, including any spend limit and its currency;
+- the manifest's `approvals.require_for` triggers and `approvals.timeout_seconds`;
+- the resolved `auth.mode` (Section 8), never left implicit even when the manifest omitted `mode`;
+- the `job.verifier` type, since it determines whether and how this lease can ever reach `completed` (Section 7.6);
+- the `cleanup.hook` and `cleanup.publisher_retains`, if `cleanup` is not `null`, with `publisher_retains` clearly labelled as an attested publisher claim, not a runtime-verified guarantee (Section 13). A host MUST NOT present `publisher_retains` or any other cleanup behavior as something the runtime has confirmed; the runtime can only relay what the publisher states.
+
+If the user consents (`consent_granted`, Section 7.3), the runtime binds the verified manifest's content hash to the new lease before any further step; this is the same content hash Section 5 computed, never a hash of the envelope. If the user declines (`consent_declined`) or the consent request is not answered before its timeout (`consent_timed_out`), the lease moves to `declined` (Section 7.4); both outcomes are final and identical from the lease's perspective, whichever produced them.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant HostAdapter
+    participant Runtime
+    participant Host
+    Host->>Runtime: present signed envelope
+    Runtime->>Runtime: verifyEnvelope (Section 5)
+    alt verification fails
+        Runtime-->>Host: reject, no consent request
+    else verified
+        Runtime->>HostAdapter: render consent (scopes, limits, approvals, auth mode, verifier, cleanup)
+        HostAdapter->>User: display consent screen
+        User-->>HostAdapter: consent_granted, consent_declined or timeout
+        HostAdapter-->>Runtime: decision
+        alt consent_granted
+            Runtime->>Runtime: bind content hash to lease, move to granted
+        else consent_declined or consent_timed_out
+            Runtime->>Runtime: move to declined
+        end
+    end
+```
 
 ## 7. Lease Lifecycle
 
@@ -479,7 +541,19 @@ Consent-display spoofing: the host renders consent from manifest fields; a runti
 
 ## 15. Conformance
 
-<!-- ALP-PENDING: 01-05 -->
+This document defines two conformance classes.
+
+A **Runtime** conforms to this document when it: validates every manifest it processes against the canonical schema, including its conditional and semantic rules (Section 4); verifies every signed envelope per the exact procedure in Section 5 before ever requesting consent; renders the consent display's required content faithfully (Section 6); enforces the lifecycle table in Section 7.4, rejecting any (state, event, actor) triple the table does not list; enforces the three authorization modes and their required auth fields (Section 8); enforces connector bindings, limits and approvals as specified (Section 9); runs the fixed teardown sequence in order and records every outcome honestly (Section 10); maintains the verified and attested receipt chains with independent integrity and never merges them beyond a display-only view (Section 11); and is operated by the user or by a neutral party, never by an interested publisher (Section 12).
+
+A **Publisher** conforms to this document when it: produces manifests that validate against the canonical schema and name a `spec_version` this document defines, currently only `alp/0.1`; signs every manifest it distributes exactly as Section 5 specifies, using a key it keeps under its own custody and never shares outside its own signing infrastructure; and, in hosted or hybrid auth mode, issues licenses per Section 8 through the `license_issuer` identity its manifests name.
+
+Conformance vectors for both classes live in [spec/vectors/](vectors/), described fully in [spec/vectors/README.md](vectors/README.md):
+
+- `spec/vectors/valid/` and `spec/vectors/invalid/`: manifests a Runtime's validator MUST accept or reject (Section 4).
+- `spec/vectors/jcs/`: canonicalization and content-hash values a Runtime or a Publisher MUST reproduce independently (Section 5).
+- `spec/vectors/envelope/`: signed envelopes a Runtime MUST accept or reject, and the trust store and signing input that produce them (Section 5).
+
+Stint's own implementation consumes exactly these same vectors in its own test suite; there is no second, private vector set. Conformance for any implementation, Stint's own included, means reproducing the same accept-or-reject outcome the vector states, not matching Stint's internal structured error codes: the `path`/`code`/`message` shape defined in this project's own error contract is a Stint implementation interface, not a normative part of this protocol, and a conforming Runtime MAY report rejections in any structured or unstructured form it chooses, as long as it rejects exactly the cases these vectors mark as invalid and accepts exactly the cases they mark as valid.
 
 ## 16. References
 
