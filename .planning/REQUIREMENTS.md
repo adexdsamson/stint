@@ -117,8 +117,69 @@
 
 ## Traceability
 
-(Filled by roadmap creation.)
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| FND-01 | Phase 1 | Pending |
+| FND-02 | Phase 1 | Pending |
+| FND-03 | Phase 1 | Pending |
+| SPEC-01 | Phase 1 | Pending |
+| SPEC-02 | Phase 1 | Pending |
+| SPEC-03 | Phase 1 | Pending |
+| SPEC-04 | Phase 1 | Pending |
+| SPEC-05 | Phase 1 | Pending |
+| SPEC-06 | Phase 1 | Pending |
+| LIFE-01 | Phase 2 | Pending |
+| LIFE-02 | Phase 2 | Pending |
+| LIFE-03 | Phase 2 | Pending |
+| LIFE-04 | Phase 2 | Pending |
+| LIFE-05 | Phase 2 | Pending |
+| LIFE-06 | Phase 5 | Pending |
+| LIFE-07 | Phase 2 | Pending |
+| LIC-01 | Phase 3 | Pending |
+| LIC-02 | Phase 3 | Pending |
+| LIC-03 | Phase 3 | Pending |
+| LIC-04 | Phase 5 | Pending |
+| LIC-05 | Phase 4 | Pending |
+| RCPT-01 | Phase 4 | Pending |
+| RCPT-02 | Phase 3 | Pending |
+| RCPT-03 | Phase 3 | Pending |
+| RCPT-04 | Phase 3 | Pending |
+| RCPT-05 | Phase 3 | Pending |
+| RCPT-06 | Phase 3 | Pending |
+| RCPT-07 | Phase 5 | Pending |
+| PRXY-01 | Phase 4 | Pending |
+| PRXY-02 | Phase 2 | Pending |
+| PRXY-03 | Phase 2 | Pending |
+| PRXY-04 | Phase 4 | Pending |
+| PRXY-05 | Phase 4 | Pending |
+| PRXY-06 | Phase 4 | Pending |
+| PRXY-07 | Phase 4 | Pending |
+| PRXY-08 | Phase 4 | Pending |
+| TEAR-01 | Phase 5 | Pending |
+| TEAR-02 | Phase 5 | Pending |
+| TEAR-03 | Phase 5 | Pending |
+| TEAR-04 | Phase 5 | Pending |
+| TEAR-05 | Phase 5 | Pending |
+| HOST-01 | Phase 2 | Pending |
+| HOST-02 | Phase 6 | Pending |
+| HOST-03 | Phase 6 | Pending |
+| CLI-01 | Phase 6 | Pending |
+| CLI-02 | Phase 6 | Pending |
+| E2E-01 | Phase 7 | Pending |
+| E2E-02 | Phase 7 | Pending |
+| DOC-01 | Phase 7 | Pending |
+
+**Coverage:**
+- v1 requirements: 49 total
+- Mapped to phases: 49
+- Unmapped: 0
+
+**Notes:**
+- The HostAdapter contract (HOST-01) is defined in Phase 2. Its CLI reference implementation (HOST-02) lands in Phase 6.
+- The LeaseStore contract is defined in Phase 2 as enabling work (in-memory double and contract suite). HOST-03 (JSON-file store with Windows atomicity) is mapped to Phase 6.
+- The pure policy logic (PRXY-02, PRXY-03, LIFE-07) is built in Phase 2. The Phase 4 proxy routes every live call through it.
+- The checkpoint signing in RCPT-03 is built in Phase 3. The final signed receipt at teardown is exercised by TEAR-01 in Phase 5.
 
 ---
 *Requirements defined: 2026-09-27*
-*Last updated: 2026-09-27 after initial definition*
+*Last updated: 2026-09-27 after roadmap creation (traceability filled)*
