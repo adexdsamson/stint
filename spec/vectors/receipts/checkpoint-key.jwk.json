@@ -1,0 +1,8 @@
+{
+  "description": "Fixed test Ed25519 keypair for spec/vectors/receipts/ checkpoint conformance vectors. This is PUBLIC test-vector material only -- it MUST NEVER be trusted or used outside Stint's own conformance vectors.",
+  "kid": "test-checkpoint-key",
+  "kty": "OKP",
+  "crv": "Ed25519",
+  "d": "L8drRE6f4xZdUpyxCbbmtC_7cysikzN0vpSzdYec_BQ",
+  "x": "Ew2474HrAQhwxag8jkmoolpf8VI2rLzq1Tp-3Lj4nI0"
+}
