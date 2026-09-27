@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-09-27T22:52:59.832Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-09-27T23:22:40.285Z"
 last_activity: 2026-09-27
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
-state_head: e28683869c7fac6125d83685833986015474fa5c
+last_activity_desc: Phase 03 execution started
+state_head: 563f1cb37eaca73226e61073fa6573be775c715f
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 17
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-27)
 
 **Core value:** A prompt-injected or misbehaving agent can never act outside the lease the user granted, and when the lease ends, for any reason, every credential is revoked and the teardown is honestly receipted.
-**Current focus:** Phase 02 — Lease State Machine & Policy Engine
+**Current focus:** Phase 03 — Receipts & Licensing
 
 ## Current Position
 
-Phase: 03 (Receipts & Licensing) — READY TO EXECUTE
-Plan: Not started
+Phase: 03 (Receipts & Licensing) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-09-27 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-09-27 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P04 | 18min | 2 tasks | 4 files |
 | Phase 02 P05 | 9min | 2 tasks | 2 files |
 | Phase 02 P06 | 25min | 3 tasks | 7 files |
+| Phase 03 P01 | 25min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02] 02-06: LeaseStore's transaction() serializes per-id via a promise chain that swallows a prior failure before chaining the next call, so one rejected read-modify-write never wedges later transactions on the same id.
 - [Phase 02]: [Phase 02] 02-06: vitest declared as an optional peerDependency of @stint/core so tsdown externalizes it from the ./testing bundle instead of inlining ~570KB of vitest internals into dist/testing.js.
 - [Phase 02]: [Phase 02] 02-06: index.ts barrel now exports the complete Phase 2 surface (errors, transitions, events, reduce/Lease, bindings, policy, hash-guard, activate/resumeLease, HostAdapter, LeaseStore types); testing.ts is never re-exported from the public entry (D-14).
+- [Phase 03]: [Phase 03] 03-01: Task 1 checkpoint confirmed the receipt/checkpoint wire format verbatim (ReceiptEntry field set, Option A prevHash linkage, GENESIS_PREV_HASH constant, Checkpoint field set).
+- [Phase 03]: [Phase 03] 03-01: Chose a root-level oneOf of four fully-specified Entry definitions for receipt.schema.json over allOf+if/then, so json-schema-to-typescript generates a clean discriminated union without the allOf-strip codegen path.
 
 ### Pending Todos
 
@@ -112,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T21:47:19.152Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-receipts-licensing/03-CONTEXT.md
+Last session: 2026-09-27T23:22:40.113Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

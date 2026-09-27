@@ -95,12 +95,12 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md - Receipts tracer: receipt/checkpoint draft-07 schemas + codegen + generated types, chain.ts appendEntry/verifyChain over the single canonical serializer, golden-hash vector, and spec/ALP.md section 11 resolution (RCPT-02)
+- [x] 03-01-PLAN.md - Receipts tracer: receipt/checkpoint draft-07 schemas + codegen + generated types, chain.ts appendEntry/verifyChain over the single canonical serializer, golden-hash vector, and spec/ALP.md section 11 resolution (RCPT-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
-| 3. Receipts & Licensing | 0/6 | Planned | - |
+| 3. Receipts & Licensing | 1/6 | In Progress|  |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
