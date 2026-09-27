@@ -21,6 +21,17 @@ Each file is `{ description, manifest, expected_errors }`. `manifest` MUST fail 
 
   Reordering a manifest's keys or changing its whitespace MUST NOT change this hash; reordering an array, for example the two grants in `auth.delegated`, MUST change it, since RFC 8785 preserves array order.
 
+## `receipts/`
+
+- `chain-input.json`: a fixed, three-entry receipt chain (`transition`, then `call`, then `teardown_step`) on the `verified` chain, exercising the genesis link, an intermediate link and a `prevHash`-recompute walk. Each entry's `prevHash` is `jcs-sha256:` followed by the SHA-256 hex digest of the canonical serialization of the entry before it; the first entry's `prevHash` is the fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters.
+- `chain-canonical.txt` / `chain-expected-hash.txt`: the canonical serialization and resulting content hash of `chain-input.json`'s last entry. As with the `jcs/` vectors, the hash was computed independently of Stint's own code, by running `sha256sum` over the committed canonical bytes and prefixing the result with `jcs-sha256:`:
+
+  ```
+  jcs-sha256:$(sha256sum spec/vectors/receipts/chain-canonical.txt | cut -d' ' -f1)
+  ```
+
+  A conforming implementation's `verifyChain` (or equivalent) MUST walk `chain-input.json` from the genesis constant and report the same head hash and entry count; altering any entry's `prevHash` MUST cause verification to report the exact broken sequence number, not a generic failure.
+
 ## `envelope/`
 
 - `test-key.jwk.json`: the published RFC 8037 Appendix A.1 Ed25519 test key (byte-identical to RFC 8032 Section 7.1 TEST 1, which RFC 8037's own appendix states it reuses verbatim), under `kid` `rfc8037-a1`.

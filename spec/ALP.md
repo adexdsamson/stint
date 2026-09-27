@@ -381,7 +381,7 @@ The following table is normative. Any (state, event, actor) triple not listed he
 
 `activate` is guarded: the presented manifest's content hash MUST equal the hash bound at consent, every delegated grant listed in `auth.delegated` MUST be acquired (delegated and hybrid modes), and a license MUST be issued (hosted and hybrid modes). A content-hash mismatch detected at activation yields `activation_failed`; the same mismatch detected on a runtime resume (for example after a restart) yields `runtime_failure` instead, since the lease was already active.
 
-Every accepted transition MUST be recorded as a receipt with its actor (Section 11); the entry format for that receipt is `[OPEN: Phase 3]`.
+Every accepted transition MUST be recorded as a receipt with its actor, in the entry format Section 11 defines normatively.
 
 Rationale: implementations SHOULD derive their state-machine reducer directly from this table, as a data structure rather than nested conditional logic, so that whether a transition is legal becomes a lookup rather than a re-derivation of the rules above.
 
@@ -490,7 +490,11 @@ sequenceDiagram
 
 Every tool call, allowed or denied, and every state transition and teardown step, appends a receipt. Receipts live in one of two hash chains: the verified chain (facts the runtime itself observed) and the attested chain (publisher-signed claims the runtime relays on trust). Each chain has independent integrity: its own hash links and its own signed checkpoints, hashed with the canonical serialization defined in Section 5. The two chains are never interleaved.
 
-The runtime signs a checkpoint with Ed25519 at least at every lease-ending event, plus a final signed receipt at teardown. The entry format for a receipt and a checkpoint is `[OPEN: Phase 3]`.
+The runtime signs a checkpoint with Ed25519 at least at every lease-ending event, plus a final signed receipt at teardown. The entry format for a receipt and a checkpoint is defined normatively by [spec/receipt.schema.json](receipt.schema.json) and [spec/checkpoint.schema.json](checkpoint.schema.json) (JSON Schema draft-07); this section explains the shape in prose and does not duplicate the schema.
+
+A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
+
+A checkpoint carries `chain`, `count`, `headHash`, `ts`, and `sig`, where `headHash` is the canonical hash of the chain's last entry (or the genesis constant, for an empty chain) and `sig` is the runtime's Ed25519 signature over the canonical serialization of the other four fields.
 
 A call receipt holds an args hash and a binding-redacted summary; it never holds raw arguments, tokens or the license. Verifying a tampered or truncated chain MUST report the exact point the chain broke, relative to the last valid checkpoint, rather than a generic failure.
 
