@@ -2,16 +2,16 @@
  * The pure policy engine (D-09, D-11): `evaluatePolicy` decides one call —
  * allow / deny / require_approval — from a `Lease`, the call, a resolved
  * runtime-owned `ConnectorBinding | undefined`, the manifest's `limits` and
- * `approvals` fields, and an injected clock. A separate pure check
- * (`checkErrorThreshold`, added alongside `evaluatePolicy` in this module)
- * reports when the error window is exceeded; per D-09, deciding a call and
- * advancing lease state stay cleanly separated — the CALLER feeds a
- * `policyEvents.errorThresholdExceeded()` event to `reduce()` (lease.ts)
- * when that check returns `true`.
+ * `approvals` fields, and an injected clock. `checkErrorThreshold` (below)
+ * is a separate pure check that reports when the error window is exceeded;
+ * per D-09, deciding a call and advancing lease state stay cleanly
+ * separated — the CALLER feeds a `policyEvents.errorThresholdExceeded()`
+ * event to `reduce()` (lease.ts) when `checkErrorThreshold` returns `true`.
  *
- * Every time-based decision here is a pure comparison against the injected
- * `now` (epoch seconds) — no wall clock, no timer — so the whole security
- * surface this module implements is deterministically testable.
+ * Neither function reads a wall clock or arms a timer: every time-based
+ * decision is a pure comparison against the injected `now` (epoch seconds),
+ * so the whole security surface this module implements is deterministically
+ * testable with no real timers.
  *
  * `evaluatePolicy` derives a tool's `(resource, access, irreversible)`
  * classification ONLY from the `binding` argument — it never reads the
@@ -19,9 +19,9 @@
  * denies with `no_binding` before any other check (PRXY-02, deny by default).
  */
 
-import type { Lease } from "./lease.js";
+import type { Lease, LeaseCounters } from "./lease.js";
 import type { ConnectorBinding } from "./bindings.js";
-import type { Approvals, ApprovalTrigger, Limits } from "@stint/spec";
+import type { Approvals, ApprovalTrigger, ErrorThreshold, Limits } from "@stint/spec";
 
 /**
  * Stable, machine-readable `deny` reason codes (D-10). This is a public API
@@ -138,4 +138,26 @@ export function evaluatePolicy(
 
   // Step 6 — nothing else applies.
   return { decision: "allow" };
+}
+
+/**
+ * Reports whether `counters.denialErrorTimestamps` has at least
+ * `threshold.count` entries strictly within the trailing `threshold.window_seconds`
+ * window ending at `now` (LIFE-07). Does NOT mutate state and does NOT
+ * dispatch an event — per D-09, the caller feeds a
+ * `policyEvents.errorThresholdExceeded()` event to `reduce()` (lease.ts,
+ * `active -> failed`, actor `policy`) when this returns `true`. Timestamps
+ * are integer epoch-seconds; a timestamp exactly `window_seconds` old is
+ * OUTSIDE the window (strict `>`, not `>=`).
+ */
+export function checkErrorThreshold(
+  counters: Pick<LeaseCounters, "denialErrorTimestamps">,
+  threshold: ErrorThreshold,
+  now: number,
+): boolean {
+  const windowStart = now - threshold.window_seconds;
+  const inWindowCount = counters.denialErrorTimestamps.filter(
+    (timestamp) => timestamp > windowStart,
+  ).length;
+  return inWindowCount >= threshold.count;
 }
