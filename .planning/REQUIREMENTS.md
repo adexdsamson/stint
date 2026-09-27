@@ -26,7 +26,7 @@
 - [x] **LIFE-02**: Every transition records its actor (user, verifier, policy, clock, provider, publisher, runtime); the agent can never cause a transition to end or extend a lease
 - [ ] **LIFE-03**: Lease binds the consented manifest hash; a manifest mismatch at activation or resume is rejected
 - [x] **LIFE-04**: Lease expiry is enforced on every call against an injectable clock, not by timers
-- [ ] **LIFE-05**: Extending a lease requires fresh user consent through the HostAdapter; license token refresh never extends lease expiry
+- [x] **LIFE-05**: Extending a lease requires fresh user consent through the HostAdapter; license token refresh never extends lease expiry
 - [ ] **LIFE-06**: Outcome verification with `resource_query` (predicate evaluated through the proxy) or `user_confirm` completes the lease; `none` means the lease ends only on expiry or user action; the agent's own "done" claim never completes it
 - [x] **LIFE-07**: Error threshold (N denied calls or upstream errors in a window) moves the lease to `failed` with actor `policy`
 
@@ -132,7 +132,7 @@
 | LIFE-02 | Phase 2 | Complete |
 | LIFE-03 | Phase 2 | Pending |
 | LIFE-04 | Phase 2 | Complete |
-| LIFE-05 | Phase 2 | Pending |
+| LIFE-05 | Phase 2 | Complete |
 | LIFE-06 | Phase 5 | Pending |
 | LIFE-07 | Phase 2 | Complete |
 | LIC-01 | Phase 3 | Pending |
