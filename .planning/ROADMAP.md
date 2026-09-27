@@ -7,6 +7,7 @@ Stint v0.1 goes from a normative spec to a working lease runtime proven by an en
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -23,95 +24,117 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Foundation & ALP Spec
+
 **Goal**: Developers have a green, cross-platform monorepo; readers can learn the whole protocol from one normative document; publishers can author manifests that are validated, typed, hashed and signature-checked.
 **Depends on**: Nothing (first phase)
 **Requirements**: FND-01, FND-02, FND-03, SPEC-01, SPEC-02, SPEC-03, SPEC-04, SPEC-05, SPEC-06
 **Success Criteria** (what must be TRUE):
+
   1. On a fresh clone, `pnpm install && pnpm test` builds and tests every `@stint/*` package green on Windows, macOS or Linux with Node 22.12+, CI runs typecheck, lint and tests on Linux and Windows for every push, and the repo is licensed Apache-2.0.
   2. A reader can learn the full protocol from `spec/ALP.md`: all eleven states and their transitions, the actor list (the agent is never an actor for ending or extending a lease), the three auth modes, teardown order, receipts, the trust model and the documented trust limits.
   3. A valid publisher manifest (agent, publisher, version, spec_version, job with outcome verifier, scopes, lease, limits, approvals, auth, cleanup) passes the draft-07 schema, while unknown scope, approval, verifier or auth-mode values are rejected with structured errors; `auth.delegated` accepts a list of grants and `auth.mode` defaults to `hybrid`.
   4. A developer imports TypeScript types generated from the schema through `@stint/spec`, and changing the schema without regenerating the types fails the build.
   5. The runtime computes the same canonical content hash for a manifest regardless of key order or whitespace, and rejects a manifest whose publisher signature does not verify before consent is ever requested.
-**Plans:** 5 plans
+
+**Plans:** 1/5 plans executed
 
 Plans:
-- [ ] 01-01-PLAN.md - Monorepo foundation: pnpm workspace, four @stint/* packages, Apache-2.0 license test, CI on Linux and Windows (Node 22.12.0 and 24), package-legitimacy gate
+
+- [x] 01-01-PLAN.md - Monorepo foundation: pnpm workspace, four @stint/* packages, Apache-2.0 license test, CI on Linux and Windows (Node 22.12.0 and 24), package-legitimacy gate
 - [ ] 01-02-PLAN.md - Manifest and envelope schemas (draft-07), generated types with codegen:check, validateManifest with structured errors, valid and invalid manifest vectors
 - [ ] 01-03-PLAN.md - RFC 8785 canonical serializer and jcs-sha256 content hash, detached EdDSA envelope verification, branded VerifiedManifest, JCS and envelope vectors
 - [ ] 01-04-PLAN.md - spec/ALP.md lifecycle, actors, transition table, auth modes, enforcement, teardown, receipts, trust model and limits, plus the CI-wired structural checker
 - [ ] 01-05-PLAN.md - spec/ALP.md manifest walkthrough bound to the vector, envelope and content hash, consent, conformance, vectors README
 
 ### Phase 2: Lease State Machine & Policy Engine
+
 **Goal**: Every lifecycle transition and every allow/deny decision is made by pure, fully tested code outside the model, so no agent behavior can end, extend or exceed a lease.
 **Depends on**: Phase 1
 **Requirements**: LIFE-01, LIFE-02, LIFE-03, LIFE-04, LIFE-05, LIFE-07, HOST-01, PRXY-02, PRXY-03
 **Success Criteria** (what must be TRUE):
+
   1. A lease moves only through the eleven defined states via a table-driven pure reducer, and the test suite exercises every legal transition and rejects every illegal (state, event) pair.
   2. Every transition records its actor (user, verifier, policy, clock, provider, publisher, runtime); any attempt by the agent to end or extend a lease is rejected, and activating or resuming a lease with a manifest whose hash differs from the consented hash is rejected.
   3. The pure policy function returns allow, deny or require_approval for a call given the lease, runtime-owned connector bindings and an injectable clock: calls past lease expiry are denied with no timers involved, calls with no binding are denied, and a manifest that labels a `send` tool as `read` cannot change its classification.
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
+
 **Plans**: TBD
 **Enabling work**: This phase also defines the `LeaseStore` contract in `@stint/core` with an in-memory test double and a shared contract test suite, because the proxy (Phase 4) and teardown (Phase 5) depend on it. HOST-03 (JSON-file store, Windows atomicity) is delivered and mapped in Phase 6.
 
 ### Phase 3: Receipts & Licensing
+
 **Goal**: Every lease has a tamper-evident audit trail whose verified and attested chains check independently, and publishers can issue short-lived licenses whose refresh can never outlive the lease.
 **Depends on**: Phase 2
 **Requirements**: RCPT-02, RCPT-03, RCPT-04, RCPT-05, RCPT-06, LIC-01, LIC-02, LIC-03
 **Success Criteria** (what must be TRUE):
+
   1. Appending entries builds a hash chain through the single canonical serializer, and a golden-hash fixture test pins the exact bytes and hashes identically on Windows and Linux.
   2. The runtime signs chain checkpoints with Ed25519, and verifying a tampered, reordered or truncated chain (relative to its last signed checkpoint) reports the exact entry where it breaks.
   3. Publisher-signed attested entries live in a separate chain that verifies independently of the runtime's verified chain, and both merge into one plain-language timeline that marks every entry as verified or attested (ordering is display-only).
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
+
 **Plans**: TBD
 **Research flag**: yes - `paseto@4.0.1` uses panva's new factory-composition API (weeks old at research time). Pin exactly, wrap thinly, and confirm implicit-assertion handling and clock-skew options before planning.
 
 ### Phase 4: MCP Proxy & Credential Vault
+
 **Goal**: An agent connected over MCP can only see and call what its lease permits, never holds a real credential, and leaves a receipt for every call it makes.
 **Depends on**: Phase 3
 **Requirements**: PRXY-01, PRXY-04, PRXY-05, PRXY-06, PRXY-07, PRXY-08, RCPT-01, LIC-05
 **Success Criteria** (what must be TRUE):
+
   1. An agent connecting to the proxy as an MCP server lists only the tools its lease permits, and every `tools/call`, allowed or denied, appends a receipt with an args hash and binding-redacted summary; no raw args or secrets appear in any receipt.
   2. Concurrent calls against one lease never exceed `actions_per_hour`, the total action cap or the `spend` limit (per-lease serialization), and concurrent refreshes of one credential result in exactly one refresh.
   3. A call requiring approval (`send`, `pay`, `irreversible`) is held until the user decides out of band through the HostAdapter; the approval is bound to a hash of the exact args, binding and lease version, so a call whose args changed after approval is denied, and an unanswered approval denies on timeout.
   4. Adversarial tests show OAuth access tokens (with RFC 8707 resource indicators) are injected only on outbound calls and never appear in any agent-facing response or error, and the publisher license is never forwarded to a customer resource.
   5. When the mock authorization server revokes the customer's grant, the next call's `invalid_grant`/401 moves the lease to `revoked` with actor `provider`.
+
 **Plans**: TBD
 **Research flag**: yes - Validate `oauth4webapi@3.8.8` token revocation (RFC 7009) and resource indicators (RFC 8707) hands-on against `oauth2-mock-server`; pin the current MCP Authorization spec text; confirm the `@modelcontextprotocol/sdk@1.30.1` dual server/client topology. The RFC 7009 findings also feed Phase 5 teardown.
 
 ### Phase 5: Lease Endings & Teardown
+
 **Goal**: However a lease ends (verified completion, expiry, user, publisher, provider or policy), every credential is revoked in a fixed order and the teardown, including every partial failure, is honestly receipted.
 **Depends on**: Phase 4
 **Requirements**: LIFE-06, LIC-04, TEAR-01, TEAR-02, TEAR-03, TEAR-04, TEAR-05, RCPT-07
 **Success Criteria** (what must be TRUE):
+
   1. A lease completes only through its outcome verifier (a `resource_query` predicate evaluated through the proxy with runtime credentials, or `user_confirm` through the HostAdapter); with `none` it ends only on expiry or user action, and the agent's own "done" claim never completes it.
   2. Ending a lease for any reason runs teardown in fixed order (revoke OAuth, invalidate license, cleanup hook, delete cached data, final signed receipt), and a publisher entitlement revocation moves the lease to `revoked` with actor `publisher` and triggers that same teardown.
   3. Each credential records `revoked`, `discarded_revocation_unsupported` or `failed`, a provider without RFC 7009 support yields `discarded_revocation_unsupported`, and a bare 2xx is never claimed as more than RFC 7009 guarantees; the uninstall hook accepts only a single-use cleanup token scoped to `cleanup:<lease_id>` and rejects its reuse.
   4. Any single step failing lands the lease in `cleanup_incomplete` with every step's result recorded, retrying resumes idempotently, the lease can never return to `active`, and tests cover every teardown path including each single-step failure.
   5. After cleanup, both receipt chains, including the final signed receipt, remain readable and verify.
+
 **Plans**: TBD
 
 ### Phase 6: CLI & Reference Adapters
+
 **Goal**: A user can run the whole lease lifecycle from a terminal, and the HostAdapter and LeaseStore plug-in contracts are proven implementable outside core and proxy.
 **Depends on**: Phase 5
 **Requirements**: HOST-02, HOST-03, CLI-01, CLI-02
 **Success Criteria** (what must be TRUE):
+
   1. A user can create a lease from a manifest via the CLI after a consent prompt rendered from the manifest (scopes, limits, approvals, auth mode, verifier), then inspect it, revoke it and run or retry its cleanup.
   2. During a run, per-call approvals prompt in the terminal through the reference HostAdapter, and a prompt left unanswered denies on timeout.
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
+
 **Plans**: TBD
 **Research flag**: yes - Windows file atomicity: `write-file-atomic@^7` and `proper-lockfile@4.1.2` behavior under EPERM/EBUSY on rename with concurrent readers; the concurrency test must run on Windows CI.
 
 ### Phase 7: End-to-End Example & README
+
 **Goal**: The payment-reconciler example proves the whole runtime end to end in hybrid mode, and a newcomer can understand Stint and run the quickstart from the README as written.
 **Depends on**: Phase 6
 **Requirements**: E2E-01, E2E-02, DOC-01
 **Success Criteria** (what must be TRUE):
+
   1. `examples/payment-reconciler` runs in hybrid mode: licensed by a mock publisher, it reads mocked Paystack transactions through OAuth and writes to a mocked orders sheet, entirely through the proxy.
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
+
 **Plans**: TBD
 
 ## Progress
@@ -121,7 +144,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & ALP Spec | 0/5 | Planned | - |
+| 1. Foundation & ALP Spec | 1/5 | In Progress|  |
 | 2. Lease State Machine & Policy Engine | 0/TBD | Not started | - |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
