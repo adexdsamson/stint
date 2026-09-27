@@ -59,7 +59,17 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans**: TBD
+**Plans:** 6 plans (waves 1-4)
+
+Plans:
+
+- [ ] 02-01-PLAN.md — Tracer: Lease model + table-driven reduce() end-to-end (one legal + one illegal transition) with Result/rejection, version, TransitionRecord, actor-namespaced events (wave 1)
+- [ ] 02-02-PLAN.md — Reducer completion: full ALP.md §7.4 table + spec cross-check, all actor constructors, extend/expire, agent-never-actor guarantee (wave 2)
+- [ ] 02-03-PLAN.md — Policy engine + runtime-owned connector bindings: evaluatePolicy (deny-by-default, binding-only classification, per-call expiry) + checkErrorThreshold (wave 2)
+- [ ] 02-04-PLAN.md — Manifest-hash binding: verifyBoundHash shared guard + activateLease/resumeLease with distinct activation_failed/runtime_failure events (wave 3)
+- [ ] 02-05-PLAN.md — HostAdapter contract: three async methods + LifecycleEvent union + core-owned timeout-as-deny/decline wrappers (wave 3)
+- [ ] 02-06-PLAN.md — LeaseStore contract + in-memory double + reusable contract-test suite (@stint/core/testing) + public API barrel wiring (wave 4)
+
 **Enabling work**: This phase also defines the `LeaseStore` contract in `@stint/core` with an in-memory test double and a shared contract test suite, because the proxy (Phase 4) and teardown (Phase 5) depend on it. HOST-03 (JSON-file store, Windows atomicity) is delivered and mapped in Phase 6.
 
 ### Phase 3: Receipts & Licensing
@@ -145,7 +155,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 0/TBD | Not started | - |
+| 2. Lease State Machine & Policy Engine | 0/6 | Planned | - |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
