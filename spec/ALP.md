@@ -238,18 +238,147 @@ A manifest's `auth.mode` is one of `delegated`, `hosted` or `hybrid`. `hybrid` i
 
 ## 9. Enforcement
 
+Connector bindings are runtime-owned: they map each tool the proxy exposes to a `(resource, access class, irreversible)` classification. The manifest never names tools, and nothing in a manifest can change a tool's classification. Users approve any custom binding explicitly; the runtime never derives a binding from manifest content. The proxy is deny by default: a call with no matching binding MUST be denied.
+
+Every `tools/call` the proxy receives gets an allow, deny, or require_approval decision from code outside the model: the agent never sees or influences the code that makes that decision.
+
+Limits from the manifest's `limits` object are enforced per lease:
+
+- `limits.actions_per_hour` is evaluated over a sliding 3600-second window.
+- `limits.max_actions` is a hard cap on the total number of allowed actions across the lease's lifetime.
+- `limits.spend.amount_minor` is tracked in integer minor units of the single currency named in `limits.spend.currency`.
+- `limits.error_threshold` (`count` denied calls or upstream errors within `window_seconds`) ends the lease in `failed` with actor `policy` (Section 7.4).
+
+All of the above run under per-lease serialization: state reads, limit-counter updates and transitions for one lease never race against concurrent calls to the same lease.
+
+Approvals come from `approvals.require_for`, which accepts only `send`, `pay` or `irreversible`. `pay` always requires approval even if the manifest omits it from `require_for`. A runtime MAY add approval requirements beyond what the manifest states, but MUST NOT remove one the manifest or this rule requires. Approvals are dispatched out of band through the HostAdapter and MUST NOT be satisfied by MCP elicitation through the agent's own client, since that channel is one the agent itself could influence. Each approval is bound to a hash of the exact resolved arguments, the binding, and the lease version, so that anything changing between approval and execution invalidates the approval rather than silently reusing it; the binding hash format is `[OPEN: Phase 4]`. A timed-out approval denies.
+
+Manifest `x-` prefixed metadata is ignored for every enforcement decision; it is display and audit metadata only.
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Proxy
+    participant Policy as Policy Decision
+    participant HostAdapter
+    participant Provider
+    Agent->>Proxy: tools/call
+    Proxy->>Policy: evaluatePolicy(lease, call, binding, now)
+    alt require_approval
+        Policy-->>Proxy: require_approval
+        Proxy->>HostAdapter: requestApproval(summary, binding)
+        HostAdapter-->>Proxy: approved | denied | timeout
+    else deny
+        Policy-->>Proxy: deny
+    else allow
+        Policy-->>Proxy: allow
+    end
+    Proxy->>Provider: credential-bearing call
+    Provider-->>Proxy: result
+    Proxy-->>Agent: MCP tool result
+    Proxy->>Proxy: append receipt
+```
+
 ## 10. Teardown
+
+Teardown starts the moment a lease enters `tearing_down` (Section 7.4). It runs a fixed sequence of five steps, in this order:
+
+1. "Revoke" every OAuth grant the lease holds (RFC 7009).
+2. "Invalidate" the publisher license: call the publisher's revocation endpoint and stop any refresh loop.
+3. Run the publisher's "cleanup hook", authenticated by a single-use cleanup token scoped exactly `cleanup:<lease_id>`. Reuse of this token MUST be rejected. The token format is `[OPEN: Phase 5]`.
+4. "Delete" cached lease data held by the runtime.
+5. Write the "final signed receipt".
+
+Each OAuth grant's revocation records one of three outcomes: `revoked`, `discarded_revocation_unsupported`, or `failed`. A 2xx response from a revocation endpoint MUST NOT be reported as more than RFC 7009 guarantees: RFC 7009 requires a success response even for a token the provider does not recognize or cannot revoke, so a 2xx alone is not proof of revocation.
+
+A failing step does not stop the remaining steps from running. If every step succeeds, the lease moves to `cleaned_up`; if any step does not complete, the lease moves to `cleanup_incomplete` with every step's individual result recorded (Section 7.4). Retrying teardown resumes idempotently: it MUST NOT repeat a step that already completed. A lease that has entered teardown can never return to `active`. Receipts survive cleanup: the receipt log outlives the lease record itself.
+
+```mermaid
+sequenceDiagram
+    participant Runtime
+    participant OAuthProvider as OAuth Provider
+    participant PublisherService as Publisher
+    participant CleanupHook as Cleanup Hook
+    Runtime->>OAuthProvider: revoke grant (RFC 7009)
+    OAuthProvider-->>Runtime: revoked | discarded_revocation_unsupported | failed
+    Runtime->>PublisherService: invalidate license
+    PublisherService-->>Runtime: ok | failed
+    Runtime->>CleanupHook: cleanup:<lease_id> (single use)
+    CleanupHook-->>Runtime: ok | failed
+    Runtime->>Runtime: delete cached lease data
+    Runtime->>Runtime: write final signed receipt
+```
 
 ## 11. Receipts
 
+Every tool call, allowed or denied, and every state transition and teardown step, appends a receipt. Receipts live in one of two hash chains: the verified chain (facts the runtime itself observed) and the attested chain (publisher-signed claims the runtime relays on trust). Each chain has independent integrity: its own hash links and its own signed checkpoints, hashed with the canonical serialization defined in Section 5. The two chains are never interleaved.
+
+The runtime signs a checkpoint with Ed25519 at least at every lease-ending event, plus a final signed receipt at teardown. The entry format for a receipt and a checkpoint is `[OPEN: Phase 3]`.
+
+A call receipt holds an args hash and a binding-redacted summary; it never holds raw arguments, tokens or the license. Verifying a tampered or truncated chain MUST report the exact point the chain broke, relative to the last valid checkpoint, rather than a generic failure.
+
+The merged timeline a user sees combines both chains for display only, marking each entry `verified` or `attested`; this merge never touches either chain's hash linkage or signatures, and its ordering carries no integrity meaning of its own; only the two chains' own checkpoints do. The merge is display-only.
+
 ## 12. Trust Model
+
+The runtime is the protocol's enforcement point. It MUST be operated by the user themselves or by a neutral party; a runtime operated by the publisher, or by any party with an incentive to weaken enforcement, defeats the guarantee in Section 1.
+
+The agent is untrusted: nothing it says, including a claimed tool result or a claimed job outcome, is treated as fact by the state machine or the policy engine (Sections 7 and 9).
+
+The publisher's identity is established by its manifest signature (Section 5); the publisher's other claims, such as data-retention promises, are attested, not independently verified.
+
+Providers are authoritative for their own resources: what a provider's API allows or denies is the provider's decision, not the runtime's to override.
+
+The host is trusted to render consent faithfully: to show the user what the manifest actually requests, not a misleading summary of it.
+
+The system is deny by default at every layer: an unbound tool, an unmatched (state, event, actor) triple, and a timed-out approval all resolve to denial, never to an implicit allow.
 
 ## 13. Trust Limits
 
+This protocol has four documented limits that no implementation can remove by building harder:
+
+1. Attested receipts prove integrity, not completeness: a publisher-signed claim proves the publisher said it, not that the claim is the whole truth.
+2. Leases cannot stop cross-resource data flow: once an agent legitimately reads a resource, this protocol has no mechanism to prevent that agent from correlating it with data from another resource it also legitimately reads.
+3. Publisher-side data deletion is attested, not verified: when a publisher reports that it deleted retained data (`cleanup.publisher_retains`), the runtime cannot independently confirm this; it can only relay the publisher's claim.
+4. The runtime must be operated by the user or a neutral party: if it is operated by an interested party instead, every guarantee in this document depends on that operator's honesty rather than on the protocol's own mechanisms.
+
+Additional limits worth stating plainly: the proxy governs MCP tool calls, not the agent process's own network egress, so this protocol makes no claim about traffic the agent process might send outside the proxy. Offline-verifiable licenses (Section 8) cannot be revoked instantly; revocation latency is bounded by the license's TTL, not by the moment revocation is requested. A provider without RFC 7009 support yields `discarded_revocation_unsupported`, not a verified revocation (Section 10). Publisher signing-key custody is outside the runtime's control; a compromised publisher key is a publisher-side incident this protocol cannot detect on its own.
+
 ## 14. Security Considerations
+
+Prompt injection: the core guarantee of this protocol (Section 1) is that a prompt-injected agent cannot act outside its lease, because every tool call is decided by code outside the model. This document makes no claim about detecting or preventing the injection itself.
+
+Confused deputy and token passthrough: the runtime MUST NOT forward a raw delegated OAuth token, or the publisher license, to the agent or to any party outside the runtime's trusted boundary; the proxy performs every credential-bearing call itself (Section 9).
+
+Approval TOCTOU: an approval binds a hash of the exact resolved arguments, the binding, and the lease version (Section 9); anything that changes between approval and execution invalidates the approval rather than silently reusing it.
+
+Secrets in errors, logs and receipts: an error caught from an OAuth, HTTP or license library call MUST be sanitized into a fixed, non-interpolated message before it reaches any log or receipt path; receipts never hold raw arguments, tokens or the license (Section 11).
+
+Manifest tampering and key rotation: a lease binds the manifest's content hash at consent (Section 5); any later change to the manifest is detected as a hash mismatch, not silently accepted. Publisher keys rotate by `kid`; a runtime trust store MAY hold multiple keys per publisher to support this.
+
+Clock handling: expiry and license verification MUST use an explicit, tested clock-skew tolerance, never a library's default of zero, and MUST re-evaluate on every call rather than caching a validity result (Section 7.5).
+
+Size and depth caps: a runtime MUST bound manifest size, string field lengths and array sizes (the canonical schema in Section 4 already sets per-field limits) to avoid resource exhaustion from an oversized manifest.
+
+Consent-display spoofing: the host renders consent from manifest fields; a runtime SHOULD restrict the character set of identifiers (Section 4) rendered into a consent screen, so that a manifest's `agent.id` or `publisher.id` cannot smuggle in a display-spoofing sequence.
 
 ## 15. Conformance
 
 <!-- ALP-PENDING: 01-05 -->
 
 ## 16. References
+
+Normative references:
+
+- [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): Key words for use in RFCs to Indicate Requirement Levels
+- [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174): Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words
+- [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785): JSON Canonicalization Scheme (JCS)
+- [RFC 7515](https://www.rfc-editor.org/rfc/rfc7515): JSON Web Signature (JWS)
+- [RFC 8037](https://www.rfc-editor.org/rfc/rfc8037): CFRG Elliptic Curve Diffie-Hellman and Signatures in JSON Object Signing and Encryption (JOSE)
+- [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032): Edwards-Curve Digital Signature Algorithm (EdDSA)
+- [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009): OAuth 2.0 Token Revocation
+- [RFC 8707](https://www.rfc-editor.org/rfc/rfc8707): Resource Indicators for OAuth 2.0
+- [JSON Schema draft-07](https://json-schema.org/draft-07/json-schema-release-notes): JSON Schema Validation, draft-07
+- [OAuth 2.1](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1): The OAuth 2.1 Authorization Framework (Internet-Draft)
+- [PASETO v4](https://github.com/paseto-standard/paseto-spec): Platform-Agnostic Security Tokens, version 4
+- [Model Context Protocol](https://modelcontextprotocol.io/specification): the Model Context Protocol specification

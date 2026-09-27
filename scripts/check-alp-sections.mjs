@@ -71,6 +71,40 @@ const AGENT_SENTENCE =
 const TRANSITION_TABLE_HEADER = "| From | Event | Actor | To |";
 const HYBRID_DEFAULT_SENTENCE = "`hybrid` is the default";
 
+const TEARDOWN_STEP_WORDS = ["Revoke", "Invalidate", "cleanup hook", "Delete", "final signed receipt"];
+const TEARDOWN_OUTCOME_WORDS = ["revoked", "discarded_revocation_unsupported", "failed", "cleanup_incomplete"];
+const TRUST_LIMIT_PHRASES = [
+  "integrity, not completeness",
+  "cross-resource data flow",
+  "attested, not verified",
+  "operated by the user or a neutral party",
+];
+const RECEIPTS_WORDS = ["verified", "attested", "display-only"];
+const REFERENCE_RFCS = [
+  "RFC 2119",
+  "RFC 8174",
+  "RFC 8785",
+  "RFC 7515",
+  "RFC 8037",
+  "RFC 8032",
+  "RFC 7009",
+  "RFC 8707",
+];
+
+// Sections 4, 5, 6 and 15 are written by plan 01-05; until then they hold
+// only the ALP-PENDING marker line. Every other leaf section must already
+// carry real prose. "## 7. Lease Lifecycle" is a container heading with no
+// direct body of its own (its content lives entirely in the 7.x
+// subsections), so it is excluded from the non-empty-body check too.
+const PENDING_HEADINGS = new Set([
+  "## 4. Manifest",
+  "## 5. Signed Manifest Envelope and Content Hash",
+  "## 6. Consent",
+  "## 15. Conformance",
+]);
+const CONTAINER_HEADINGS = new Set(["## 7. Lease Lifecycle"]);
+const PENDING_MARKER = "<!-- ALP-PENDING: 01-05 -->";
+
 const OPEN_MARKER_RE = /\[OPEN[^\]]*\]/g;
 const WELLFORMED_OPEN_RE = /^\[OPEN: Phase [2-7]\]$/;
 
@@ -256,6 +290,84 @@ function checkAuthModes(lines, failures) {
   }
 }
 
+function checkSequenceDiagrams(text, failures) {
+  const mermaidBlocks = [...text.matchAll(/```mermaid\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const sequenceDiagramBlocks = mermaidBlocks.filter((b) => b.includes("sequenceDiagram"));
+  if (sequenceDiagramBlocks.length < 2) {
+    failures.push(
+      `expected at least two mermaid sequenceDiagram blocks, found ${sequenceDiagramBlocks.length}`,
+    );
+  }
+}
+
+function checkTeardownSection(lines, failures) {
+  const section = getSection(lines, "## 10. Teardown") ?? "";
+  const items = section
+    .split("\n")
+    .filter((l) => /^\d+\.\s/.test(l.trim()))
+    .map((l) => l.trim());
+  if (items.length < TEARDOWN_STEP_WORDS.length) {
+    failures.push(
+      `section 10 numbered list has ${items.length} items, expected at least ${TEARDOWN_STEP_WORDS.length}`,
+    );
+  } else {
+    TEARDOWN_STEP_WORDS.forEach((word, i) => {
+      if (!items[i].includes(word)) {
+        failures.push(`section 10 numbered list item ${i + 1} missing "${word}"`);
+      }
+    });
+  }
+  for (const word of TEARDOWN_OUTCOME_WORDS) {
+    if (!section.includes(word)) {
+      failures.push(`section 10 missing teardown outcome "${word}"`);
+    }
+  }
+}
+
+function checkTrustLimits(lines, failures) {
+  const section = getSection(lines, "## 13. Trust Limits") ?? "";
+  for (const phrase of TRUST_LIMIT_PHRASES) {
+    if (!section.includes(phrase)) {
+      failures.push(`section 13 missing required phrase "${phrase}"`);
+    }
+  }
+}
+
+function checkReceiptsSection(lines, failures) {
+  const section = getSection(lines, "## 11. Receipts") ?? "";
+  for (const word of RECEIPTS_WORDS) {
+    if (!section.includes(word)) {
+      failures.push(`section 11 missing "${word}"`);
+    }
+  }
+}
+
+function checkReferences(lines, failures) {
+  const section = getSection(lines, "## 16. References") ?? "";
+  for (const rfc of REFERENCE_RFCS) {
+    if (!section.includes(rfc)) {
+      failures.push(`section 16 missing "${rfc}"`);
+    }
+  }
+}
+
+function checkNonEmptyBodies(lines, failures) {
+  for (const heading of FIXED_OUTLINE) {
+    if (heading === FIXED_OUTLINE[0]) continue; // title line, not a section
+    if (CONTAINER_HEADINGS.has(heading)) continue;
+    const body = (getSection(lines, heading) ?? "").trim();
+    if (PENDING_HEADINGS.has(heading)) {
+      if (body !== "" && body !== PENDING_MARKER) {
+        failures.push(
+          `section "${heading}" must hold real text or exactly "${PENDING_MARKER}", found: ${JSON.stringify(body).slice(0, 80)}`,
+        );
+      }
+    } else if (body === "") {
+      failures.push(`section "${heading}" has an empty body`);
+    }
+  }
+}
+
 function main() {
   const filePath = parseArgs(process.argv.slice(2));
   const failures = [];
@@ -281,6 +393,12 @@ function main() {
   checkTransitionTable(transitionRows, failures);
   checkEventsBacktick(lines, transitionRows, failures);
   checkAuthModes(lines, failures);
+  checkSequenceDiagrams(text, failures);
+  checkTeardownSection(lines, failures);
+  checkTrustLimits(lines, failures);
+  checkReceiptsSection(lines, failures);
+  checkReferences(lines, failures);
+  checkNonEmptyBodies(lines, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");
