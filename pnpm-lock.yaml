@@ -208,6 +208,9 @@ importers:
       '@stint/spec':
         specifier: workspace:*
         version: link:../spec
+      vitest:
+        specifier: 5.0.2
+        version: 5.0.2(@types/node@22.20.4)(vite@8.3.1(@types/node@22.20.4))
 
   packages/proxy:
     dependencies:
