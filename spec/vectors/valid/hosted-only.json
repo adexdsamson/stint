@@ -1,0 +1,51 @@
+{
+  "description": "Minimal hosted-only manifest: license-issuer entitlement only, verifier none, cleanup hook with publisher_retains none.",
+  "manifest": {
+    "spec_version": "alp/0.1",
+    "agent": {
+      "id": "hosted-only-agent",
+      "name": "Hosted Only Agent"
+    },
+    "publisher": {
+      "id": "example-publisher.example",
+      "name": "Example Publisher"
+    },
+    "version": "0.1.0",
+    "job": {
+      "description": "Perform a job entitled entirely by publisher license.",
+      "verifier": {
+        "type": "none"
+      }
+    },
+    "scopes": [
+      {
+        "resource": "paystack.transactions",
+        "access": [
+          "read"
+        ]
+      }
+    ],
+    "lease": {
+      "max_duration_seconds": 600
+    },
+    "limits": {
+      "max_actions": 10
+    },
+    "approvals": {
+      "require_for": [],
+      "timeout_seconds": 30
+    },
+    "auth": {
+      "mode": "hosted",
+      "hosted": {
+        "license_issuer": "example-publisher.example"
+      }
+    },
+    "cleanup": {
+      "hook": {
+        "url": "https://example-publisher.example/alp/cleanup"
+      },
+      "publisher_retains": "none"
+    }
+  }
+}

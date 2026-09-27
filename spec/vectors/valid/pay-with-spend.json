@@ -1,0 +1,58 @@
+{
+  "description": "A pay-scoped manifest with limits.spend and approvals.require_for including pay (D-14/D-15/D-16).",
+  "manifest": {
+    "spec_version": "alp/0.1",
+    "agent": {
+      "id": "pay-agent",
+      "name": "Pay Agent"
+    },
+    "publisher": {
+      "id": "example-publisher.example",
+      "name": "Example Publisher"
+    },
+    "version": "0.1.0",
+    "job": {
+      "description": "Pay an invoice through the connected provider.",
+      "verifier": {
+        "type": "user_confirm",
+        "prompt": "Approve this payment?"
+      }
+    },
+    "scopes": [
+      {
+        "resource": "paystack.transactions",
+        "access": [
+          "pay"
+        ]
+      }
+    ],
+    "lease": {
+      "max_duration_seconds": 600
+    },
+    "limits": {
+      "max_actions": 5,
+      "spend": {
+        "amount_minor": 50000,
+        "currency": "NGN"
+      }
+    },
+    "approvals": {
+      "require_for": [
+        "pay"
+      ],
+      "timeout_seconds": 60
+    },
+    "auth": {
+      "mode": "delegated",
+      "delegated": [
+        {
+          "provider": "paystack",
+          "resources": [
+            "paystack.transactions"
+          ]
+        }
+      ]
+    },
+    "cleanup": null
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "description": "A manifest names a top-level tools field, which the schema always rejects (D-10).",
+  "manifest": {
+    "spec_version": "alp/0.1",
+    "agent": {
+      "id": "payment-reconciler",
+      "name": "Payment Reconciler",
+      "description": "Reconciles Paystack transactions against the orders sheet."
+    },
+    "publisher": {
+      "id": "reconciler-labs.example",
+      "name": "Reconciler Labs"
+    },
+    "version": "0.1.0",
+    "job": {
+      "description": "Match settled Paystack transactions to open orders and mark matched orders as paid.",
+      "verifier": {
+        "type": "resource_query",
+        "resource": "sheets.orders",
+        "predicate": "count(rows where status = 'reconciled') >= 1"
+      }
+    },
+    "scopes": [
+      {
+        "resource": "paystack.transactions",
+        "access": [
+          "read"
+        ]
+      },
+      {
+        "resource": "sheets.orders",
+        "access": [
+          "read",
+          "write"
+        ]
+      }
+    ],
+    "lease": {
+      "max_duration_seconds": 3600
+    },
+    "limits": {
+      "max_actions": 500,
+      "actions_per_hour": 300,
+      "error_threshold": {
+        "count": 5,
+        "window_seconds": 300
+      }
+    },
+    "approvals": {
+      "require_for": [
+        "irreversible"
+      ],
+      "timeout_seconds": 120
+    },
+    "auth": {
+      "mode": "hybrid",
+      "delegated": [
+        {
+          "provider": "paystack",
+          "resources": [
+            "paystack.transactions"
+          ]
+        },
+        {
+          "provider": "google_sheets",
+          "resources": [
+            "sheets.orders"
+          ]
+        }
+      ],
+      "hosted": {
+        "license_issuer": "reconciler-labs.example",
+        "kid": "2026-09"
+      }
+    },
+    "cleanup": {
+      "hook": {
+        "url": "https://reconciler-labs.example/alp/cleanup"
+      },
+      "publisher_retains": "aggregates"
+    },
+    "tools": []
+  },
+  "expected_errors": [
+    {
+      "path": "/tools",
+      "code": "unknown_field"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "description": "Minimal delegated-only manifest: one read scope, one delegated grant, user_confirm verifier, no approvals, no cleanup hook.",
+  "manifest": {
+    "spec_version": "alp/0.1",
+    "agent": {
+      "id": "delegated-only-agent",
+      "name": "Delegated Only Agent"
+    },
+    "publisher": {
+      "id": "example-publisher.example",
+      "name": "Example Publisher"
+    },
+    "version": "0.1.0",
+    "job": {
+      "description": "Read a single resource on the customer's behalf.",
+      "verifier": {
+        "type": "user_confirm",
+        "prompt": "Allow reading paystack.transactions?"
+      }
+    },
+    "scopes": [
+      {
+        "resource": "paystack.transactions",
+        "access": [
+          "read"
+        ]
+      }
+    ],
+    "lease": {
+      "max_duration_seconds": 600
+    },
+    "limits": {
+      "max_actions": 10
+    },
+    "approvals": {
+      "require_for": [],
+      "timeout_seconds": 30
+    },
+    "auth": {
+      "mode": "delegated",
+      "delegated": [
+        {
+          "provider": "paystack",
+          "resources": [
+            "paystack.transactions"
+          ]
+        }
+      ]
+    },
+    "cleanup": null
+  }
+}
