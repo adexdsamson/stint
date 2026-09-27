@@ -74,7 +74,122 @@ flowchart LR
 
 ## 4. Manifest
 
-<!-- ALP-PENDING: 01-05 -->
+A manifest is the publisher-authored document a runtime validates before requesting consent. The canonical schema is [spec/manifest.schema.json](manifest.schema.json) (JSON Schema draft-07); this section explains every field in prose and does not duplicate the schema. An implementation MUST validate a manifest against that schema, including its conditional (`if`/`then`) rules and the semantic rules stated below that the schema itself cannot express.
+
+Every top-level field, in schema order:
+
+- `spec_version`: the literal string `"alp/0.1"`. A runtime MUST reject any other value; this document defines no version negotiation.
+- `agent`: `{ id, name, description? }`. `id` is an `Identifier` (the fixed safe charset `^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$`, chosen so it can be rendered into a consent screen without risk of a display-spoofing sequence, Section 14); `name` and the optional `description` are short human-readable strings.
+- `publisher`: `{ id, name }`, using the same `Identifier` charset for `id`. The publisher identity claimed here MUST match the identity the envelope's signature attests to (Section 5); a manifest is never trusted on `publisher.id` alone.
+- `version`: the agent's own semantic version string (SemVer 2.0.0), a field distinct from the protocol's own `spec_version`.
+- `job`: `{ description, verifier }`. `verifier` is a tagged union of exactly three types, discriminated by its own `type` field, and closed: a value combining fields from two branches (for example a `resource_query` verifier that also carries a `user_confirm` `prompt`) MUST be rejected, not silently accepted by discarding the extra field.
+  - `resource_query`: `{ type: "resource_query", resource, predicate }`. The runtime evaluates `predicate` against `resource` through the proxy, using its own held credentials (Section 7.6); the predicate grammar is `[OPEN: Phase 5]`.
+  - `user_confirm`: `{ type: "user_confirm", prompt }`. The runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable.
+  - `none`: `{ type: "none" }`. The lease can never reach `completed`; it can only end by expiry or by a user or policy action (Section 7.4).
+- `scopes`: a non-empty list of `{ resource, access }`. `resource` is an opaque `Identifier` resolved only by a runtime-owned connector binding (Section 9); the manifest never names a tool, and nothing in a manifest can change a tool's classification. `access` is a non-empty, duplicate-free list drawn only from the fixed vocabulary `read`, `write`, `send`, `pay`; there is no free-form scope string and no way for a manifest to introduce a fifth access class.
+- `lease`: `{ max_duration_seconds }`, an integer number of seconds bounding the lease's lifetime from grant to expiry (Section 7.5). Every duration and window in a manifest is an integer count of seconds; this document defines no ISO 8601 duration syntax anywhere.
+- `limits`: `{ max_actions, actions_per_hour?, spend?, error_threshold? }`, enforced per lease (Section 9). `max_actions` is a hard cap on the total number of actions across the lease's lifetime; `actions_per_hour` is evaluated over a sliding 3600-second window; `spend` is `{ amount_minor, currency }`, an integer count of minor currency units, never a float, plus a three-letter currency code, tracked against a single currency per lease; `error_threshold` is `{ count, window_seconds }`, ending the lease in `failed` when exceeded.
+- `approvals`: `{ require_for, timeout_seconds }`. `require_for` is drawn only from the fixed vocabulary `send`, `pay`, `irreversible`; `pay` always requires approval even when a manifest omits it from `require_for`, and a runtime MAY add approval requirements beyond what the manifest states but MUST NOT remove one the manifest or this rule requires (Section 9). A timed-out approval denies.
+- `auth`: `{ mode?, delegated?, hosted? }`. `mode` is one of `delegated`, `hosted` or `hybrid`; `hybrid` is the default when `mode` is absent, and an omitted mode is held to exactly hybrid's requirements, not a relaxed subset of them. `delegated` is required whenever `mode` is `delegated` or `hybrid`; `hosted` is required whenever `mode` is `hosted` or `hybrid` (Section 8).
+- `cleanup`: either `null` (no publisher cleanup hook) or `{ hook, publisher_retains }`. `hook` is `{ url }`, an `https://` URL, or a loopback `http://` URL for local development, called with a single-use cleanup token during teardown (Section 10). `publisher_retains` is one of `none`, `aggregates`, `job_outputs` or `customer_data`, shown to the user at consent (Section 6); this value, and any cleanup-hook behavior it describes, is an attested publisher claim, never a guarantee the runtime independently verifies (Section 13).
+- `x-` prefixed keys: any property name starting with `x-`, at any object node in the manifest, is publisher metadata that MUST be ignored for every enforcement decision and MUST be ignored when a runtime decides whether a manifest's requirements are satisfied; it is display and audit metadata only (Section 9).
+
+Two conditional rules apply across the fields above: any manifest whose `scopes` include a `pay` access class MUST also carry `limits.spend`; `auth.delegated` MUST be present when `auth.mode` is `delegated` or `hybrid`, and `auth.hosted` MUST be present when `auth.mode` is `hosted` or `hybrid` (an absent `auth.mode` is treated exactly as `hybrid` for both rules, never as an exemption from either).
+
+Two semantic rules apply after schema validation passes, since neither is expressible in JSON Schema alone: every resource named in an `auth.delegated` entry's `resources` list MUST also appear as some scope's `resource`, so a delegated grant can never reach a resource the manifest did not also scope; and every scope's `resource` MUST be unique within `scopes`, so a manifest cannot declare the same resource twice with different access lists.
+
+**Annotated example.** The following manifest is exactly the `payment-reconciler` manifest shipped as [spec/vectors/valid/payment-reconciler.json](vectors/valid/payment-reconciler.json); an automated check keeps this example and that vector byte-for-byte identical.
+
+```json
+{
+  "spec_version": "alp/0.1",
+  "agent": {
+    "id": "payment-reconciler",
+    "name": "Payment Reconciler",
+    "description": "Reconciles Paystack transactions against the orders sheet."
+  },
+  "publisher": {
+    "id": "reconciler-labs.example",
+    "name": "Reconciler Labs"
+  },
+  "version": "0.1.0",
+  "job": {
+    "description": "Match settled Paystack transactions to open orders and mark matched orders as paid.",
+    "verifier": {
+      "type": "resource_query",
+      "resource": "sheets.orders",
+      "predicate": "count(rows where status = 'reconciled') >= 1"
+    }
+  },
+  "scopes": [
+    {
+      "resource": "paystack.transactions",
+      "access": [
+        "read"
+      ]
+    },
+    {
+      "resource": "sheets.orders",
+      "access": [
+        "read",
+        "write"
+      ]
+    }
+  ],
+  "lease": {
+    "max_duration_seconds": 3600
+  },
+  "limits": {
+    "max_actions": 500,
+    "actions_per_hour": 300,
+    "error_threshold": {
+      "count": 5,
+      "window_seconds": 300
+    }
+  },
+  "approvals": {
+    "require_for": [
+      "irreversible"
+    ],
+    "timeout_seconds": 120
+  },
+  "auth": {
+    "mode": "hybrid",
+    "delegated": [
+      {
+        "provider": "paystack",
+        "resources": [
+          "paystack.transactions"
+        ]
+      },
+      {
+        "provider": "google_sheets",
+        "resources": [
+          "sheets.orders"
+        ]
+      }
+    ],
+    "hosted": {
+      "license_issuer": "reconciler-labs.example",
+      "kid": "2026-09"
+    }
+  },
+  "cleanup": {
+    "hook": {
+      "url": "https://reconciler-labs.example/alp/cleanup"
+    },
+    "publisher_retains": "aggregates"
+  }
+}
+```
+
+1. `auth.mode` is `hybrid`: the agent needs both a publisher-issued license (entitlement to run at all) and delegated OAuth grants (access to the customer's own Paystack and spreadsheet accounts), so both `auth.delegated` and `auth.hosted` are present.
+2. The `paystack.transactions` scope is read-only (`access: ["read"]`); nothing in this manifest ever writes to Paystack.
+3. The `sheets.orders` scope grants both `read` and `write`, matching the job's description of marking matched orders as paid.
+4. `job.verifier` is `resource_query`: the runtime confirms the job's outcome itself, by evaluating `predicate` against `sheets.orders` through the proxy, rather than trusting the agent's own claim of being done or asking the user to confirm.
+5. `limits.error_threshold` ends the lease in `failed` after 5 denied calls or upstream errors within a 300-second window; `limits.spend` is absent because no scope here carries the `pay` access class.
+6. `approvals.require_for` lists only `irreversible`; no scope carries `pay`, so this manifest never triggers the always-approve rule for `pay`, but an irreversible action, for example marking an order paid, still requires out-of-band approval.
+7. `cleanup.publisher_retains` is `"aggregates"`: Reconciler Labs claims it retains only aggregate statistics after teardown, not raw transaction or order data. As stated above, this is an attested publisher claim; the runtime has no independent way to confirm it (Section 13, Section 6).
 
 ## 5. Signed Manifest Envelope and Content Hash
 

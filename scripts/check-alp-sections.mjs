@@ -91,19 +91,24 @@ const REFERENCE_RFCS = [
   "RFC 8707",
 ];
 
-// Sections 4, 5, 6 and 15 are written by plan 01-05; until then they hold
-// only the ALP-PENDING marker line. Every other leaf section must already
-// carry real prose. "## 7. Lease Lifecycle" is a container heading with no
-// direct body of its own (its content lives entirely in the 7.x
-// subsections), so it is excluded from the non-empty-body check too.
+// Plan 01-05 writes section 4 first (Task 1); sections 5, 6 and 15 remain
+// pending until Task 2. Every other leaf section already carries real
+// prose. "## 7. Lease Lifecycle" is a container heading with no direct
+// body of its own (its content lives entirely in the 7.x subsections), so
+// it is excluded from the non-empty-body check too.
 const PENDING_HEADINGS = new Set([
-  "## 4. Manifest",
   "## 5. Signed Manifest Envelope and Content Hash",
   "## 6. Consent",
   "## 15. Conformance",
 ]);
 const CONTAINER_HEADINGS = new Set(["## 7. Lease Lifecycle"]);
 const PENDING_MARKER = "<!-- ALP-PENDING: 01-05 -->";
+
+// Plan 01-05 Task 1 (D-21, D-25): the section 4 annotated example must
+// never drift from the payment-reconciler conformance vector it is copied
+// from.
+const ANNOTATED_EXAMPLE_HEADING = "## 4. Manifest";
+const ANNOTATED_EXAMPLE_VECTOR_PATH = "spec/vectors/valid/payment-reconciler.json";
 
 const OPEN_MARKER_RE = /\[OPEN[^\]]*\]/g;
 const WELLFORMED_OPEN_RE = /^\[OPEN: Phase [2-7]\]$/;
@@ -351,6 +356,87 @@ function checkReferences(lines, failures) {
   }
 }
 
+/** Deep-equality over plain JSON values: array order matters, object key order does not. */
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => deepEqual(item, b[i]));
+  }
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    if (aKeys[i] !== bKeys[i]) return false;
+  }
+  return aKeys.every((key) => deepEqual(a[key], b[key]));
+}
+
+/** Section 4 must link to the canonical schema instead of pasting it (D-21). */
+function checkManifestSchemaLink(lines, failures) {
+  const section = getSection(lines, ANNOTATED_EXAMPLE_HEADING) ?? "";
+  if (!/\]\([^)]*manifest\.schema\.json\)/.test(section)) {
+    failures.push(`section "${ANNOTATED_EXAMPLE_HEADING}" missing a relative link to manifest.schema.json`);
+  }
+}
+
+/**
+ * Section 4's annotated example (its first fenced json code block) must
+ * deep-equal spec/vectors/valid/payment-reconciler.json's manifest member,
+ * so the spec prose can never silently drift from the shipped conformance
+ * vector (D-21, D-32).
+ */
+function checkAnnotatedExample(lines, failures) {
+  const section = getSection(lines, ANNOTATED_EXAMPLE_HEADING) ?? "";
+  const match = section.match(/```json\n([\s\S]*?)```/);
+  if (!match) {
+    failures.push(`section "${ANNOTATED_EXAMPLE_HEADING}" has no annotated-example json code block`);
+    return;
+  }
+
+  let example;
+  try {
+    example = JSON.parse(match[1]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    failures.push(`section "${ANNOTATED_EXAMPLE_HEADING}" annotated example is not valid JSON: ${message}`);
+    return;
+  }
+
+  let vectorText;
+  try {
+    vectorText = readFileSync(ANNOTATED_EXAMPLE_VECTOR_PATH, "utf8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    failures.push(`cannot read annotated-example vector at ${ANNOTATED_EXAMPLE_VECTOR_PATH}: ${message}`);
+    return;
+  }
+
+  let vector;
+  try {
+    vector = JSON.parse(vectorText);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    failures.push(`annotated-example vector at ${ANNOTATED_EXAMPLE_VECTOR_PATH} is not valid JSON: ${message}`);
+    return;
+  }
+
+  if (!deepEqual(example, vector.manifest)) {
+    failures.push("annotated example drifted from vector");
+  }
+}
+
+/** D-21: the schema is linked to, never pasted inline. */
+function checkSchemaNotPasted(text, failures) {
+  if (text.includes('"additionalProperties"')) {
+    failures.push('document contains the quoted schema key "additionalProperties" (the schema must be linked, not pasted)');
+  }
+}
+
 function checkNonEmptyBodies(lines, failures) {
   for (const heading of FIXED_OUTLINE) {
     if (heading === FIXED_OUTLINE[0]) continue; // title line, not a section
@@ -399,6 +485,9 @@ function main() {
   checkReceiptsSection(lines, failures);
   checkReferences(lines, failures);
   checkNonEmptyBodies(lines, failures);
+  checkManifestSchemaLink(lines, failures);
+  checkAnnotatedExample(lines, failures);
+  checkSchemaNotPasted(text, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");
