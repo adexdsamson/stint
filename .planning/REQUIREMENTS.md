@@ -24,7 +24,7 @@
 
 - [x] **LIFE-01**: Lease moves only through the defined states (proposed, declined, granted, active, completed, expired, revoked, failed, tearing_down, cleaned_up, cleanup_incomplete) via a table-driven pure reducer; every illegal transition is rejected and tested
 - [x] **LIFE-02**: Every transition records its actor (user, verifier, policy, clock, provider, publisher, runtime); the agent can never cause a transition to end or extend a lease
-- [ ] **LIFE-03**: Lease binds the consented manifest hash; a manifest mismatch at activation or resume is rejected
+- [x] **LIFE-03**: Lease binds the consented manifest hash; a manifest mismatch at activation or resume is rejected
 - [x] **LIFE-04**: Lease expiry is enforced on every call against an injectable clock, not by timers
 - [x] **LIFE-05**: Extending a lease requires fresh user consent through the HostAdapter; license token refresh never extends lease expiry
 - [ ] **LIFE-06**: Outcome verification with `resource_query` (predicate evaluated through the proxy) or `user_confirm` completes the lease; `none` means the lease ends only on expiry or user action; the agent's own "done" claim never completes it
@@ -130,7 +130,7 @@
 | SPEC-06 | Phase 1 | Complete |
 | LIFE-01 | Phase 2 | Complete |
 | LIFE-02 | Phase 2 | Complete |
-| LIFE-03 | Phase 2 | Pending |
+| LIFE-03 | Phase 2 | Complete |
 | LIFE-04 | Phase 2 | Complete |
 | LIFE-05 | Phase 2 | Complete |
 | LIFE-06 | Phase 5 | Pending |

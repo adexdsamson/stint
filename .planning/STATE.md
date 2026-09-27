@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 02
 current_phase_name: Lease State Machine & Policy Engine
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-09-27T19:09:25.417Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-09-27T19:20:46.709Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 02 execution started
-state_head: 56ee6848fb5a4e0ef8a96aa9b11c2fd1ca3d6c4c
+state_head: de04219406300b753c48ee726ef6f3a23652434f
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 02 (Lease State Machine & Policy Engine) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-09-27 — Phase 02 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P01 | 25min | 2 tasks | 5 files |
 | Phase 02 P03 | 22min | 3 tasks | 5 files |
 | Phase 02 P02 | 20min | 2 tasks | 5 files |
+| Phase 02 P04 | 18min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-03: widened Approvals.require_for (a union of fixed-length tuples) to a plain readonly array before .includes() to avoid TypeScript resolving the parameter type to never.
 - [Phase 02]: [Phase 02] 02-02: Checkpoint answered transcribe-as-normative; TRANSITION_TABLE completed to all 24 keys/25 triples byte-transcribed from ALP.md §7.4, cross-checked at test time.
 - [Phase 02]: [Phase 02] 02-02: The agent-boundary guarantee (D-19) required no new reduce() code — 'agent' is not in the Actor union or any TRANSITION_TABLE actors array, so the existing Step 2 actor re-check already rejects a hand-forged actor:'agent' event.
+- [Phase 02]: [Phase 02] 02-04: resumeLease returns Result<{lease; transition: TransitionRecord | undefined}> since a matching resume has no §7.4 state-changing event to dispatch through reduce.
+- [Phase 02]: [Phase 02] 02-04: both hash-guard and activate tests mint real VerifiedManifest values via @stint/spec/testing's signManifestForTest + verifyEnvelope rather than a hand-built fixture.
 
 ### Pending Todos
 
@@ -101,6 +104,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T19:09:25.185Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-09-27T19:20:46.527Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
