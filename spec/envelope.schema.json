@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SignedEnvelope",
+  "type": "object",
+  "definitions": {
+    "EnvelopeSignature": {
+      "title": "EnvelopeSignature",
+      "type": "object",
+      "properties": {
+        "alg": { "const": "EdDSA" },
+        "kid": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+        "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      },
+      "required": ["alg", "kid", "sig"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "manifest": { "type": "object" },
+    "signature": { "$ref": "#/definitions/EnvelopeSignature" }
+  },
+  "required": ["manifest", "signature"],
+  "additionalProperties": false
+}
