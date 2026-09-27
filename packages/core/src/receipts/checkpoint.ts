@@ -30,7 +30,12 @@ export const CHECKPOINT_HEADER = { alg: "EdDSA" } as const;
 const CHECKPOINT_HEADER_B64: string = base64url.encode(JSON.stringify(CHECKPOINT_HEADER));
 
 /** The exact UTF-8 canonical bytes signed/verified for a checkpoint summary — the single derivation shared by sign and verify. */
-function checkpointSigningBytes(chainKind: Checkpoint["chain"], count: number, headHash: string, ts: number): Uint8Array {
+function checkpointSigningBytes(
+  chainKind: Checkpoint["chain"],
+  count: number,
+  headHash: string,
+  ts: number,
+): Uint8Array {
   const summary = { chain: chainKind, count, headHash, ts };
   return new TextEncoder().encode(canonicalize(summary));
 }
@@ -62,11 +67,23 @@ export async function signCheckpoint(
  * `false`, mirroring `packages/spec/src/jws.ts`'s `verifyDetached` exactly
  * (T-01-15, D-16): jose's exception text is never surfaced to the caller.
  */
-export async function verifyCheckpoint(checkpoint: Checkpoint, publicKey: CryptoKey): Promise<boolean> {
+export async function verifyCheckpoint(
+  checkpoint: Checkpoint,
+  publicKey: CryptoKey,
+): Promise<boolean> {
   try {
-    const bytes = checkpointSigningBytes(checkpoint.chain, checkpoint.count, checkpoint.headHash, checkpoint.ts);
+    const bytes = checkpointSigningBytes(
+      checkpoint.chain,
+      checkpoint.count,
+      checkpoint.headHash,
+      checkpoint.ts,
+    );
     await flattenedVerify(
-      { protected: CHECKPOINT_HEADER_B64, payload: base64url.encode(bytes), signature: checkpoint.sig },
+      {
+        protected: CHECKPOINT_HEADER_B64,
+        payload: base64url.encode(bytes),
+        signature: checkpoint.sig,
+      },
       publicKey,
       { algorithms: ["EdDSA"] },
     );

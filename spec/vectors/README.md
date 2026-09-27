@@ -31,6 +31,10 @@ Each file is `{ description, manifest, expected_errors }`. `manifest` MUST fail 
   ```
 
   A conforming implementation's `verifyChain` (or equivalent) MUST walk `chain-input.json` from the genesis constant and report the same head hash and entry count; altering any entry's `prevHash` MUST cause verification to report the exact broken sequence number, not a generic failure.
+- `checkpoint-input.json`: a fixed checkpoint summary (`{ chain, count, headHash, ts }`, no `sig`) anchoring the `chain-input.json` golden chain — `count` equals the chain's length and `headHash` equals `chain-expected-hash.txt`'s value.
+- `checkpoint-signing-input.txt`: the canonical (RFC 8785 JCS) serialization of `checkpoint-input.json`, the exact UTF-8 bytes an EdDSA signature is computed over.
+- `checkpoint-key.jwk.json`: a fixed test Ed25519 keypair, committed for reproducibility only (see the warning below).
+- `checkpoint-expected-sig.txt`: the base64url detached EdDSA signature over `checkpoint-signing-input.txt`'s bytes using `checkpoint-key.jwk.json`'s private key. Ed25519 (EdDSA) signing is deterministic (RFC 8032) — a conforming implementation's `signCheckpoint` (or equivalent) MUST reproduce this exact signature given the same key and input, and `verifyCheckpoint` MUST accept it against the matching public key while rejecting it against any other key or any mutated summary field.
 
 ## `envelope/`
 

@@ -1,6 +1,6 @@
 /**
  * The single hash-chain append/verify implementation for both the verified
- * and attested receipt chains (D-04, D-05, D-09, RCPT-02, RCPT-06).
+ * and attested receipt chains (D-04, D-05, D-09, RCPT-02, RCPT-03, RCPT-06).
  *
  * Every hash in this file goes through `@stint/spec`'s `canonicalize`/
  * `hashCanonical` — the ONLY serializer used for hashing anywhere in this
@@ -19,11 +19,25 @@
  * `hashCanonical(entry N-1)` — a pointer to the previous entry's own
  * canonical hash. The genesis entry (seq 0) links to the fixed
  * `GENESIS_PREV_HASH` constant instead of a real previous entry.
+ *
+ * `verifyChain` optionally anchors to a signed `Checkpoint` (D-06, D-09,
+ * RCPT-06): when a checkpoint and its public key are supplied, the
+ * checkpoint's own signature is verified first (`checkpoint_sig_invalid` on
+ * failure), then the chain walk additionally reports `truncated` when fewer
+ * entries are present than the checkpoint's `count` — a wholesale removal of
+ * entries after the last checkpoint is otherwise invisible to a pure
+ * internal-consistency walk. `verifyChain` is async because
+ * checkpoint-signature verification (`verifyCheckpoint`) is inherently async
+ * (jose's Web Crypto-backed EdDSA); the no-checkpoint call path performs no
+ * awaited work but keeps the same `Promise`-returning signature so callers
+ * never need two different call shapes.
  */
 
 import { canonicalize, hashCanonical } from "@stint/spec";
-import type { ReceiptEntry, CallPayload, TransitionPayload, TeardownStepPayload, AttestedClaimPayload } from "@stint/spec";
+import type { Checkpoint, ReceiptEntry, CallPayload, TransitionPayload, TeardownStepPayload, AttestedClaimPayload } from "@stint/spec";
+import type { CryptoKey } from "jose";
 
+import { verifyCheckpoint } from "./checkpoint.js";
 import type { ChainVerifyFailure, ReceiptVerifyReason, Result } from "./errors.js";
 
 /**
@@ -100,8 +114,29 @@ function reject(brokenAtSeq: number, reason: ReceiptVerifyReason): Result<never>
  * success (an empty chain is `ok` with `headHash === GENESIS_PREV_HASH` and
  * `count === 0`), or the exact break locus `{ brokenAtSeq, reason }` on the
  * first mismatch.
+ *
+ * When `checkpoint` is supplied, its signature is verified first via
+ * `verifyCheckpoint` (mirroring `checkpoint.ts`'s own fail-closed
+ * discipline) — a missing `checkpointPublicKey` or a signature that does
+ * not verify both report `"checkpoint_sig_invalid"`, `brokenAtSeq` set to
+ * the checkpoint's own `count` (the boundary the checkpoint claims to
+ * anchor). The walk then runs exactly as the no-checkpoint path; once it
+ * succeeds, a chain shorter than the checkpoint's `count` (entries removed
+ * after the last checkpoint) reports `"truncated"`, `brokenAtSeq` at the
+ * first absent seq (`chain.length`).
  */
-export function verifyChain(chain: readonly ReceiptEntry[]): Result<{ headHash: string; count: number }> {
+export async function verifyChain(
+  chain: readonly ReceiptEntry[],
+  checkpoint?: Checkpoint,
+  checkpointPublicKey?: CryptoKey,
+): Promise<Result<{ headHash: string; count: number }>> {
+  if (checkpoint !== undefined) {
+    const sigOk = checkpointPublicKey !== undefined && (await verifyCheckpoint(checkpoint, checkpointPublicKey));
+    if (!sigOk) {
+      return reject(checkpoint.count, "checkpoint_sig_invalid");
+    }
+  }
+
   let expectedPrevHash: string = GENESIS_PREV_HASH;
 
   for (const entry of chain) {
@@ -111,5 +146,12 @@ export function verifyChain(chain: readonly ReceiptEntry[]): Result<{ headHash: 
     expectedPrevHash = hashCanonical(entry);
   }
 
-  return { ok: true, value: { headHash: expectedPrevHash, count: chain.length } };
+  const headHash = expectedPrevHash;
+  const count = chain.length;
+
+  if (checkpoint !== undefined && count < checkpoint.count) {
+    return reject(count, "truncated");
+  }
+
+  return { ok: true, value: { headHash, count } };
 }

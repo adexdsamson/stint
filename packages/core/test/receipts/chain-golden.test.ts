@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import type { ReceiptEntry } from "@stint/spec";
 
-import { GENESIS_PREV_HASH, appendEntry, canonicalizeEntry, verifyChain } from "../../src/receipts/chain.js";
+import {
+  GENESIS_PREV_HASH,
+  appendEntry,
+  canonicalizeEntry,
+  verifyChain,
+} from "../../src/receipts/chain.js";
 import type { ReceiptEntryInput } from "../../src/receipts/chain.js";
 
 // packages/core/test/receipts -> packages/core/test -> packages/core -> packages -> repo root
@@ -45,7 +50,7 @@ describe("golden vector: spec/vectors/receipts/", () => {
     expect(canonicalizeEntry(last)).toBe(readVector("chain-canonical.txt"));
   });
 
-  it("head hash of the last entry matches the independently-computed fixture hash", () => {
+  it("head hash of the last entry matches the independently-computed fixture hash", async () => {
     const chain = loadGoldenChain();
     const last = chain[chain.length - 1];
     if (last === undefined) throw new Error("fixture chain must be non-empty");
@@ -53,7 +58,7 @@ describe("golden vector: spec/vectors/receipts/", () => {
     const expectedHash = readVector("chain-expected-hash.txt").trim();
     expect(expectedHash).toMatch(/^jcs-sha256:[0-9a-f]{64}$/);
 
-    const result = verifyChain(chain);
+    const result = await verifyChain(chain);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.headHash).toBe(expectedHash);
@@ -63,8 +68,8 @@ describe("golden vector: spec/vectors/receipts/", () => {
 });
 
 describe("verifyChain", () => {
-  it("empty chain: ok, headHash === GENESIS_PREV_HASH, count 0", () => {
-    const result = verifyChain([]);
+  it("empty chain: ok, headHash === GENESIS_PREV_HASH, count 0", async () => {
+    const result = await verifyChain([]);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.headHash).toBe(GENESIS_PREV_HASH);
@@ -77,13 +82,13 @@ describe("verifyChain", () => {
     expect(chain[0]?.prevHash).toBe(GENESIS_PREV_HASH);
   });
 
-  it("reports the exact break point when an entry's prevHash is tampered", () => {
+  it("reports the exact break point when an entry's prevHash is tampered", async () => {
     const chain = loadGoldenChain();
     const tampered: ReceiptEntry[] = chain.map((entry, i) =>
       i === 2 ? { ...entry, prevHash: "jcs-sha256:" + "f".repeat(64) } : entry,
     );
 
-    const result = verifyChain(tampered);
+    const result = await verifyChain(tampered);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors).toHaveLength(1);
@@ -94,13 +99,21 @@ describe("verifyChain", () => {
 
 describe("appendEntry", () => {
   it("empty chain: yields seq 0 with prevHash === GENESIS_PREV_HASH", () => {
-    const entry = appendEntry([], { chain: "verified", type: "transition", payload: { from: "granted", event: "activate", actor: "runtime", to: "active" } }, 1732104000);
+    const entry = appendEntry(
+      [],
+      {
+        chain: "verified",
+        type: "transition",
+        payload: { from: "granted", event: "activate", actor: "runtime", to: "active" },
+      },
+      1732104000,
+    );
 
     expect(entry.seq).toBe(0);
     expect(entry.prevHash).toBe(GENESIS_PREV_HASH);
   });
 
-  it("reproduces the golden fixture's exact bytes and hash when replayed from empty", () => {
+  it("reproduces the golden fixture's exact bytes and hash when replayed from empty", async () => {
     const golden = loadGoldenChain();
     let generated: readonly ReceiptEntry[] = [];
 
@@ -114,7 +127,7 @@ describe("appendEntry", () => {
     if (last === undefined) throw new Error("generated chain must be non-empty");
     expect(canonicalizeEntry(last)).toBe(readVector("chain-canonical.txt"));
 
-    const result = verifyChain(generated);
+    const result = await verifyChain(generated);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.headHash).toBe(readVector("chain-expected-hash.txt").trim());
@@ -125,7 +138,8 @@ describe("appendEntry", () => {
     const golden = loadGoldenChain();
     const firstTwo = golden.slice(0, 2);
     const thirdFixtureEntry = golden[2];
-    if (thirdFixtureEntry === undefined) throw new Error("fixture chain must have at least 3 entries");
+    if (thirdFixtureEntry === undefined)
+      throw new Error("fixture chain must have at least 3 entries");
     const next = appendEntry(firstTwo, toInput(thirdFixtureEntry), thirdFixtureEntry.ts);
 
     expect(next.seq).toBe(2);
