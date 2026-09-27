@@ -16,7 +16,7 @@
     {
       "number": "3",
       "name": "Receipts & Licensing",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "4",
@@ -44,5 +44,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 03 of 7 · executing"
   },
-  "updated_at": "2026-09-27T23:22:20.799Z"
+  "updated_at": "2026-09-27T23:47:01.918Z"
 }

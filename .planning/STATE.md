@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-09-27T23:22:40.285Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-09-27T23:47:06.710Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 03 execution started
-state_head: 563f1cb37eaca73226e61073fa6573be775c715f
+state_head: be8300729d43a9e4784fab719629d8d3f8675947
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 03 (Receipts & Licensing) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-09-27 — Phase 03 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P05 | 9min | 2 tasks | 2 files |
 | Phase 02 P06 | 25min | 3 tasks | 7 files |
 | Phase 03 P01 | 25min | 3 tasks | 17 files |
+| Phase 03 P02 | 35min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,7 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02] 02-06: index.ts barrel now exports the complete Phase 2 surface (errors, transitions, events, reduce/Lease, bindings, policy, hash-guard, activate/resumeLease, HostAdapter, LeaseStore types); testing.ts is never re-exported from the public entry (D-14).
 - [Phase 03]: [Phase 03] 03-01: Task 1 checkpoint confirmed the receipt/checkpoint wire format verbatim (ReceiptEntry field set, Option A prevHash linkage, GENESIS_PREV_HASH constant, Checkpoint field set).
 - [Phase 03]: [Phase 03] 03-01: Chose a root-level oneOf of four fully-specified Entry definitions for receipt.schema.json over allOf+if/then, so json-schema-to-typescript generates a clean discriminated union without the allOf-strip codegen path.
+- [Phase 03]: [Phase 03]: 03-02: Ed25519 checkpoints (jose, mirrors jws.ts) plus verifyChain anchoring - all four break reasons (hash_mismatch, reordered, truncated, checkpoint_sig_invalid) now report exact brokenAtSeq.
 
 ### Pending Todos
 
@@ -115,6 +117,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T23:22:40.113Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-09-27T23:47:06.570Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
