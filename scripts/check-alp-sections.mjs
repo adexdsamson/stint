@@ -53,7 +53,23 @@ const STATES = [
   "cleanup_incomplete",
 ];
 
+const ACTORS = ["user", "verifier", "policy", "clock", "provider", "publisher", "runtime"];
+
+const ENDING_STATES = [
+  "completed",
+  "expired",
+  "revoked",
+  "failed",
+  "tearing_down",
+  "cleaned_up",
+  "cleanup_incomplete",
+];
+
 const BCP14_SENTENCE = "interpreted as described in BCP 14 [RFC2119] [RFC8174]";
+const AGENT_SENTENCE =
+  "The agent is never an actor: no event originating from the agent, including any tool call, tool result or message claiming completion, ends, extends or completes a lease.";
+const TRANSITION_TABLE_HEADER = "| From | Event | Actor | To |";
+const HYBRID_DEFAULT_SENTENCE = "`hybrid` is the default";
 
 const OPEN_MARKER_RE = /\[OPEN[^\]]*\]/g;
 const WELLFORMED_OPEN_RE = /^\[OPEN: Phase [2-7]\]$/;
@@ -138,6 +154,108 @@ function checkOpenMarkers(text, failures) {
   }
 }
 
+function checkActors(lines, failures) {
+  const section = getSection(lines, "### 7.2 Actors") ?? "";
+  for (const actor of ACTORS) {
+    if (!section.includes(`\`${actor}\``)) {
+      failures.push(`section 7.2 missing backticked actor "${actor}"`);
+    }
+  }
+  if (!section.includes(AGENT_SENTENCE)) {
+    failures.push("section 7.2 missing the agent-is-never-an-actor sentence");
+  }
+}
+
+/**
+ * Parses the markdown table in section 7.4 into { from, event, actor, to } rows.
+ * Pushes a failure and returns [] if the exact header is missing.
+ */
+function parseTransitionRows(lines, failures) {
+  const section = getSection(lines, "### 7.4 Transition Table") ?? "";
+  const sectionLines = section.split("\n");
+  const headerIdx = sectionLines.findIndex((l) => l.trim() === TRANSITION_TABLE_HEADER);
+  if (headerIdx === -1) {
+    failures.push(`section 7.4 missing the exact table header "${TRANSITION_TABLE_HEADER}"`);
+    return [];
+  }
+  const rows = [];
+  for (let i = headerIdx + 1; i < sectionLines.length; i++) {
+    const line = sectionLines[i].trim();
+    if (!line.startsWith("|")) break;
+    const cells = line
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim());
+    if (cells.length !== 4) continue;
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue; // markdown separator row
+    const [from, event, actor, to] = cells;
+    rows.push({ from, event, actor, to });
+  }
+  return rows;
+}
+
+function checkTransitionTable(rows, failures) {
+  if (rows.length === 0) {
+    failures.push("section 7.4 transition table has no data rows");
+    return;
+  }
+  const seenStates = new Set();
+  const seenTriples = new Set();
+  for (const { from, event, actor, to } of rows) {
+    seenStates.add(from);
+    seenStates.add(to);
+    if (!STATES.includes(from)) {
+      failures.push(`transition table row has unknown From state "${from}"`);
+    }
+    if (!STATES.includes(to)) {
+      failures.push(`transition table row has unknown To state "${to}"`);
+    }
+    if (!ACTORS.includes(actor)) {
+      failures.push(
+        `transition table row (${from}, ${event}, ${actor}) has an actor outside the seven-actor list`,
+      );
+    }
+    const triple = `${from}|${event}|${actor}`;
+    if (seenTriples.has(triple)) {
+      failures.push(`transition table has a duplicate (From, Event, Actor) triple: ${triple}`);
+    }
+    seenTriples.add(triple);
+    if ((from === "declined" || from === "cleaned_up") && from !== to) {
+      failures.push(`terminal state "${from}" MUST NOT appear as a From state`);
+    }
+    if (to === "active" && ENDING_STATES.includes(from)) {
+      failures.push(`transition table has a path back to active from ending state "${from}"`);
+    }
+  }
+  for (const state of STATES) {
+    if (!seenStates.has(state)) {
+      failures.push(`transition table never mentions state "${state}"`);
+    }
+  }
+}
+
+function checkEventsBacktick(lines, rows, failures) {
+  const section = getSection(lines, "### 7.3 Events") ?? "";
+  const events = new Set(rows.map((r) => r.event));
+  for (const event of events) {
+    if (!section.includes(`\`${event}\``)) {
+      failures.push(`section 7.3 missing backticked event "${event}"`);
+    }
+  }
+}
+
+function checkAuthModes(lines, failures) {
+  const section = getSection(lines, "## 8. Authorization Modes") ?? "";
+  for (const mode of ["delegated", "hosted", "hybrid"]) {
+    if (!section.includes(`\`${mode}\``)) {
+      failures.push(`section 8 missing auth mode "${mode}"`);
+    }
+  }
+  if (!section.includes(HYBRID_DEFAULT_SENTENCE)) {
+    failures.push("section 8 missing the hybrid-default sentence");
+  }
+}
+
 function main() {
   const filePath = parseArgs(process.argv.slice(2));
   const failures = [];
@@ -158,6 +276,11 @@ function main() {
   checkStateDiagram(text, failures);
   checkEmDash(text, failures);
   checkOpenMarkers(text, failures);
+  checkActors(lines, failures);
+  const transitionRows = parseTransitionRows(lines, failures);
+  checkTransitionTable(transitionRows, failures);
+  checkEventsBacktick(lines, transitionRows, failures);
+  checkAuthModes(lines, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");

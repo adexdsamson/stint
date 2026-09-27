@@ -52,6 +52,26 @@ The following terms are used throughout this document:
 
 ## 3. Protocol Overview
 
+ALP describes a small set of roles interacting around one lease at a time.
+
+- The **user** grants and can end a lease, and is the only actor who can extend one.
+- The **host** embeds the runtime and renders every consent and approval decision through its **HostAdapter**; the host trusts the runtime to enforce the lease, and the user trusts the host to render consent faithfully.
+- The **runtime** is the software implementing this protocol. It runs an MCP **proxy** between the agent and every resource the agent might touch, holds the lease state machine, and orchestrates teardown.
+- The **agent** is the publisher-authored process that calls tools through the proxy. The agent never holds a real credential: no OAuth access token, no license, no cleanup token. Every tool call the agent makes is decided by code outside the model, running in the proxy, which the agent cannot see or influence.
+- The **publisher** authors and signs the manifest, and in hosted or hybrid auth mode issues a license.
+- **Providers** operate the customer resources (a payments API, a spreadsheet API, and so on) that the agent's job touches, and issue delegated OAuth grants.
+
+A short lifecycle walk-through: the host presents a publisher's signed manifest to the user (Section 6). If the user consents, the runtime binds the manifest's content hash to a new lease, acquires any delegated OAuth grants and any publisher license the auth mode requires, and activates the lease. While active, every tool call the agent makes passes through the proxy, which resolves the call to a runtime-owned connector binding, checks the lease's scopes and limits, and either allows it, denies it, or asks the user for approval through the HostAdapter. The lease ends for one of several reasons (Section 7), after which teardown (Section 10) runs its fixed sequence, and every step is honestly recorded in the receipt log (Section 11), whether it succeeds or not.
+
+```mermaid
+flowchart LR
+    User -->|consent, approval, revoke| Host
+    Host -->|HostAdapter| Runtime
+    Agent -->|tools/call| Runtime
+    Runtime -->|credential-bearing calls| Providers
+    Publisher -->|signed manifest, license| Runtime
+```
+
 ## 4. Manifest
 
 <!-- ALP-PENDING: 01-05 -->
@@ -118,15 +138,103 @@ stateDiagram-v2
 
 ### 7.2 Actors
 
+Every transition in Section 7.4 is attributed to exactly one of seven actors:
+
+- `user`: the human who consented to the lease. Causes `consent_granted`, `consent_declined`, `revoke`, `extend` and `retry_teardown`.
+- `verifier`: the outcome verification mechanism named in the manifest's `job.verifier` (Section 7.6). Causes `outcome_verified`.
+- `policy`: the runtime's policy engine, evaluating limits such as the error threshold. Causes `error_threshold_exceeded`.
+- `clock`: the runtime's injected clock, evaluated on every call rather than by a timer (Section 7.5). Causes `consent_timed_out` and `expire`.
+- `provider`: the operator of a customer resource whose OAuth grant was revoked. Causes `grant_revoked`.
+- `publisher`: the agent's publisher, revoking entitlement. Causes `entitlement_revoked`.
+- `runtime`: the runtime itself, driving activation, failure, teardown and its own retries. Causes `activate`, `activation_failed`, `runtime_failure`, `begin_teardown`, `teardown_succeeded`, `teardown_incomplete` and `retry_teardown`.
+
+The agent is never an actor: no event originating from the agent, including any tool call, tool result or message claiming completion, ends, extends or completes a lease. The runtime MUST attribute each event to the actor that actually produced it: an event's actor is not a caller-supplied claim but a fact the runtime itself establishes from the source of the trigger (a resolved user action, an evaluated predicate, an injected clock, a response from a provider or publisher, or the runtime's own code).
+
 ### 7.3 Events
+
+- `consent_granted` (actor `user`): the user approved the manifest presented in `proposed`.
+- `consent_declined` (actor `user`): the user declined the manifest presented in `proposed`.
+- `consent_timed_out` (actor `clock`): the consent request was not answered before its timeout.
+- `activate` (actor `runtime`): every delegated grant is acquired, a license is issued where required, and the presented manifest's content hash equals the consented hash.
+- `activation_failed` (actor `runtime`): activation's guards did not hold (Section 7.4).
+- `revoke` (actor `user`): the user ended the lease early.
+- `grant_revoked` (actor `provider`): a provider revoked one of the lease's delegated OAuth grants.
+- `entitlement_revoked` (actor `publisher`): the publisher revoked the agent's entitlement.
+- `expire` (actor `clock`): the lease's `lease.max_duration_seconds` elapsed, evaluated against the injected clock.
+- `extend` (actor `user`): the user granted fresh consent to move the lease's expiry further out (Section 7.5).
+- `outcome_verified` (actor `verifier`): the manifest's `job.verifier` confirmed the job's outcome (Section 7.6).
+- `error_threshold_exceeded` (actor `policy`): the manifest's `limits.error_threshold` was exceeded.
+- `runtime_failure` (actor `runtime`): the runtime itself failed, including a content-hash mismatch detected on resume.
+- `begin_teardown` (actor `runtime`): the runtime started the fixed teardown sequence (Section 10) after any ending state.
+- `teardown_succeeded` (actor `runtime`): every teardown step completed.
+- `teardown_incomplete` (actor `runtime`): at least one teardown step did not complete.
+- `retry_teardown` (actor `user` or `runtime`): teardown was retried from `cleanup_incomplete`.
 
 ### 7.4 Transition Table
 
+The following table is normative. Any (state, event, actor) triple not listed here MUST be rejected by an implementation and MUST NOT change the lease's state.
+
+| From | Event | Actor | To |
+|------|-------|-------|----|
+| proposed | consent_granted | user | granted |
+| proposed | consent_declined | user | declined |
+| proposed | consent_timed_out | clock | declined |
+| granted | activate | runtime | active |
+| granted | activation_failed | runtime | failed |
+| granted | revoke | user | revoked |
+| granted | grant_revoked | provider | revoked |
+| granted | entitlement_revoked | publisher | revoked |
+| granted | expire | clock | expired |
+| active | extend | user | active |
+| active | outcome_verified | verifier | completed |
+| active | expire | clock | expired |
+| active | revoke | user | revoked |
+| active | grant_revoked | provider | revoked |
+| active | entitlement_revoked | publisher | revoked |
+| active | error_threshold_exceeded | policy | failed |
+| active | runtime_failure | runtime | failed |
+| completed | begin_teardown | runtime | tearing_down |
+| expired | begin_teardown | runtime | tearing_down |
+| revoked | begin_teardown | runtime | tearing_down |
+| failed | begin_teardown | runtime | tearing_down |
+| tearing_down | teardown_succeeded | runtime | cleaned_up |
+| tearing_down | teardown_incomplete | runtime | cleanup_incomplete |
+| cleanup_incomplete | retry_teardown | user | tearing_down |
+| cleanup_incomplete | retry_teardown | runtime | tearing_down |
+
+`activate` is guarded: the presented manifest's content hash MUST equal the hash bound at consent, every delegated grant listed in `auth.delegated` MUST be acquired (delegated and hybrid modes), and a license MUST be issued (hosted and hybrid modes). A content-hash mismatch detected at activation yields `activation_failed`; the same mismatch detected on a runtime resume (for example after a restart) yields `runtime_failure` instead, since the lease was already active.
+
+Every accepted transition MUST be recorded as a receipt with its actor (Section 11); the entry format for that receipt is `[OPEN: Phase 3]`.
+
+Rationale: implementations SHOULD derive their state-machine reducer directly from this table, as a data structure rather than nested conditional logic, so that whether a transition is legal becomes a lookup rather than a re-derivation of the rules above.
+
 ### 7.5 Expiry, Extension and License Refresh
+
+A lease's `expires_at` equals the time it was granted plus the manifest's `lease.max_duration_seconds`. The runtime MUST evaluate expiry on every tool call against its own clock; correctness MUST NOT depend on a timer that fires independently of calls (Section 13 documents the corresponding trust limit around detection latency).
+
+`extend` is the only transition that moves `expires_at`, and it requires fresh user consent through the HostAdapter; a runtime MUST NOT extend a lease on the agent's request alone. The shape and bounds of an extension request are `[OPEN: Phase 2]`.
+
+License refresh is distinct from lease extension. Refresh is routine and runtime-driven: the runtime renews a hosted or hybrid lease's license before its short TTL expires, without any user interaction. Refresh MUST NOT move `expires_at`, and no refreshed license may carry an expiry later than the lease's own `expires_at`. Token expiry, whether of a license or of a delegated OAuth grant, is not the same thing as entitlement ending; a token can expire and be refreshed many times across one lease's lifetime.
+
+The runtime MUST re-check the manifest's content hash against the hash bound at consent both at activation and whenever the runtime resumes a lease it did not itself keep running continuously (for example after a process restart). A mismatch at activation yields `activation_failed`; a mismatch on resume yields `runtime_failure` (Section 7.3).
 
 ### 7.6 Outcome Verification
 
+The manifest's `job.verifier` (Section 4) determines how, if at all, a lease reaches `completed`:
+
+- `resource_query`: the runtime evaluates `job.verifier.predicate` against `job.verifier.resource` through the proxy, using runtime-held credentials, never publisher-supplied code. The predicate grammar is `[OPEN: Phase 5]`.
+- `user_confirm`: the runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable, using `job.verifier.prompt`.
+- `none`: `completed` is unreachable for this lease; the lease can only end by expiry or by a user or policy action (Section 7.4).
+
+An agent's own claim of being done, whether a tool result, a message, or any other agent-originated signal, never completes a lease; only the verifier actor, established by one of the mechanisms above, causes `outcome_verified` (Section 7.2).
+
 ## 8. Authorization Modes
+
+A manifest's `auth.mode` is one of `delegated`, `hosted` or `hybrid`. `hybrid` is the default when `auth.mode` is absent.
+
+- `delegated`: the runtime acquires one delegated OAuth grant per entry in `auth.delegated`, each linking a `provider` to the `resources` it grants access to. OAuth endpoints and client configuration are runtime connector configuration; they are never supplied by the publisher manifest. Access tokens carry RFC 8707 resource indicators and are injected by the proxy only on outbound calls; they are never returned to the agent. If any one customer grant is revoked, whether detected explicitly or lazily via `invalid_grant` or an HTTP 401 from the provider, the runtime MUST revoke the whole lease with actor `provider`.
+- `hosted`: the publisher issues a PASETO v4.public license, identified by `auth.hosted.license_issuer` and optionally `auth.hosted.kid`, with a default TTL of 300 seconds. The TTL is not carried in the manifest. The license's claims and the derivation of any implicit assertions are `[OPEN: Phase 3]`. The runtime holds the license; the agent never does, and the license MUST NOT be forwarded to any customer resource.
+- `hybrid`: both of the above apply together, a license for entitlement and delegated OAuth grants for customer resources.
 
 ## 9. Enforcement
 
