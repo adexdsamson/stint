@@ -49,7 +49,15 @@ export const EVENTS = [
 
 export type Event = (typeof EVENTS)[number];
 
-export const ACTORS = ["user", "verifier", "policy", "clock", "provider", "publisher", "runtime"] as const;
+export const ACTORS = [
+  "user",
+  "verifier",
+  "policy",
+  "clock",
+  "provider",
+  "publisher",
+  "runtime",
+] as const;
 
 export type Actor = (typeof ACTORS)[number];
 
