@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A developer imports TypeScript types generated from the schema through `@stint/spec`, and changing the schema without regenerating the types fails the build.
   5. The runtime computes the same canonical content hash for a manifest regardless of key order or whitespace, and rejects a manifest whose publisher signature does not verify before consent is ever requested.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 
@@ -44,7 +44,7 @@ Plans:
 - [x] 01-02-PLAN.md - Manifest and envelope schemas (draft-07), generated types with codegen:check, validateManifest with structured errors, valid and invalid manifest vectors
 - [x] 01-03-PLAN.md - RFC 8785 canonical serializer and jcs-sha256 content hash, detached EdDSA envelope verification, branded VerifiedManifest, JCS and envelope vectors
 - [x] 01-04-PLAN.md - spec/ALP.md lifecycle, actors, transition table, auth modes, enforcement, teardown, receipts, trust model and limits, plus the CI-wired structural checker
-- [ ] 01-05-PLAN.md - spec/ALP.md manifest walkthrough bound to the vector, envelope and content hash, consent, conformance, vectors README
+- [x] 01-05-PLAN.md - spec/ALP.md manifest walkthrough bound to the vector, envelope and content hash, consent, conformance, vectors README
 
 ### Phase 2: Lease State Machine & Policy Engine
 
@@ -144,7 +144,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & ALP Spec | 4/5 | In Progress|  |
+| 1. Foundation & ALP Spec | 5/5 | In Progress|  |
 | 2. Lease State Machine & Policy Engine | 0/TBD | Not started | - |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
