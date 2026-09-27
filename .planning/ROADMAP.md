@@ -32,7 +32,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A valid publisher manifest (agent, publisher, version, spec_version, job with outcome verifier, scopes, lease, limits, approvals, auth, cleanup) passes the draft-07 schema, while unknown scope, approval, verifier or auth-mode values are rejected with structured errors; `auth.delegated` accepts a list of grants and `auth.mode` defaults to `hybrid`.
   4. A developer imports TypeScript types generated from the schema through `@stint/spec`, and changing the schema without regenerating the types fails the build.
   5. The runtime computes the same canonical content hash for a manifest regardless of key order or whitespace, and rejects a manifest whose publisher signature does not verify before consent is ever requested.
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md - Monorepo foundation: pnpm workspace, four @stint/* packages, Apache-2.0 license test, CI on Linux and Windows (Node 22.12.0 and 24), package-legitimacy gate
+- [ ] 01-02-PLAN.md - Manifest and envelope schemas (draft-07), generated types with codegen:check, validateManifest with structured errors, valid and invalid manifest vectors
+- [ ] 01-03-PLAN.md - RFC 8785 canonical serializer and jcs-sha256 content hash, detached EdDSA envelope verification, branded VerifiedManifest, JCS and envelope vectors
+- [ ] 01-04-PLAN.md - spec/ALP.md lifecycle, actors, transition table, auth modes, enforcement, teardown, receipts, trust model and limits, plus the CI-wired structural checker
+- [ ] 01-05-PLAN.md - spec/ALP.md manifest walkthrough bound to the vector, envelope and content hash, consent, conformance, vectors README
 
 ### Phase 2: Lease State Machine & Policy Engine
 **Goal**: Every lifecycle transition and every allow/deny decision is made by pure, fully tested code outside the model, so no agent behavior can end, extend or exceed a lease.
@@ -114,7 +121,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & ALP Spec | 0/TBD | Not started | - |
+| 1. Foundation & ALP Spec | 0/5 | Planned | - |
 | 2. Lease State Machine & Policy Engine | 0/TBD | Not started | - |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
