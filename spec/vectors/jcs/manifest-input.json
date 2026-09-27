@@ -1,0 +1,80 @@
+{
+    "cleanup": {
+        "publisher_retains": "aggregates",
+        "hook": {
+            "url": "https://reconciler-labs.example/alp/cleanup"
+        }
+    },
+    "auth": {
+        "hosted": {
+            "kid": "2026-09",
+            "license_issuer": "reconciler-labs.example"
+        },
+        "delegated": [
+            {
+                "resources": [
+                    "paystack.transactions"
+                ],
+                "provider": "paystack"
+            },
+            {
+                "resources": [
+                    "sheets.orders"
+                ],
+                "provider": "google_sheets"
+            }
+        ],
+        "mode": "hybrid"
+    },
+    "approvals": {
+        "timeout_seconds": 120,
+        "require_for": [
+            "irreversible"
+        ]
+    },
+    "limits": {
+        "error_threshold": {
+            "window_seconds": 300,
+            "count": 5
+        },
+        "actions_per_hour": 300,
+        "max_actions": 500
+    },
+    "lease": {
+        "max_duration_seconds": 3600
+    },
+    "scopes": [
+        {
+            "access": [
+                "read"
+            ],
+            "resource": "paystack.transactions"
+        },
+        {
+            "access": [
+                "read",
+                "write"
+            ],
+            "resource": "sheets.orders"
+        }
+    ],
+    "job": {
+        "verifier": {
+            "predicate": "count(rows where status = 'reconciled') >= 1",
+            "resource": "sheets.orders",
+            "type": "resource_query"
+        },
+        "description": "Match settled Paystack transactions to open orders and mark matched orders as paid."
+    },
+    "version": "0.1.0",
+    "publisher": {
+        "name": "Reconciler Labs",
+        "id": "reconciler-labs.example"
+    },
+    "agent": {
+        "description": "Reconciles Paystack transactions against the orders sheet.",
+        "name": "Payment Reconciler",
+        "id": "payment-reconciler"
+    },
+    "spec_version": "alp/0.1"
+}
