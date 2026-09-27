@@ -15,6 +15,7 @@
     "test": "pnpm build && vitest run",
     "codegen": "pnpm -r --if-present run codegen",
     "codegen:check": "pnpm -r --if-present run codegen:check",
+    "check:alp": "node scripts/check-alp-sections.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

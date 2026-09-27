@@ -37,6 +37,8 @@ jobs:
 
       - run: pnpm lint
 
+      - run: pnpm check:alp
+
       - run: pnpm codegen:check
 
       - run: pnpm test
