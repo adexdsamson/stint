@@ -59,7 +59,7 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans:** 1/6 plans executed (waves 1-4)
+**Plans:** 2/6 plans executed (waves 1-4)
 
 Plans:
 **Wave 1**
@@ -69,7 +69,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 02-02-PLAN.md — Reducer completion: full ALP.md §7.4 table + spec cross-check, all actor constructors, extend/expire, agent-never-actor guarantee (wave 2)
-- [ ] 02-03-PLAN.md — Policy engine + runtime-owned connector bindings: evaluatePolicy (deny-by-default, binding-only classification, per-call expiry) + checkErrorThreshold (wave 2)
+- [x] 02-03-PLAN.md — Policy engine + runtime-owned connector bindings: evaluatePolicy (deny-by-default, binding-only classification, per-call expiry) + checkErrorThreshold (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -165,7 +165,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 1/6 | In Progress|  |
+| 2. Lease State Machine & Policy Engine | 2/6 | In Progress|  |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |

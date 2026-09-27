@@ -25,10 +25,10 @@
 - [x] **LIFE-01**: Lease moves only through the defined states (proposed, declined, granted, active, completed, expired, revoked, failed, tearing_down, cleaned_up, cleanup_incomplete) via a table-driven pure reducer; every illegal transition is rejected and tested
 - [x] **LIFE-02**: Every transition records its actor (user, verifier, policy, clock, provider, publisher, runtime); the agent can never cause a transition to end or extend a lease
 - [ ] **LIFE-03**: Lease binds the consented manifest hash; a manifest mismatch at activation or resume is rejected
-- [ ] **LIFE-04**: Lease expiry is enforced on every call against an injectable clock, not by timers
+- [x] **LIFE-04**: Lease expiry is enforced on every call against an injectable clock, not by timers
 - [ ] **LIFE-05**: Extending a lease requires fresh user consent through the HostAdapter; license token refresh never extends lease expiry
 - [ ] **LIFE-06**: Outcome verification with `resource_query` (predicate evaluated through the proxy) or `user_confirm` completes the lease; `none` means the lease ends only on expiry or user action; the agent's own "done" claim never completes it
-- [ ] **LIFE-07**: Error threshold (N denied calls or upstream errors in a window) moves the lease to `failed` with actor `policy`
+- [x] **LIFE-07**: Error threshold (N denied calls or upstream errors in a window) moves the lease to `failed` with actor `policy`
 
 ### Licensing
 
@@ -51,8 +51,8 @@
 ### Proxy Enforcement
 
 - [ ] **PRXY-01**: Agent connects to the proxy as an MCP server and sees only tools permitted by its lease
-- [ ] **PRXY-02**: Every `tools/call` is decided by a pure policy function; calls with no runtime-owned connector binding are denied
-- [ ] **PRXY-03**: Tool-to-(resource, access, irreversible) classification comes only from runtime-owned bindings, never from the manifest (tested)
+- [x] **PRXY-02**: Every `tools/call` is decided by a pure policy function; calls with no runtime-owned connector binding are denied
+- [x] **PRXY-03**: Tool-to-(resource, access, irreversible) classification comes only from runtime-owned bindings, never from the manifest (tested)
 - [ ] **PRXY-04**: `actions_per_hour`, total action cap and `spend` limits are enforced per lease under concurrent calls (per-lease serialization)
 - [ ] **PRXY-05**: Calls requiring approval are held until the user decides via HostAdapter; approval is bound to a hash of exact args, binding and lease version; timeout denies
 - [ ] **PRXY-06**: Proxy injects OAuth access tokens (with RFC 8707 resource indicators) only on outbound calls; no token appears in any agent-facing response or error (adversarial tests)
@@ -131,10 +131,10 @@
 | LIFE-01 | Phase 2 | Complete |
 | LIFE-02 | Phase 2 | Complete |
 | LIFE-03 | Phase 2 | Pending |
-| LIFE-04 | Phase 2 | Pending |
+| LIFE-04 | Phase 2 | Complete |
 | LIFE-05 | Phase 2 | Pending |
 | LIFE-06 | Phase 5 | Pending |
-| LIFE-07 | Phase 2 | Pending |
+| LIFE-07 | Phase 2 | Complete |
 | LIC-01 | Phase 3 | Pending |
 | LIC-02 | Phase 3 | Pending |
 | LIC-03 | Phase 3 | Pending |
@@ -148,8 +148,8 @@
 | RCPT-06 | Phase 3 | Pending |
 | RCPT-07 | Phase 5 | Pending |
 | PRXY-01 | Phase 4 | Pending |
-| PRXY-02 | Phase 2 | Pending |
-| PRXY-03 | Phase 2 | Pending |
+| PRXY-02 | Phase 2 | Complete |
+| PRXY-03 | Phase 2 | Complete |
 | PRXY-04 | Phase 4 | Pending |
 | PRXY-05 | Phase 4 | Pending |
 | PRXY-06 | Phase 4 | Pending |

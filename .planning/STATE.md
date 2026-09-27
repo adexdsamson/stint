@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 02
 current_phase_name: Lease State Machine & Policy Engine
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-09-27T18:21:51.222Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-09-27T18:43:31.959Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 02 execution started
-state_head: c1b618b415a31974e07126900eb0c6312fb1f717
+state_head: 4061bd4d21baa9943823e5b237d5ecd6930e139f
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 02 (Lease State Machine & Policy Engine) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-09-27 — Phase 02 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 02 P01 | 25min | 2 tasks | 5 files |
+| Phase 02 P03 | 22min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Outcome verification (LIFE-06) and publisher revocation (LIC-04) sit with teardown in Phase 5 ("every way a lease ends").
 - [Phase 02]: 02-01: Mirrored @stint/spec's error-vocabulary shape (const array -> derived union -> Result<T>) for a parallel CoreErrorCode enum, never importing SpecErrorCode.
 - [Phase 02]: 02-01: TRANSITION_TABLE seeded with only the 3 'proposed' rows in this tracer; plan 02-02 completes all 24 keys/25 triples and adds the ALP.md 7.4 cross-check test.
+- [Phase 02]: 02-03: over_actions_per_hour is defined in POLICY_REASON_CODES but not yet enforced in evaluatePolicy — LeaseCounters (D-01) lacks per-action timestamps and full concurrent enforcement is PRXY-04 (Phase 4). Tracked in WINDOWS.md.
+- [Phase 02]: 02-03: widened Approvals.require_for (a union of fixed-length tuples) to a plain readonly array before .includes() to avoid TypeScript resolving the parameter type to never.
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T18:21:51.146Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-09-27T18:43:31.891Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
