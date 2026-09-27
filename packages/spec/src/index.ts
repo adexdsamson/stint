@@ -46,3 +46,18 @@ export type {
 } from "./generated/manifest.js";
 
 export type { SignedEnvelope, EnvelopeSignature } from "./generated/envelope.js";
+
+export type {
+  ReceiptEntry,
+  ReceiptChain,
+  CallEntry,
+  CallPayload,
+  TransitionEntry,
+  TransitionPayload,
+  TeardownStepEntry,
+  TeardownStepPayload,
+  AttestedClaimEntry,
+  AttestedClaimPayload,
+} from "./generated/receipt.js";
+
+export type { Checkpoint } from "./generated/checkpoint.js";

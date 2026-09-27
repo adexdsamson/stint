@@ -1,0 +1,39 @@
+[
+  {
+    "seq": 0,
+    "ts": 1732104000,
+    "chain": "verified",
+    "type": "transition",
+    "prevHash": "jcs-sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "payload": {
+      "from": "granted",
+      "event": "activate",
+      "actor": "runtime",
+      "to": "active"
+    }
+  },
+  {
+    "seq": 1,
+    "ts": 1732104060,
+    "chain": "verified",
+    "type": "call",
+    "prevHash": "jcs-sha256:f007f294d9b359f60741353f3301fc091c659c52b57d8f5bc113af3afd3048a1",
+    "payload": {
+      "resource": "sheets.orders",
+      "argsHash": "jcs-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redactedSummary": "Read 12 rows from sheets.orders",
+      "outcome": "allowed"
+    }
+  },
+  {
+    "seq": 2,
+    "ts": 1732104120,
+    "chain": "verified",
+    "type": "teardown_step",
+    "prevHash": "jcs-sha256:5fe932376de003f27235ab162177f41d889f2e2b6f2e84cc15692d3ce0a62bd2",
+    "payload": {
+      "step": "revoke_delegated_grant",
+      "outcome": "revoked"
+    }
+  }
+]

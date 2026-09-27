@@ -1,0 +1,1 @@
+{"chain":"verified","payload":{"outcome":"revoked","step":"revoke_delegated_grant"},"prevHash":"jcs-sha256:5fe932376de003f27235ab162177f41d889f2e2b6f2e84cc15692d3ce0a62bd2","seq":2,"ts":1732104120,"type":"teardown_step"}

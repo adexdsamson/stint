@@ -23,7 +23,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@stint/spec": "workspace:*"
+    "@stint/spec": "workspace:*",
+    "jose": "6.2.12"
   },
   "peerDependencies": {
     "vitest": "5.0.2"
