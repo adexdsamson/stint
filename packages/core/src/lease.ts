@@ -103,17 +103,43 @@ export function reduce(
     });
   }
 
-  // Step 3 — compute the next lease: copy the input, never mutate it.
+  // Step 3 — event-specific guard: `extend` is bounded by `lease.maxDurationSeconds`
+  // per extension (D-06). This is the only guard beyond the table lookup and
+  // the actor check; it runs before any lease is computed so a rejected
+  // extend never advances state or version.
+  let extendedExpiresAt: number | undefined;
+  if (event.type === "extend") {
+    const delta = event.deltaSeconds;
+    const isValidDelta = typeof delta === "number" && Number.isInteger(delta) && delta > 0;
+    if (!isValidDelta || delta > lease.maxDurationSeconds) {
+      return reject("extension_exceeds_max", "Extension delta exceeds lease.maxDurationSeconds.", {
+        delta: String(delta),
+        max: String(lease.maxDurationSeconds),
+      });
+    }
+    extendedExpiresAt = lease.expiresAt + delta;
+  }
+
+  // Step 4 — compute the next lease: copy the input, never mutate it.
+  // `expiresAt` is written in exactly two branches: `consent_granted` (grant)
+  // and `extend` (D-06, D-08) — every other transition, including `expire`,
+  // leaves `expiresAt` untouched. `expire`'s `at` field below uses only the
+  // injected `now`; this function never reads a wall clock (D-07).
   const isConsentGranted = event.type === "consent_granted";
+  const nextExpiresAt = isConsentGranted
+    ? now + lease.maxDurationSeconds
+    : extendedExpiresAt !== undefined
+      ? extendedExpiresAt
+      : lease.expiresAt;
   const nextLease: Lease = deepFreeze({
     ...lease,
     state: entry.to,
     version: lease.version + 1,
     grantedAt: isConsentGranted ? now : lease.grantedAt,
-    expiresAt: isConsentGranted ? now + lease.maxDurationSeconds : lease.expiresAt,
+    expiresAt: nextExpiresAt,
   });
 
-  // Step 4 — build the TransitionRecord and return.
+  // Step 5 — build the TransitionRecord and return.
   const transition: TransitionRecord = {
     from: lease.state,
     event: event.type,
