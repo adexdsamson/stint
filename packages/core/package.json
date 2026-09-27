@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@stint/spec": "workspace:*",
-    "jose": "6.2.12"
+    "jose": "6.2.12",
+    "paseto": "4.0.1"
   },
   "peerDependencies": {
     "vitest": "5.0.2"
