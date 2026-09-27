@@ -85,3 +85,95 @@ export interface HostAdapter {
   requestApproval(request: ApprovalRequest, signal: AbortSignal): Promise<ApprovalDecision>;
   notify(event: LifecycleEvent): Promise<void>;
 }
+
+/**
+ * Races `adapter.requestApproval` against `signal`. Core owns the
+ * deny-by-default timeout rule (D-17): if `signal` is already aborted, aborts
+ * before the adapter resolves, or the adapter's `requestApproval` rejects or
+ * throws, this resolves `{ decision: 'deny', reason: 'timeout' }` — a slow,
+ * buggy, or hostile adapter can never turn into an approve. No real timer is
+ * armed here; the caller (the Phase 4 proxy) arms the timeout and aborts
+ * `signal` — tests abort the controller directly, keeping this deterministic.
+ * This is the ONLY sanctioned way to call `adapter.requestApproval`.
+ */
+export function awaitApprovalDecision(
+  adapter: HostAdapter,
+  request: ApprovalRequest,
+  signal: AbortSignal,
+): Promise<ApprovalDecision> {
+  const deny: ApprovalDecision = { decision: "deny", reason: "timeout" };
+
+  if (signal.aborted) {
+    return Promise.resolve(deny);
+  }
+
+  return new Promise<ApprovalDecision>((resolve) => {
+    let settled = false;
+
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve(deny);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    adapter.requestApproval(request, signal).then(
+      (decision) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(decision);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(deny);
+      },
+    );
+  });
+}
+
+/**
+ * Races `adapter.requestConsent` against `signal`, mirroring
+ * `awaitApprovalDecision` exactly but resolving `{ decision: 'decline',
+ * reason: 'timeout' }` on abort/non-response/adapter-error (D-17). This is
+ * the ONLY sanctioned way to call `adapter.requestConsent`.
+ */
+export function awaitConsentDecision(
+  adapter: HostAdapter,
+  request: ConsentRequest,
+  signal: AbortSignal,
+): Promise<ConsentDecision> {
+  const decline: ConsentDecision = { decision: "decline", reason: "timeout" };
+
+  if (signal.aborted) {
+    return Promise.resolve(decline);
+  }
+
+  return new Promise<ConsentDecision>((resolve) => {
+    let settled = false;
+
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve(decline);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    adapter.requestConsent(request, signal).then(
+      (decision) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(decision);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(decline);
+      },
+    );
+  });
+}
