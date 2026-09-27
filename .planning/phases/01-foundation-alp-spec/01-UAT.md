@@ -13,10 +13,9 @@ updated: 2026-09-27T16:05:00Z
 ## Tests
 
 ### 1. Live GitHub Actions CI matrix
-expected: All four legs (ubuntu-latest + windows-latest x Node 22.12.0 + 24) go green on GitHub-hosted runners.
-result: issue
-reported: "Merged to main and pushed (origin 88bd30c); CI run 36331618619 ran. 2 of 4 legs failed: test(ubuntu-latest,22.12.0) and test(windows-latest,22.12.0) both fail at `pnpm install --frozen-lockfile` with ERR_PNPM_UNSUPPORTED_ENGINE — @babel/helper-validator-identifier@8.0.6 (transitive via json-schema-to-typescript) wants node ^22.18.0 || >=24.11.0 but the matrix floor is 22.12.0, and engineStrict is on. Node 24 legs (ubuntu + windows) pass all steps."
-severity: major
+expected: All four legs (ubuntu-latest + windows-latest x Node 22.18.0 + 24) go green on GitHub-hosted runners.
+result: pass
+note: "First push (run 36331618619) failed both Node 22.12.0 legs at pnpm install --frozen-lockfile (ERR_PNPM_UNSUPPORTED_ENGINE from @babel/*@8.0.6 + ast-kit@3.0.0, engineStrict on). Fixed by raising the floor to 22.18.0 (gap G-01-1). Re-run 36334019190 on main is fully green across all four legs."
 
 ### 2. spec/ALP.md newcomer read-through (SPEC-01 prose quality)
 expected: A reader with no prior exposure to the TypeScript implementation can learn the complete protocol from spec/ALP.md alone — all eleven lease states and transitions, the seven actors (agent never one), the three auth modes, the teardown order, the receipt model, the trust model, and the four trust limits — and can reproduce jcs-sha256:32de102e74d3141a3770c679871dae312691fb3ba522d3f3594f24489c6c704a from Section 4/5 prose alone.
@@ -36,7 +35,7 @@ blocked: 0
 - gap_id: G-01-1
   truth: "The declared Node floor installs and runs green in CI on both ubuntu-latest and windows-latest"
   status: resolved
-  resolved_by: "inline fix — raised Node floor 22.12.0 -> 22.18.0 (CI matrix, package.json engines, CLAUDE.md, PROJECT.md); frozen-lockfile install re-verified locally; pending live CI confirmation on push"
+  resolved_by: "inline fix — raised Node floor 22.12.0 -> 22.18.0 (CI matrix, package.json engines, CLAUDE.md, PROJECT.md). Confirmed green: CI run 36334019190 on main, all 4 legs (ubuntu+windows x Node 22.18.0+24) pass every step."
   resolved_at: 2026-09-27
   reason: "CI run 36331618619: pnpm install --frozen-lockfile fails with ERR_PNPM_UNSUPPORTED_ENGINE on both Node 22.12.0 legs. Transitive dep @babel/helper-validator-identifier@8.0.6 (via json-schema-to-typescript) requires node ^22.18.0 || >=24.11.0; engineStrict:true makes this a hard install error. Node 24 legs pass."
   severity: major
