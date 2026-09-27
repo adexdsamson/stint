@@ -7,18 +7,18 @@
 
 ### Foundation
 
-- [ ] **FND-01**: Developer can clone the repo, run `pnpm install && pnpm test` on Windows, macOS or Linux (Node 22.12+) and get a green build of all packages
-- [ ] **FND-02**: CI runs typecheck, lint and tests on Linux and Windows for every push
-- [ ] **FND-03**: Repo is licensed Apache-2.0 with packages published under the `@stint/*` scope names (not yet to npm)
+- [x] **FND-01**: Developer can clone the repo, run `pnpm install && pnpm test` on Windows, macOS or Linux (Node 22.12+) and get a green build of all packages
+- [x] **FND-02**: CI runs typecheck, lint and tests on Linux and Windows for every push
+- [x] **FND-03**: Repo is licensed Apache-2.0 with packages published under the `@stint/*` scope names (not yet to npm)
 
 ### Spec & Manifest
 
-- [ ] **SPEC-01**: Reader can learn the full protocol from `spec/ALP.md`: states, transitions, actors, auth modes, teardown order, receipts, trust model and trust limits
-- [ ] **SPEC-02**: Publisher can author a manifest validated against a draft-07 JSON Schema (agent, publisher, version, spec_version, job + outcome verifier, scopes, lease, limits, approvals, auth, cleanup)
-- [ ] **SPEC-03**: Manifest scopes accept only `read | write | send | pay`; approvals accept only `send | pay | irreversible`; verifiers accept only `resource_query | user_confirm | none`; unknown values are rejected
-- [ ] **SPEC-04**: `auth.delegated` accepts a list of provider grants; `auth.mode` accepts `delegated | hosted | hybrid` with `hybrid` as default
-- [ ] **SPEC-05**: Developer gets TypeScript types generated from the schema and a validator returning structured errors
-- [ ] **SPEC-06**: Manifest has a canonical content hash and a publisher signature that the runtime verifies before consent
+- [x] **SPEC-01**: Reader can learn the full protocol from `spec/ALP.md`: states, transitions, actors, auth modes, teardown order, receipts, trust model and trust limits
+- [x] **SPEC-02**: Publisher can author a manifest validated against a draft-07 JSON Schema (agent, publisher, version, spec_version, job + outcome verifier, scopes, lease, limits, approvals, auth, cleanup)
+- [x] **SPEC-03**: Manifest scopes accept only `read | write | send | pay`; approvals accept only `send | pay | irreversible`; verifiers accept only `resource_query | user_confirm | none`; unknown values are rejected
+- [x] **SPEC-04**: `auth.delegated` accepts a list of provider grants; `auth.mode` accepts `delegated | hosted | hybrid` with `hybrid` as default
+- [x] **SPEC-05**: Developer gets TypeScript types generated from the schema and a validator returning structured errors
+- [x] **SPEC-06**: Manifest has a canonical content hash and a publisher signature that the runtime verifies before consent
 
 ### Lease Lifecycle
 
@@ -119,15 +119,15 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1 | Pending |
-| FND-02 | Phase 1 | Pending |
-| FND-03 | Phase 1 | Pending |
-| SPEC-01 | Phase 1 | Pending |
-| SPEC-02 | Phase 1 | Pending |
-| SPEC-03 | Phase 1 | Pending |
-| SPEC-04 | Phase 1 | Pending |
-| SPEC-05 | Phase 1 | Pending |
-| SPEC-06 | Phase 1 | Pending |
+| FND-01 | Phase 1 | Complete |
+| FND-02 | Phase 1 | Complete |
+| FND-03 | Phase 1 | Complete |
+| SPEC-01 | Phase 1 | Complete |
+| SPEC-02 | Phase 1 | Complete |
+| SPEC-03 | Phase 1 | Complete |
+| SPEC-04 | Phase 1 | Complete |
+| SPEC-05 | Phase 1 | Complete |
+| SPEC-06 | Phase 1 | Complete |
 | LIFE-01 | Phase 2 | Pending |
 | LIFE-02 | Phase 2 | Pending |
 | LIFE-03 | Phase 2 | Pending |
@@ -170,11 +170,13 @@
 | DOC-01 | Phase 7 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 49 total
 - Mapped to phases: 49
 - Unmapped: 0
 
 **Notes:**
+
 - The HostAdapter contract (HOST-01) is defined in Phase 2. Its CLI reference implementation (HOST-02) lands in Phase 6.
 - The LeaseStore contract is defined in Phase 2 as enabling work (in-memory double and contract suite). HOST-03 (JSON-file store with Windows atomicity) is mapped to Phase 6.
 - The pure policy logic (PRXY-02, PRXY-03, LIFE-07) is built in Phase 2. The Phase 4 proxy routes every live call through it.
