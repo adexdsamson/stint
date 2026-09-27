@@ -1,0 +1,5 @@
+dist
+.tsc
+pnpm-lock.yaml
+packages/spec/src/generated
+spec/vectors

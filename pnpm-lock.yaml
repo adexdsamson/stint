@@ -194,8 +194,26 @@ importers:
         specifier: 5.0.2
         version: 5.0.2(@types/node@22.20.4)(vite@8.3.1(@types/node@22.20.4))
 
+  packages/cli:
+    dependencies:
+      '@stint/core':
+        specifier: workspace:*
+        version: link:../core
+      '@stint/proxy':
+        specifier: workspace:*
+        version: link:../proxy
+
   packages/core:
     dependencies:
+      '@stint/spec':
+        specifier: workspace:*
+        version: link:../spec
+
+  packages/proxy:
+    dependencies:
+      '@stint/core':
+        specifier: workspace:*
+        version: link:../core
       '@stint/spec':
         specifier: workspace:*
         version: link:../spec
