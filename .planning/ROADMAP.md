@@ -59,7 +59,7 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans:** 5/6 plans executed (waves 1-4)
+**Plans:** 6/6 plans executed (waves 1-4)
 
 Plans:
 **Wave 1**
@@ -78,7 +78,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-06-PLAN.md — LeaseStore contract + in-memory double + reusable contract-test suite (@stint/core/testing) + public API barrel wiring (wave 4)
+- [x] 02-06-PLAN.md — LeaseStore contract + in-memory double + reusable contract-test suite (@stint/core/testing) + public API barrel wiring (wave 4)
 
 **Enabling work**: This phase also defines the `LeaseStore` contract in `@stint/core` with an in-memory test double and a shared contract test suite, because the proxy (Phase 4) and teardown (Phase 5) depend on it. HOST-03 (JSON-file store, Windows atomicity) is delivered and mapped in Phase 6.
 
@@ -165,7 +165,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 5/6 | In Progress|  |
+| 2. Lease State Machine & Policy Engine | 6/6 | In Progress|  |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |

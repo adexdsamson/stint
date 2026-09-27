@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 02
 current_phase_name: Lease State Machine & Policy Engine
-status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-09-27T19:30:10.304Z"
+status: verifying
+stopped_at: Completed 02-06-PLAN.md (Phase 2 complete)
+last_updated: "2026-09-27T19:45:35.184Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 02 execution started
-state_head: baaac898b5bf21b76aaee7681066a6e41170c03b
+state_head: 281eb9d0225eda1941277a56c38a52b6241b1ff0
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 Phase: 02 (Lease State Machine & Policy Engine) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-27 — Phase 02 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P02 | 20min | 2 tasks | 5 files |
 | Phase 02 P04 | 18min | 2 tasks | 4 files |
 | Phase 02 P05 | 9min | 2 tasks | 2 files |
+| Phase 02 P06 | 25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02] 02-04: both hash-guard and activate tests mint real VerifiedManifest values via @stint/spec/testing's signManifestForTest + verifyEnvelope rather than a hand-built fixture.
 - [Phase 02]: [Phase 02] 02-05: LifecycleEvent covers exactly the eight lease states named in must_haves.truths (activated/completed/expired/revoked/failed/tearing_down/cleaned_up/cleanup_incomplete), omitting pre-activation states proposed/declined/granted as not independently notifiable in this plan's scope.
 - [Phase 02]: [Phase 02] 02-05: awaitApprovalDecision/awaitConsentDecision each abort-race the adapter call and resolve the same deny/decline sentinel on abort or adapter rejection, with no real timer armed inside core (D-17); the Phase 4 proxy arms the actual deadline.
+- [Phase 02]: [Phase 02] 02-06: LeaseStore's transaction() serializes per-id via a promise chain that swallows a prior failure before chaining the next call, so one rejected read-modify-write never wedges later transactions on the same id.
+- [Phase 02]: [Phase 02] 02-06: vitest declared as an optional peerDependency of @stint/core so tsdown externalizes it from the ./testing bundle instead of inlining ~570KB of vitest internals into dist/testing.js.
+- [Phase 02]: [Phase 02] 02-06: index.ts barrel now exports the complete Phase 2 surface (errors, transitions, events, reduce/Lease, bindings, policy, hash-guard, activate/resumeLease, HostAdapter, LeaseStore types); testing.ts is never re-exported from the public entry (D-14).
 
 ### Pending Todos
 
@@ -107,6 +111,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T19:30:10.135Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-09-27T19:45:34.399Z
+Stopped at: Completed 02-06-PLAN.md (Phase 2 complete)
 Resume file: None
