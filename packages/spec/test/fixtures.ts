@@ -52,3 +52,15 @@ export function paymentReconcilerManifest(): Manifest {
     },
   };
 }
+
+/** Deep clone helper so tests can mutate a fixture without affecting other tests. */
+export function cloneManifest(manifest: Manifest): Manifest {
+  return structuredClone(manifest);
+}
+
+/** Returns a clone of `manifest` with `auth.mode` removed (D-17: omitted mode is held to hybrid's requirements). */
+export function withoutMode(manifest: Manifest): Manifest {
+  const clone = cloneManifest(manifest);
+  delete clone.auth.mode;
+  return clone;
+}
