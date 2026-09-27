@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+
+strictDepBuilds: true
+engineStrict: true
+
+allowBuilds: {}
