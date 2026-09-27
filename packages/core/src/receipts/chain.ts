@@ -26,7 +26,11 @@
  * failure), then the chain walk additionally reports `truncated` when fewer
  * entries are present than the checkpoint's `count` — a wholesale removal of
  * entries after the last checkpoint is otherwise invisible to a pure
- * internal-consistency walk. `verifyChain` is async because
+ * internal-consistency walk. The walk also distinguishes a reordered/
+ * transposed entry (`reordered`) from a genuinely mutated one
+ * (`hash_mismatch`) by checking whether a broken `prevHash` link happens to
+ * match some OTHER entry present in the chain (moved, not corrupted) or
+ * matches no entry at all (corrupted). `verifyChain` is async because
  * checkpoint-signature verification (`verifyCheckpoint`) is inherently async
  * (jose's Web Crypto-backed EdDSA); the no-checkpoint call path performs no
  * awaited work but keeps the same `Promise`-returning signature so callers
@@ -34,7 +38,14 @@
  */
 
 import { canonicalize, hashCanonical } from "@stint/spec";
-import type { Checkpoint, ReceiptEntry, CallPayload, TransitionPayload, TeardownStepPayload, AttestedClaimPayload } from "@stint/spec";
+import type {
+  Checkpoint,
+  ReceiptEntry,
+  CallPayload,
+  TransitionPayload,
+  TeardownStepPayload,
+  AttestedClaimPayload,
+} from "@stint/spec";
 import type { CryptoKey } from "jose";
 
 import { verifyCheckpoint } from "./checkpoint.js";
@@ -55,8 +66,16 @@ export const GENESIS_PREV_HASH = "jcs-sha256:" + "0".repeat(64);
  * a receipt is therefore a compile error, not a review discipline.
  */
 export type ReceiptEntryInput =
-  | { readonly chain: "verified" | "attested"; readonly type: "call"; readonly payload: CallPayload }
-  | { readonly chain: "verified" | "attested"; readonly type: "transition"; readonly payload: TransitionPayload }
+  | {
+      readonly chain: "verified" | "attested";
+      readonly type: "call";
+      readonly payload: CallPayload;
+    }
+  | {
+      readonly chain: "verified" | "attested";
+      readonly type: "transition";
+      readonly payload: TransitionPayload;
+    }
   | {
       readonly chain: "verified" | "attested";
       readonly type: "teardown_step";
@@ -84,20 +103,52 @@ export function canonicalizeEntry(entry: ReceiptEntry): string {
  * or to `GENESIS_PREV_HASH` for the first entry. This entry's own hash is
  * never computed or stored here — `verifyChain` recomputes it on demand.
  */
-export function appendEntry(chain: readonly ReceiptEntry[], input: ReceiptEntryInput, now: number): ReceiptEntry {
+export function appendEntry(
+  chain: readonly ReceiptEntry[],
+  input: ReceiptEntryInput,
+  now: number,
+): ReceiptEntry {
   const previous = chain.at(-1);
   const prevHash = previous === undefined ? GENESIS_PREV_HASH : hashCanonical(previous);
   const seq = chain.length;
 
   switch (input.type) {
     case "call":
-      return { seq, ts: now, chain: input.chain, type: input.type, prevHash, payload: input.payload };
+      return {
+        seq,
+        ts: now,
+        chain: input.chain,
+        type: input.type,
+        prevHash,
+        payload: input.payload,
+      };
     case "transition":
-      return { seq, ts: now, chain: input.chain, type: input.type, prevHash, payload: input.payload };
+      return {
+        seq,
+        ts: now,
+        chain: input.chain,
+        type: input.type,
+        prevHash,
+        payload: input.payload,
+      };
     case "teardown_step":
-      return { seq, ts: now, chain: input.chain, type: input.type, prevHash, payload: input.payload };
+      return {
+        seq,
+        ts: now,
+        chain: input.chain,
+        type: input.type,
+        prevHash,
+        payload: input.payload,
+      };
     case "attested_claim":
-      return { seq, ts: now, chain: input.chain, type: input.type, prevHash, payload: input.payload };
+      return {
+        seq,
+        ts: now,
+        chain: input.chain,
+        type: input.type,
+        prevHash,
+        payload: input.payload,
+      };
   }
 }
 
@@ -124,6 +175,13 @@ function reject(brokenAtSeq: number, reason: ReceiptVerifyReason): Result<never>
  * succeeds, a chain shorter than the checkpoint's `count` (entries removed
  * after the last checkpoint) reports `"truncated"`, `brokenAtSeq` at the
  * first absent seq (`chain.length`).
+ *
+ * A broken `prevHash` link during the walk is reported as `"reordered"`
+ * when either the entry's own `seq` does not equal its position in `chain`
+ * (the chain was transposed) or its stored `prevHash` matches some OTHER
+ * entry present in `chain` (the entry was moved, not corrupted); otherwise
+ * it is reported as `"hash_mismatch"` (the entry's content was genuinely
+ * mutated and its `prevHash` matches nothing in the current chain).
  */
 export async function verifyChain(
   chain: readonly ReceiptEntry[],
@@ -131,19 +189,38 @@ export async function verifyChain(
   checkpointPublicKey?: CryptoKey,
 ): Promise<Result<{ headHash: string; count: number }>> {
   if (checkpoint !== undefined) {
-    const sigOk = checkpointPublicKey !== undefined && (await verifyCheckpoint(checkpoint, checkpointPublicKey));
+    const sigOk =
+      checkpointPublicKey !== undefined &&
+      (await verifyCheckpoint(checkpoint, checkpointPublicKey));
     if (!sigOk) {
       return reject(checkpoint.count, "checkpoint_sig_invalid");
     }
   }
 
+  // Precomputed once so a broken `prevHash` link can be checked against
+  // every entry currently present in `chain`, not just its immediate
+  // predecessor — the signal that distinguishes "reordered" from
+  // "hash_mismatch" (see docstring above).
+  const entryHashes = chain.map((entry) => hashCanonical(entry));
+
   let expectedPrevHash: string = GENESIS_PREV_HASH;
 
-  for (const entry of chain) {
-    if (entry.prevHash !== expectedPrevHash) {
-      return reject(entry.seq, "hash_mismatch");
+  for (let i = 0; i < chain.length; i++) {
+    const entry = chain[i];
+    if (entry === undefined) continue; // unreachable: i < chain.length
+
+    if (entry.seq !== i) {
+      return reject(entry.seq, "reordered");
     }
-    expectedPrevHash = hashCanonical(entry);
+
+    if (entry.prevHash !== expectedPrevHash) {
+      const matchesOtherEntry = entryHashes.some(
+        (hash, index) => index !== i - 1 && hash === entry.prevHash,
+      );
+      return reject(entry.seq, matchesOtherEntry ? "reordered" : "hash_mismatch");
+    }
+
+    expectedPrevHash = entryHashes[i] ?? expectedPrevHash;
   }
 
   const headHash = expectedPrevHash;

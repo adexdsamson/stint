@@ -134,3 +134,47 @@ describe("verifyChain: checkpoint anchoring (RCPT-06, D-09)", () => {
     }
   });
 });
+
+describe("verifyChain: reorder vs mutation break-locus (D-09, RCPT-06)", () => {
+  it('transposing two adjacent entries reports "reordered" with brokenAtSeq at the first entry whose recomputed link fails', async () => {
+    const chain = loadGoldenChain();
+    const [entry0, entry1, entry2] = chain;
+    if (entry0 === undefined || entry1 === undefined || entry2 === undefined) {
+      throw new Error("fixture chain must have at least 3 entries");
+    }
+    // Swap positions 1 and 2 (their own seq/prevHash fields stay as originally
+    // recorded) -- a wholesale reorder, not a content mutation.
+    const transposed: ReceiptEntry[] = [entry0, entry2, entry1];
+
+    const result = await verifyChain(transposed);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toEqual({ brokenAtSeq: 2, reason: "reordered" });
+    }
+  });
+
+  it('mutating an entry\'s payload reports "hash_mismatch" at the entry whose recomputed link then fails', async () => {
+    const chain = loadGoldenChain();
+    // Mutate seq 1's payload in place (seq/prevHash on entry 1 itself are
+    // untouched) -- entry 1's own prevHash check still passes, but its
+    // recomputed hash no longer matches what entry 2's prevHash expects,
+    // so the break surfaces at seq 2 (the recompute-on-verify design:
+    // no per-entry hash is ever stored, so a payload mutation is only
+    // detectable once something downstream depends on that entry's hash).
+    const mutated: ReceiptEntry[] = chain.map((entry, i) =>
+      i === 1 && entry.type === "call"
+        ? { ...entry, payload: { ...entry.payload, redactedSummary: "TAMPERED" } }
+        : entry,
+    );
+
+    const result = await verifyChain(mutated);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toEqual({ brokenAtSeq: 2, reason: "hash_mismatch" });
+    }
+  });
+});
