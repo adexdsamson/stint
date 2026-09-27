@@ -62,12 +62,22 @@ Plans:
 **Plans:** 6 plans (waves 1-4)
 
 Plans:
+**Wave 1**
 
 - [ ] 02-01-PLAN.md — Tracer: Lease model + table-driven reduce() end-to-end (one legal + one illegal transition) with Result/rejection, version, TransitionRecord, actor-namespaced events (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 02-02-PLAN.md — Reducer completion: full ALP.md §7.4 table + spec cross-check, all actor constructors, extend/expire, agent-never-actor guarantee (wave 2)
 - [ ] 02-03-PLAN.md — Policy engine + runtime-owned connector bindings: evaluatePolicy (deny-by-default, binding-only classification, per-call expiry) + checkErrorThreshold (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 02-04-PLAN.md — Manifest-hash binding: verifyBoundHash shared guard + activateLease/resumeLease with distinct activation_failed/runtime_failure events (wave 3)
 - [ ] 02-05-PLAN.md — HostAdapter contract: three async methods + LifecycleEvent union + core-owned timeout-as-deny/decline wrappers (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 02-06-PLAN.md — LeaseStore contract + in-memory double + reusable contract-test suite (@stint/core/testing) + public API barrel wiring (wave 4)
 
 **Enabling work**: This phase also defines the `LeaseStore` contract in `@stint/core` with an in-memory test double and a shared contract test suite, because the proxy (Phase 4) and teardown (Phase 5) depend on it. HOST-03 (JSON-file store, Windows atomicity) is delivered and mapped in Phase 6.
