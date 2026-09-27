@@ -64,7 +64,7 @@ A prompt-injected or misbehaving agent can never act outside the lease the user 
 
 ## Constraints
 
-- **Tech stack**: pnpm monorepo, TypeScript 5.9 strict, ESM-only, Node 22.12+ (dev/CI on Node 24 LTS; Node 20 is EOL), Vitest, tsdown. Cross-platform (developer is on Windows).
+- **Tech stack**: pnpm monorepo, TypeScript 5.9 strict, ESM-only, Node 22.18+ (dev/CI on Node 24 LTS; Node 20 is EOL), Vitest, tsdown. Cross-platform (developer is on Windows).
 - **Libraries**: `@modelcontextprotocol/sdk` (MCP), `oauth4webapi` (OAuth client), `paseto` by panva (PASETO v4.public), `jose` (EdDSA checkpoint signatures), `ajv` (validation), `json-schema-to-typescript` (types), `oauth2-mock-server` (mock AS). `node:crypto` for hashing. No hand-rolled crypto.
 - **Security**: deny by default; enforcement never delegated to the model; no secrets in logs or receipts; no credentials exposed to the agent; license never forwarded to customer resources.
 - **Testing**: tests for every state transition, every teardown path including partial failure, and scope denial.
@@ -87,7 +87,7 @@ A prompt-injected or misbehaving agent can never act outside the lease the user 
 | License TTL default 5 min | Bounds revocation latency | — Pending |
 | hybrid is default auth mode | License for entitlement, OAuth for customer systems | — Pending |
 | v0.1 done = e2e green + README, no npm publish | Focus on correctness first | — Pending |
-| Node 22.12+ floor (was 20+) | Node 20 EOL Apr 2026; current Vitest/commander/oauth2-mock-server require 22.12+ | — Pending |
+| Node 22.18+ floor (was 22.12+, was 20+) | Node 20 EOL Apr 2026; Vitest/commander/oauth2-mock-server require 22.12+; @babel/*@8.0.6 + ast-kit@3.0.0 push it to 22.18 under engineStrict (Phase 1 CI) | — Applied |
 
 ## Evolution
 

@@ -12,7 +12,7 @@ The core mechanism is a lease runtime that runs as an MCP proxy between the agen
 
 ### Constraints
 
-- **Tech stack**: pnpm monorepo, TypeScript 5.9 strict, ESM-only, Node 22.12+ (dev/CI on Node 24 LTS; Node 20 is EOL), Vitest, tsdown. Cross-platform (developer is on Windows).
+- **Tech stack**: pnpm monorepo, TypeScript 5.9 strict, ESM-only, Node 22.18+ (dev/CI on Node 24 LTS; Node 20 is EOL), Vitest, tsdown. Cross-platform (developer is on Windows). The floor is 22.18 (not 22.12) because the resolved dep tree pulls in `@babel/*@8.0.6` and `ast-kit@3.0.0`, which require `^22.18.0 || >=24.11.0`, and `engineStrict: true` turns an unsupported engine into a hard `--frozen-lockfile` install failure (found in CI, Phase 1).
 - **Libraries**: `@modelcontextprotocol/sdk` (MCP), `oauth4webapi` (OAuth client), `paseto` by panva (PASETO v4.public), `jose` (EdDSA checkpoint signatures), `ajv` (validation), `json-schema-to-typescript` (types), `oauth2-mock-server` (mock AS). `node:crypto` for hashing. No hand-rolled crypto.
 - **Security**: deny by default; enforcement never delegated to the model; no secrets in logs or receipts; no credentials exposed to the agent; license never forwarded to customer resources.
 - **Testing**: tests for every state transition, every teardown path including partial failure, and scope denial.
@@ -40,7 +40,7 @@ The core mechanism is a lease runtime that runs as an MCP proxy between the agen
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Node.js | 22.12+ (target 24 LTS) | Runtime | Node 20 is EOL as of April 2026; 22.12+ is the actual floor forced by `vitest`, `commander`, `write-file-atomic`, `oauth2-mock-server`. Node's native Web Crypto `Ed25519` support (needed by `paseto` and useful for `jose`) is solid on 22/24. |
+| Node.js | 22.18+ (target 24 LTS) | Runtime | Node 20 is EOL as of April 2026. The floor was 22.12 (forced by `vitest`, `commander`, `write-file-atomic`, `oauth2-mock-server`) but had to move to 22.18: the resolved tree now includes `@babel/*@8.0.6` and `ast-kit@3.0.0` requiring `^22.18.0 || >=24.11.0`, and `engineStrict` makes that a hard install failure below 22.18 (caught in Phase 1 CI). Node's native Web Crypto `Ed25519` support (needed by `paseto` and useful for `jose`) is solid on 22/24. |
 | TypeScript | **5.9.3** (not 7.0) | Language/compiler | TS 7.0 GA'd 2026-07-08 as a Go-native rewrite (8–12x faster builds) but shipped **without a stable programmatic API** until 7.1, and `typescript-eslint`'s peer range is currently `>=4.8.4 <6.1.0` — it does not support TS 7 yet. Type-aware ESLint is non-negotiable for a strict-mode, security-sensitive codebase, so stay on the 5.x line until `typescript-eslint` ships TS7 support (watch for their v11). Re-evaluate at the next milestone. |
 | pnpm | 12.6.0 | Monorepo package manager & workspaces | Current stable major; use via Corepack (`"packageManager": "pnpm@12.6.0"`) so CI and Windows dev machines resolve the identical binary. Workspace protocol (`workspace:*`) is the standard way to link `@stint/spec` → `@stint/core` → `@stint/proxy`/`@stint/cli` without publishing during v0.1. |
 | Vitest | 5.0.2 | Test runner | Matches Vitest's own new Node floor (22.12+), so this is a non-issue once the engines bump above happens. Runs TS directly (via esbuild) with zero separate build step for tests — a real advantage for a monorepo with many small packages under active development. Pair with `@vitest/coverage-v8` (5.0.2) for coverage. |
