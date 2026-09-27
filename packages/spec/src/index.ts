@@ -5,6 +5,20 @@ export type { SpecErrorCode, SpecError, Result } from "./errors.js";
 
 export { SUPPORTED_SPEC_VERSIONS, validateManifest, validateEnvelopeShape, resolveAuthMode } from "./validate.js";
 
+export {
+  CONTENT_HASH_PREFIX,
+  MAX_CANONICAL_DEPTH,
+  CanonicalizationError,
+  canonicalize,
+  hashCanonical,
+  hashManifest,
+  isContentHash,
+} from "./canonical.js";
+export type { ContentHash } from "./canonical.js";
+
+export { MAX_ENVELOPE_BYTES, parseEnvelope, verifyEnvelope } from "./envelope.js";
+export type { TrustStore, Ed25519PublicJwk, VerifiedManifest } from "./envelope.js";
+
 export type {
   Manifest,
   Agent,
