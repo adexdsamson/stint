@@ -59,12 +59,12 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans:** 6 plans (waves 1-4)
+**Plans:** 1/6 plans executed (waves 1-4)
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Tracer: Lease model + table-driven reduce() end-to-end (one legal + one illegal transition) with Result/rejection, version, TransitionRecord, actor-namespaced events (wave 1)
+- [x] 02-01-PLAN.md — Tracer: Lease model + table-driven reduce() end-to-end (one legal + one illegal transition) with Result/rejection, version, TransitionRecord, actor-namespaced events (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -165,7 +165,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 0/6 | Planned | - |
+| 2. Lease State Machine & Policy Engine | 1/6 | In Progress|  |
 | 3. Receipts & Licensing | 0/TBD | Not started | - |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |

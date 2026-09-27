@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.1
-current_phase: 2
+current_phase: 02
 current_phase_name: Lease State Machine & Policy Engine
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-09-27T18:03:18.324Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-09-27T18:21:51.222Z"
 last_activity: 2026-09-27
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
-state_head: e5747606252fcf48f45879ebe791e5d80615496d
+last_activity_desc: Phase 02 execution started
+state_head: c1b618b415a31974e07126900eb0c6312fb1f717
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 11
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-27)
 
 **Core value:** A prompt-injected or misbehaving agent can never act outside the lease the user granted, and when the lease ends, for any reason, every credential is revoked and the teardown is honestly receipted.
-**Current focus:** Phase 01 — Foundation & ALP Spec
+**Current focus:** Phase 02 — Lease State Machine & Policy Engine
 
 ## Current Position
 
-Phase: 2 (Lease State Machine & Policy Engine) — READY TO EXECUTE
-Plan: Not started
+Phase: 02 (Lease State Machine & Policy Engine) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-09-27 — Phase 01 complete, transitioned to Phase 2
+Last activity: 2026-09-27 — Phase 02 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 02 P01 | 25min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -66,6 +71,8 @@ Recent decisions affecting current work:
 - [Roadmap]: HostAdapter (HOST-01) and the LeaseStore contract (with an in-memory double and contract suite) are defined in Phase 2 core, because the proxy and teardown depend on them. Reference implementations (HOST-02, HOST-03) land in Phase 6.
 - [Roadmap]: Pure logic (policy function PRXY-02/03, error threshold LIFE-07, receipt chains, license refresh bound) is built in Phases 2-3 before any I/O. The proxy (Phase 4) wires it to live calls.
 - [Roadmap]: Outcome verification (LIFE-06) and publisher revocation (LIC-04) sit with teardown in Phase 5 ("every way a lease ends").
+- [Phase 02]: 02-01: Mirrored @stint/spec's error-vocabulary shape (const array -> derived union -> Result<T>) for a parallel CoreErrorCode enum, never importing SpecErrorCode.
+- [Phase 02]: 02-01: TRANSITION_TABLE seeded with only the 3 'proposed' rows in this tracer; plan 02-02 completes all 24 keys/25 triples and adds the ALP.md 7.4 cross-check test.
 
 ### Pending Todos
 
@@ -88,6 +95,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T17:23:22.238Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-lease-state-machine-policy-engine/02-CONTEXT.md
+Last session: 2026-09-27T18:21:51.146Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
