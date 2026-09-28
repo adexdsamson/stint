@@ -131,7 +131,35 @@ Plans:
   4. Adversarial tests show OAuth access tokens (with RFC 8707 resource indicators) are injected only on outbound calls and never appear in any agent-facing response or error, and the publisher license is never forwarded to a customer resource.
   5. When the mock authorization server revokes the customer's grant, the next call's `invalid_grant`/401 moves the lease to `revoked` with actor `provider`.
 
-**Plans**: TBD
+**Plans**: 7 plans
+**Wave 1**
+
+- [x] 04-01-PLAN.md — scaffold `@stint/proxy` + install 3 pinned deps (behind legitimacy checkpoint) + additive `LeaseCounters.actionTimestamps` + engines fix
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 04-02-PLAN.md — tracer: `tools/list` filtering + `tools/call` allow/deny routing + one verified-chain receipt per call (PRXY-01, RCPT-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — caps: sliding-window `actions_per_hour` + action/spend cap + pay-amount extraction, concurrency-safe (PRXY-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 04-04-PLAN.md — approvals held out-of-band, commitment-hash bound, drift/timeout deny (PRXY-05)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 04-05-PLAN.md — credential vault: seed seam + RFC 8707 refresh + per-credential single-flight (PRXY-08)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 04-06-PLAN.md — vault-backed ExecuteStage: token injection + secretless boundary + license never forwarded (PRXY-06, LIC-05)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 04-07-PLAN.md — customer-side OAuth revocation detection via `invalid_grant` → `revoked` (actor provider) (PRXY-07)
+
 **Research flag**: yes - Validate `oauth4webapi@3.8.8` token revocation (RFC 7009) and resource indicators (RFC 8707) hands-on against `oauth2-mock-server`; pin the current MCP Authorization spec text; confirm the `@modelcontextprotocol/sdk@1.30.1` dual server/client topology. The RFC 7009 findings also feed Phase 5 teardown.
 
 ### Phase 5: Lease Endings & Teardown
