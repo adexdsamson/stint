@@ -46,7 +46,7 @@ export interface CredentialVault {
  */
 export class CredentialRefreshError extends Error {
   readonly kind: "provider_revoked" | "transient_error";
-  readonly cause?: unknown;
+  override readonly cause?: unknown;
 
   constructor(key: string, kind: "provider_revoked" | "transient_error", cause?: unknown) {
     super(`@stint/proxy: credential refresh for "${key}" failed (${kind}).`);

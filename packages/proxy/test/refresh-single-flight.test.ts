@@ -12,6 +12,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { CredentialRefreshError, createCredentialVault } from "../src/vault/credential-vault.js";
+import type { CredentialVault } from "../src/vault/credential-vault.js";
 import { refreshAccessToken } from "../src/vault/oauth-client.js";
 import type { SeededCredential } from "../src/vault/oauth-client.js";
 import { startMockAuthServer } from "../src/testing.js";
@@ -76,5 +78,90 @@ describe("oauth-client: refreshAccessToken (PRXY-08 foundation)", () => {
     if (result.kind === "transient_error") {
       expect(result.cause).toBeDefined();
     }
+  });
+});
+
+describe("credential-vault: single-flight refresh (PRXY-08)", () => {
+  let harness: MockAuthHarness;
+  let vault: CredentialVault;
+
+  beforeEach(async () => {
+    harness = await startMockAuthServer();
+    vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
+  });
+
+  afterEach(async () => {
+    await harness.stop();
+  });
+
+  it("seedCredential + resolveAccessToken round-trip an unexpired token without any token-endpoint hit", async () => {
+    vault.seedCredential("lease-a", "resource-a", seedFor({ accessToken: "still-fresh", expiry: NOW + 1000 }));
+
+    const token = await vault.resolveAccessToken("lease-a", "resource-a", NOW);
+
+    expect(token).toBe("still-fresh");
+    expect(harness.tokenEndpointHits).toBe(0);
+  });
+
+  it("an expired token triggers exactly one refresh", async () => {
+    vault.seedCredential("lease-b", "resource-b", seedFor());
+
+    const token = await vault.resolveAccessToken("lease-b", "resource-b", NOW);
+
+    expect(typeof token).toBe("string");
+    expect(harness.tokenEndpointHits).toBe(1);
+  });
+
+  it("the vault's refresh carries the RFC 8707 resource indicator", async () => {
+    vault.seedCredential("lease-c", "resource-c", seedFor());
+
+    await vault.resolveAccessToken("lease-c", "resource-c", NOW);
+
+    expect(harness.lastTokenRequestBody?.resource).toBe(RESOURCE_INDICATOR);
+  });
+
+  it("a forced invalid_grant during vault refresh rejects with CredentialRefreshError(provider_revoked)", async () => {
+    vault.seedCredential("lease-d", "resource-d", seedFor());
+    harness.forceNextTokenError("invalid_grant");
+
+    try {
+      await vault.resolveAccessToken("lease-d", "resource-d", NOW);
+      expect.unreachable("expected resolveAccessToken to reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CredentialRefreshError);
+      expect((err as CredentialRefreshError).kind).toBe("provider_revoked");
+    }
+  });
+
+  it("N concurrent resolveAccessToken calls for the SAME leaseId:resource collapse to exactly one token-endpoint hit and one shared token", async () => {
+    const leaseId = "lease-concurrent";
+    const resource = "resource-concurrent";
+    vault.seedCredential(leaseId, resource, seedFor());
+
+    const N = 20;
+    const tokens = await Promise.all(
+      Array.from({ length: N }, () => vault.resolveAccessToken(leaseId, resource, NOW)),
+    );
+
+    expect(harness.tokenEndpointHits).toBe(1);
+    expect(new Set(tokens).size).toBe(1);
+    expect(tokens).toHaveLength(N);
+  });
+
+  it("N concurrent calls across two DIFFERENT leaseId:resource keys produce exactly two hits (independent per credential)", async () => {
+    vault.seedCredential("lease-x", "resource-x", seedFor());
+    vault.seedCredential("lease-y", "resource-y", seedFor());
+
+    const N = 10;
+    await Promise.all([
+      ...Array.from({ length: N }, () => vault.resolveAccessToken("lease-x", "resource-x", NOW)),
+      ...Array.from({ length: N }, () => vault.resolveAccessToken("lease-y", "resource-y", NOW)),
+    ]);
+
+    expect(harness.tokenEndpointHits).toBe(2);
+  });
+
+  it("the raw token store is not reachable from any exported symbol", () => {
+    expect(Object.keys(vault).sort()).toEqual(["resolveAccessToken", "seedCredential"]);
   });
 });
