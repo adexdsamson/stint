@@ -89,6 +89,13 @@ export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";
 export type { LicenseAccessor } from "./vault/execute-stage.js";
 
+// Lazy customer-side OAuth revocation detection (D-09, PRXY-07).
+// `applyProviderRevocation` is the thin `reduce()` + `providerEvents.grantRevoked()`
+// wrapper `dispatch.ts`'s `provider_revoked` catch branch applies to the
+// transaction-loaded lease; `isProviderRevocation` is the transient-vs-
+// revocation discriminator reused at that same call site.
+export { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production
 // code must never accidentally depend on a test double.

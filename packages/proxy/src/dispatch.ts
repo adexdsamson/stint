@@ -22,6 +22,15 @@
  * by either. `handleCall` also extracts a pay call's `spendMinor`
  * pre-authorization from the runtime-owned catalog (D-07) via
  * `extractSpendMinor`, before `evaluatePolicy` runs.
+ *
+ * 04-07 (PRXY-07, D-09): `execute()` can reject with the 04-05 vault's
+ * `CredentialRefreshError` (`kind: "provider_revoked" | "transient_error"`).
+ * The catch block below classifies it BEFORE falling through to the
+ * generic `execute_failed` path -- `provider_revoked` applies
+ * `revocation.ts`'s `applyProviderRevocation` to the transaction-loaded
+ * `lease` (saving `revoked`, actor `provider`) and denies the triggering
+ * call; `transient_error` denies the call and returns `lease` UNCHANGED, so
+ * a single upstream blip never revokes.
  */
 
 import { evaluatePolicy, resolveBinding } from "@stint/core";
@@ -39,6 +48,8 @@ import { computeApprovalHash } from "./approvals/approval-dispatcher.js";
 import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
+import { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+import { CredentialRefreshError } from "./vault/credential-vault.js";
 import type { ProxyDeps } from "./server.js";
 
 /**
@@ -306,7 +317,26 @@ export async function handleCall(
       result = allowResult(execResult);
       nextLease = deps.enforceCaps.commit(lease, call, now);
       return nextLease;
-    } catch {
+    } catch (err) {
+      // D-09/PRXY-07: a failed outbound refresh classifies as
+      // provider_revoked or transient_error (04-05's vault). Only the
+      // former ever advances lease state -- a single transient blip never
+      // revokes (module docstring above).
+      if (err instanceof CredentialRefreshError) {
+        outcome = "denied";
+        if (isProviderRevocation(err.kind)) {
+          detail = "provider_revoked";
+          result = denyResult(detail);
+          const revocation = applyProviderRevocation(lease, now);
+          if (revocation.ok) {
+            nextLease = revocation.value.lease;
+          }
+          return nextLease;
+        }
+        detail = "transient_error";
+        result = denyResult(detail);
+        return nextLease;
+      }
       outcome = "denied";
       detail = "execute_failed";
       result = errorResult();
