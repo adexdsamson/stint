@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-09-28T23:20:34.251Z"
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-09-28T23:45:28.444Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: 64d0177284d7974c53e6523a7932156bbd61bf00
+state_head: 97701bb9e8267e2c8538b9412afc87d1e6e2763c
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 27
+  completed_plans: 28
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 05 execution started
 
@@ -83,6 +83,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P01 | 20min | 2 tasks | 7 files |
 | Phase 05 P02 | 15min | 2 tasks | 9 files |
 | Phase 05 P03 | 45min | 3 tasks | 12 files |
+| Phase 05-lease-endings-teardown P04 | ~35min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,8 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05] 05-02: invalid_predicate was added to SPEC_ERROR_CODES in Task 2's commit (Rule 3 blocking fix) rather than Task 3's, since parse.ts's own Result<PredicateAst> rejection needed the code to type-check under tsc -b; Task 3's own errors.ts action became a documented no-op.
 - [Phase 05]: 05-03: teardown orchestrator (runTeardown/retryTeardown) drives all state changes through reduce(), persists per-step progress after each step, and lands cleaned_up/cleanup_incomplete honestly — TEAR-01/04/05: one-pass fault handling, attempted-is-terminal for revoke_oauth (D-23), never returns a lease to active
 - [Phase 05]: 05-03: applyProviderRevocation retrofitted to auto-chain begin_teardown via chainTeardownIfEnded (D-18) -- a provider revocation now runs the full teardown, not a bare revoked lease — TEAR-01: ending a lease for any reason runs teardown; dispatch.ts runs the orchestrator in its own transaction after the triggering call's transaction commits, never nested
+- [Phase 05-lease-endings-teardown]: createDefaultTeardownSteps gains an OPTIONAL vault parameter (Rule 3 seam widening) -- omitted keeps the pre-05-04 happy-path revoke_oauth so tests outside this plan's declared scope keep compiling and behaving unchanged
+- [Phase 05-lease-endings-teardown]: revokeCredential determines RFC 7009 support structurally from as.revocation_endpoint's presence before any HTTP call, and never upgrades a bare 2xx beyond revoked (Pitfall 5)
 
 ### Pending Todos
 
@@ -169,6 +172,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T23:20:24.078Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-09-28T23:45:28.254Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None

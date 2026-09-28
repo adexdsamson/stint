@@ -189,7 +189,7 @@ Plans:
 
 **Wave 3** *(blocked on 05-03)*
 
-- [ ] 05-04-PLAN.md — Step 1 OAuth revoke honesty: structural RFC 7009 revokeCredential, vault revoke+discard, always-discard-our-copy, Pitfall-5 matrix (TEAR-02, TEAR-05)
+- [x] 05-04-PLAN.md — Step 1 OAuth revoke honesty: structural RFC 7009 revokeCredential, vault revoke+discard, always-discard-our-copy, Pitfall-5 matrix (TEAR-02, TEAR-05)
 
 **Wave 4** *(blocked on 05-03, 05-04)*
 

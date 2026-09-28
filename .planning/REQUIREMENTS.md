@@ -62,7 +62,7 @@
 ### Teardown
 
 - [x] **TEAR-01**: Ending a lease for any reason runs teardown in fixed order: revoke OAuth, invalidate license, cleanup hook, delete cached data, final receipt
-- [ ] **TEAR-02**: Each credential records `revoked | discarded_revocation_unsupported | failed`; a bare 2xx is never treated as proof beyond what RFC 7009 guarantees
+- [x] **TEAR-02**: Each credential records `revoked | discarded_revocation_unsupported | failed`; a bare 2xx is never treated as proof beyond what RFC 7009 guarantees
 - [ ] **TEAR-03**: Uninstall hook authenticates with a single-use cleanup token scoped to `cleanup:<lease_id>`
 - [x] **TEAR-04**: Any step failure lands the lease in `cleanup_incomplete` with every step's result recorded; retrying resumes idempotently; the lease can never return to active
 - [ ] **TEAR-05**: Every teardown path, including each single-step failure, is covered by tests
@@ -156,7 +156,7 @@
 | PRXY-07 | Phase 4 | Complete |
 | PRXY-08 | Phase 4 | Complete |
 | TEAR-01 | Phase 5 | Complete |
-| TEAR-02 | Phase 5 | Pending |
+| TEAR-02 | Phase 5 | Complete |
 | TEAR-03 | Phase 5 | Pending |
 | TEAR-04 | Phase 5 | Complete |
 | TEAR-05 | Phase 5 | Pending |
