@@ -36,7 +36,7 @@
 - [x] **LIC-02**: Publisher server verifies licenses offline with the publisher public key using one shared implicit-assertion derivation and an explicit clock-skew tolerance
 - [x] **LIC-03**: Runtime refreshes licenses before TTL expiry, never beyond lease expiry; the agent never holds the license
 - [ ] **LIC-04**: Publisher can revoke entitlement; revocation moves the lease to `revoked` (actor `publisher`) and triggers OAuth revocation
-- [ ] **LIC-05**: License is never forwarded to customer resources (tested)
+- [x] **LIC-05**: License is never forwarded to customer resources (tested)
 
 ### Receipts
 
@@ -55,7 +55,7 @@
 - [x] **PRXY-03**: Tool-to-(resource, access, irreversible) classification comes only from runtime-owned bindings, never from the manifest (tested)
 - [x] **PRXY-04**: `actions_per_hour`, total action cap and `spend` limits are enforced per lease under concurrent calls (per-lease serialization)
 - [x] **PRXY-05**: Calls requiring approval are held until the user decides via HostAdapter; approval is bound to a hash of exact args, binding and lease version; timeout denies
-- [ ] **PRXY-06**: Proxy injects OAuth access tokens (with RFC 8707 resource indicators) only on outbound calls; no token appears in any agent-facing response or error (adversarial tests)
+- [x] **PRXY-06**: Proxy injects OAuth access tokens (with RFC 8707 resource indicators) only on outbound calls; no token appears in any agent-facing response or error (adversarial tests)
 - [ ] **PRXY-07**: Customer-side OAuth revocation detected via invalid_grant/401 moves the lease to `revoked` (actor `provider`)
 - [x] **PRXY-08**: Token refresh is serialized per credential
 
@@ -139,7 +139,7 @@
 | LIC-02 | Phase 3 | Complete |
 | LIC-03 | Phase 3 | Complete |
 | LIC-04 | Phase 5 | Pending |
-| LIC-05 | Phase 4 | Pending |
+| LIC-05 | Phase 4 | Complete |
 | RCPT-01 | Phase 4 | Complete |
 | RCPT-02 | Phase 3 | Complete |
 | RCPT-03 | Phase 3 | Complete |
@@ -152,7 +152,7 @@
 | PRXY-03 | Phase 2 | Complete |
 | PRXY-04 | Phase 4 | Complete |
 | PRXY-05 | Phase 4 | Complete |
-| PRXY-06 | Phase 4 | Pending |
+| PRXY-06 | Phase 4 | Complete |
 | PRXY-07 | Phase 4 | Pending |
 | PRXY-08 | Phase 4 | Complete |
 | TEAR-01 | Phase 5 | Pending |

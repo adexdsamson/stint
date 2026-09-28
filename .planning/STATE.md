@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Completed 04-05-PLAN.md
-last_updated: "2026-09-28T18:02:51.302Z"
+stopped_at: Completed 04-06-PLAN.md
+last_updated: "2026-09-28T18:25:56.058Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: fa60e68459c84a5f7bf5969a62d60955226f56b8
+state_head: a0737e6359a9ced887296b4d7aa477d68574468e
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 04 execution started
 
@@ -77,6 +77,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P03 | 17min | 3 tasks | 5 files |
 | Phase 04 P04 | ~30min | 3 tasks | 5 files |
 | Phase 04 P05 | 35min | 3 tasks | 5 files |
+| Phase 04 P06 | 25min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-05: credential Map + single-flight tails Map live in createCredentialVault's closure (not module scope like approval-dispatcher.ts's pendingApprovals) -- avoids cross-instance/cross-test leaseId:resource key collisions while still satisfying D-02's never-exported custody requirement
 - [Phase 04]: [Phase 04] 04-05: single-flight refresh proven by counting token-endpoint hits (oauth2-mock-server has no native reuse-detection), not by absence of error -- N=20 concurrent same-key resolves collapse to exactly 1 hit, N concurrent cross-key resolves stay independent (2 hits)
 - [Phase 04]: [Phase 04] 04-05: SeededCredential.tokenEndpoint carried per D-04's seed-seam shape but unused by this plan's single-OAuthClient-per-vault wiring; multi-provider dispatch flagged out of scope, not silently assumed
+- [Phase 04]: [Phase 04] 04-06: widened ExecuteStage.execute to accept an explicit now parameter (Rule 3) so the vault-backed stage resolves tokens against the injected clock, never Date.now(), mirroring 04-03/04-04's seam-widening precedent
+- [Phase 04]: [Phase 04] 04-06: createVaultExecuteStage's optional licenseAccessor is accepted but deliberately never read -- exists only so license-secretless.test.ts can prove a license present in context still never reaches OutboundConnector.execute's credential argument (LIC-05)
+- [Phase 04]: [Phase 04] 04-06: scrubError constructs a NEW Error (message/stack/every own property scrubbed) rather than mutating the original in place, so the raw thrown error and any secret it carries is never exposed past the scrub boundary
 
 ### Pending Todos
 
@@ -152,6 +156,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T18:02:51.158Z
-Stopped at: Completed 04-05-PLAN.md
+Last session: 2026-09-28T18:25:55.530Z
+Stopped at: Completed 04-06-PLAN.md
 Resume file: None
