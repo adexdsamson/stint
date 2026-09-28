@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Completed 03-06-PLAN.md (bounded license refresh + held-license custody)
-last_updated: "2026-09-28T00:59:23.683Z"
+stopped_at: Completed 03-04-PLAN.md (ReceiptStore persistence contract; final plan of Phase 3)
+last_updated: "2026-09-28T01:11:43.853Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 03 execution started
-state_head: 637ecb7dcab97450263b0039eb0469438772f8a5
+state_head: a0d033828f262fdb9a40a04caa0dd81cf35b16c8
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 ## Current Position
 
-Phase: 03 (Receipts & Licensing) — EXECUTING
-Plan: 5 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04; 03-03 has now also completed)
-Status: 03-01, 03-02, 03-03, 03-05 have SUMMARY.md; 03-04, 03-06 still pending
-Last activity: 2026-09-28 — Completed 03-03-PLAN.md (attested chain + display-only merge)
+Phase: 03 (Receipts & Licensing) — all plans complete
+Plan: 6 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04)
+Status: 03-01, 03-02, 03-03, 03-04, 03-05, 03-06 all have SUMMARY.md
+Last activity: 2026-09-28 — Completed 03-04-PLAN.md (ReceiptStore persistence contract; final plan of Phase 3)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P05 | ~50min | 4 tasks | 15 files |
 | Phase 03 P03 | 40min | 2 tasks | 14 files |
 | Phase 03 P06 | 45min | 3 tasks | 9 files |
+| Phase 03 P04 | 20min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-03: mergeTimeline derives each timeline entry's origin from which argument (verified/attested) it came from, not re-read from entry.chain; stable sort by ts, then origin, then seq, carrying no integrity meaning (D-10).
 - [Phase 03]: [Phase 03] 03-06: HeldLicense stores its raw token in a module-private WeakMap<HeldLicense,string> keyed by object identity, not a public interface field -- stricter than VerifiedManifest's brand pattern, since the wrapped value here is the secret itself; readLicenseToken is the only accessor by construction, proven with a type-level @ts-expect-error on direct field access.
 - [Phase 03]: [Phase 03] 03-06: LicenseIssuer.reissue owns the LIC-03 clamp internally (calls clampedLicenseExpiry, returns null on refusal) rather than requiring callers to pre-clamp; issueLicense (03-05) keeps returning a raw string, and the mock LicenseIssuer wraps it in mintHeldLicense at the issuer boundary so 03-05's existing tests stayed unchanged.
+- [Phase 03]: [Phase 03] 03-04: ReceiptStore's method names/internal Map-of-arrays representation are Claude's Discretion per 03-CONTEXT.md, mirroring LeaseStore's async CRUD shape scoped to append/load/checkpoint.
+- [Phase 03]: [Phase 03] 03-04: The receipts public barrel re-exports ReceiptEntry/ReceiptChain/Checkpoint and payload/entry variant types directly from @stint/spec rather than re-declaring them in @stint/core.
 
 ### Pending Todos
 
@@ -127,6 +130,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T00:59:23.487Z
-Stopped at: Completed 03-06-PLAN.md (bounded license refresh + held-license custody)
+Last session: 2026-09-28T01:11:43.687Z
+Stopped at: Completed 03-04-PLAN.md (ReceiptStore persistence contract; final plan of Phase 3)
 Resume file: None

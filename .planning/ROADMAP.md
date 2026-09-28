@@ -95,7 +95,7 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -114,7 +114,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03-04-PLAN.md - ReceiptStore contract + in-memory double + reusable contract-test factory (@stint/core/testing) + receipts public API barrel (RCPT-02, RCPT-03 persistence)
+- [x] 03-04-PLAN.md - ReceiptStore contract + in-memory double + reusable contract-test factory (@stint/core/testing) + receipts public API barrel (RCPT-02, RCPT-03 persistence)
 
 **Research flag**: yes - `paseto@4.0.1` uses panva's new factory-composition API (weeks old at research time). Pin exactly, wrap thinly, and confirm implicit-assertion handling and clock-skew options before planning.
 
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
-| 3. Receipts & Licensing | 5/6 | In Progress|  |
+| 3. Receipts & Licensing | 6/6 | In Progress|  |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
