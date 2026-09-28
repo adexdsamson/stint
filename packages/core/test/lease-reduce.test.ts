@@ -13,7 +13,7 @@ function proposedLease(): Lease {
     grantedAt: 0,
     expiresAt: 0,
     maxDurationSeconds: 3600,
-    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [] },
+    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
   };
 }
 

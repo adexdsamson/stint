@@ -25,7 +25,7 @@ function makeLease(overrides: Partial<Lease> = {}): Lease {
     grantedAt: 0,
     expiresAt: 1000,
     maxDurationSeconds: 3600,
-    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [] },
+    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     ...overrides,
   };
 }

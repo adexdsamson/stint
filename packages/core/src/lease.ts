@@ -14,11 +14,18 @@ import type { Actor, Event, State } from "./transitions.js";
 import type { LeaseEvent } from "./events.js";
 import type { CoreError, CoreErrorCode, Result } from "./errors.js";
 
-/** D-01: the single serialized aggregate both `reduce` and the policy function read. */
+/**
+ * D-01: the single serialized aggregate both `reduce` and the policy
+ * function read. `actionTimestamps` (D-05/D-06) is the per-action epoch
+ * timestamp list the `actions_per_hour` sliding window enforces against —
+ * additive, data-only this plan; mirrors `denialErrorTimestamps` exactly.
+ * Enforcement (pruning/window checks) lands in plan 04-03.
+ */
 export interface LeaseCounters {
   readonly actionCount: number;
   readonly spentMinor: number;
   readonly denialErrorTimestamps: readonly number[];
+  readonly actionTimestamps: readonly number[];
 }
 
 /**

@@ -15,7 +15,7 @@ function activeLease(overrides: Partial<Lease> = {}): Lease {
     grantedAt: 0,
     expiresAt: 1000,
     maxDurationSeconds: 3600,
-    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [] },
+    counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     ...overrides,
   };
 }
@@ -106,10 +106,10 @@ describe("evaluatePolicy", () => {
 
   it("MAX ACTIONS: actionCount === max_actions denies; max_actions - 1 does not", () => {
     const atCap = activeLease({
-      counters: { actionCount: 10, spentMinor: 0, denialErrorTimestamps: [] },
+      counters: { actionCount: 10, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     });
     const belowCap = activeLease({
-      counters: { actionCount: 9, spentMinor: 0, denialErrorTimestamps: [] },
+      counters: { actionCount: 9, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     });
     const limits = baseLimits({ max_actions: 10 });
 
@@ -127,7 +127,7 @@ describe("evaluatePolicy", () => {
 
   it("SPEND: spentMinor 900 + call 200 over a 1000 cap denies; spentMinor 900 + call 100 does not", () => {
     const lease = activeLease({
-      counters: { actionCount: 0, spentMinor: 900, denialErrorTimestamps: [] },
+      counters: { actionCount: 0, spentMinor: 900, denialErrorTimestamps: [], actionTimestamps: [] },
     });
     const limits = baseLimits({ spend: { amount_minor: 1000, currency: "usd" } });
     const payBinding = readBinding({ tool: "pay.tool", access: "pay" });
@@ -205,7 +205,7 @@ describe("evaluatePolicy", () => {
 
   it("EMPTY COUNTERS: a fresh lease with zeroed counters and a call with no spend allows", () => {
     const freshLease = activeLease({
-      counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [] },
+      counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     });
 
     const result = evaluatePolicy(
