@@ -1,15 +1,29 @@
 /**
  * PASETO v4.public hosted-license offline verification (D-11, D-13, D-14, D-16, LIC-02).
  *
- * RED phase stub (03-05 Task 3): `LICENSE_CLOCK_SKEW_SECONDS` and the result
- * shapes are declared now (structural, not behavioral); `verifyLicense`
- * throws until implemented.
+ * The single call site of paseto's `Verify` (composed via `PublicProtocol` +
+ * `VerifyFactory`, mirroring `issue.ts`'s `PublicProtocol` + `SignFactory`
+ * composition -- never the classic 3.x `V4.verify` static-namespace API).
+ * Every call passes an explicit `clockTolerance` (`LICENSE_CLOCK_SKEW_SECONDS`)
+ * -- paseto's own default is exactly zero (RESEARCH.md, confirmed from
+ * source) -- and the implicit assertion from the one shared
+ * `deriveImplicitAssertion`, so a token issued for a different lease or spec
+ * version fails: its implicit assertion no longer matches, so paseto's own
+ * signature authentication fails.
+ *
+ * `err()` mirrors `packages/spec/src/envelope.ts`'s discipline: every
+ * `PasetoError` subclass, and any other unexpected throw, collapses to one
+ * fixed, non-interpolated `LicenseVerifyReason` -- the library's own
+ * exception text is never forwarded into the returned `Result` (D-16).
  */
 
+import { PublicProtocol, ClaimValidationError, InvalidTokenError, InvalidKeyError } from "paseto";
+import { VerifyFactory } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
 
-import type { LicenseClaims } from "./issue.js";
-import type { Result } from "./errors.js";
+import { deriveImplicitAssertion } from "./implicit-assertion.js";
+import type { LicenseClaims, LicenseJobClaim, LicenseLimitsClaim } from "./issue.js";
+import type { LicenseVerifyReason, Result } from "./errors.js";
 
 export type { Result } from "./errors.js";
 
@@ -28,27 +42,100 @@ export interface VerifiedLicense {
   readonly expEpochSeconds: number;
 }
 
+const verifyProtocol = new PublicProtocol(VerifyFactory);
+
+function err(reason: LicenseVerifyReason): Result<never> {
+  return { ok: false, errors: [{ reason }] };
+}
+
+function isLicenseJobClaim(value: unknown): value is LicenseJobClaim {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).description === "string"
+  );
+}
+
+function isLicenseLimitsClaim(value: unknown): value is LicenseLimitsClaim {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.max_actions !== "number") return false;
+  return record.actions_per_hour === null || typeof record.actions_per_hour === "number";
+}
+
 /**
  * Verifies `token` offline against `publicKey`, deriving the implicit
  * assertion from `leaseId` and `specVersion` via the one shared
- * `deriveImplicitAssertion` (the same bytes `issueLicense` used) -- so a
- * token issued for a different lease or spec version fails verification
- * (the implicit assertion no longer matches, so paseto's own signature
- * check fails). Every failure mode maps to one of `LicenseVerifyReason`'s
- * fixed codes; the underlying paseto/crypto exception text is never
- * forwarded (D-16).
+ * `deriveImplicitAssertion` (the same bytes `issueLicense` used). Every
+ * failure mode maps to one of `LicenseVerifyReason`'s fixed codes; the
+ * underlying paseto/crypto exception text is never forwarded (D-16).
  */
 export async function verifyLicense(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   publicKey: PublicKey,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   token: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   leaseId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   specVersion: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   now: number,
 ): Promise<Result<VerifiedLicense>> {
-  throw new Error("not implemented");
+  const implicitAssertion = deriveImplicitAssertion(leaseId, specVersion);
+
+  let claims: Record<string, unknown>;
+  let footer: Uint8Array;
+  try {
+    const result = await verifyProtocol.Verify(publicKey, token, {
+      now: new Date(now * 1000),
+      clockTolerance: LICENSE_CLOCK_SKEW_SECONDS,
+      implicitAssertion,
+    });
+    claims = result.claims;
+    footer = result.footer;
+  } catch (error) {
+    if (error instanceof ClaimValidationError) return err("license_claim_invalid");
+    if (error instanceof InvalidTokenError) return err("license_invalid_signature");
+    if (error instanceof InvalidKeyError) return err("license_invalid_signature");
+    return err("license_verification_failed");
+  }
+
+  const leaseIdClaim = claims.lease_id;
+  const jobClaim = claims.job;
+  const limitsClaim = claims.limits;
+  const expClaim = claims.exp;
+  if (
+    typeof leaseIdClaim !== "string" ||
+    !isLicenseJobClaim(jobClaim) ||
+    !isLicenseLimitsClaim(limitsClaim) ||
+    typeof expClaim !== "string"
+  ) {
+    return err("license_claim_invalid");
+  }
+
+  const expEpochSeconds = Math.floor(new Date(expClaim).getTime() / 1000);
+  if (!Number.isFinite(expEpochSeconds)) {
+    return err("license_claim_invalid");
+  }
+
+  let kid: string;
+  try {
+    const footerText = new TextDecoder("utf-8", { fatal: true }).decode(footer);
+    const parsedFooter: unknown = JSON.parse(footerText);
+    if (
+      typeof parsedFooter !== "object" ||
+      parsedFooter === null ||
+      typeof (parsedFooter as Record<string, unknown>).kid !== "string"
+    ) {
+      return err("license_claim_invalid");
+    }
+    kid = (parsedFooter as Record<string, unknown>).kid as string;
+  } catch {
+    return err("license_claim_invalid");
+  }
+
+  return {
+    ok: true,
+    value: {
+      claims: { lease_id: leaseIdClaim, job: jobClaim, limits: limitsClaim },
+      kid,
+      expEpochSeconds,
+    },
+  };
 }

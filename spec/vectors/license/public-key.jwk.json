@@ -1,0 +1,6 @@
+{
+  "kid": "publisher-key-1",
+  "kty": "OKP",
+  "crv": "Ed25519",
+  "x": "PvS8B_sbzqnRQrxYDDNKR-C2BxVXEdrTniPQ4w7KhEQ"
+}

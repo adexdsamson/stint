@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { importJWK } from "jose";
-import type { JWK } from "jose";
+import type { CryptoKey, JWK } from "jose";
 import { PublicKeyFromCryptoKey } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
 

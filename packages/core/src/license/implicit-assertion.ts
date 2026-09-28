@@ -6,10 +6,21 @@
  * hand-recomputed second derivation (even one differing only in key order
  * or whitespace) would silently break every verification.
  *
- * RED phase stub (03-05 Task 3): throws until implemented.
+ * `specVersion` is the MANIFEST's own `spec_version` field, never
+ * `@stint/spec`'s runtime `SPEC_VERSION` constant (03-05 Task 2 decision):
+ * a license verifies against the manifest's declared version, not whatever
+ * version the verifying runtime build happens to be running.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { canonicalize } from "@stint/spec";
+
+/**
+ * Derives the exact UTF-8 canonical (RFC 8785 JCS, via `@stint/spec`)
+ * bytes of `{ lease_id, spec_version }` -- the PASETO v4.public implicit
+ * assertion for a hosted license. Identical inputs produce identical
+ * bytes; changing either input changes the derived bytes.
+ */
 export function deriveImplicitAssertion(leaseId: string, specVersion: string): Uint8Array {
-  throw new Error("not implemented");
+  const canonicalText = canonicalize({ lease_id: leaseId, spec_version: specVersion });
+  return new TextEncoder().encode(canonicalText);
 }
