@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation & ALP Spec** - Cross-platform monorepo with CI, normative `spec/ALP.md`, and the validated, typed, hashed and signed manifest (`@stint/spec`) (completed 2026-09-27)
 - [x] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core` (completed 2026-09-27)
 - [x] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh (completed 2026-09-28)
-- [ ] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`)
+- [x] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`) (completed 2026-09-28)
 - [ ] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording
 - [ ] **Phase 6: CLI & Reference Adapters** - `@stint/cli` commands, terminal reference HostAdapter, and the Windows-safe JSON-file LeaseStore
 - [ ] **Phase 7: End-to-End Example & README** - `examples/payment-reconciler` hybrid-mode e2e test and a README whose quickstart works as written
@@ -215,7 +215,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
-| 4. MCP Proxy & Credential Vault | 7/7 | In Progress|  |
+| 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
