@@ -9,7 +9,11 @@
  * a real MCP `Client`.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { createBindingSet } from "@stint/core";
 import type { ConnectorBinding, Lease } from "@stint/core";
@@ -18,8 +22,12 @@ import { createInMemoryLeaseStore, createInMemoryReceiptStore } from "@stint/cor
 import { createToolCatalog } from "../src/catalog.js";
 import { DEFAULT_APPROVAL_STAGE, DEFAULT_CAP_ENFORCER, handleCall } from "../src/dispatch.js";
 import type { ExecuteStage } from "../src/dispatch.js";
+import { createLeaseProxyServer } from "../src/server.js";
 import type { ProxyDeps } from "../src/server.js";
-import { CredentialRefreshError } from "../src/vault/credential-vault.js";
+import { createEchoingCredentialConnector, startMockAuthServer } from "../src/testing.js";
+import type { MockAuthHarness } from "../src/testing.js";
+import { createCredentialVault, CredentialRefreshError } from "../src/vault/credential-vault.js";
+import { createVaultExecuteStage } from "../src/vault/execute-stage.js";
 import { applyProviderRevocation, isProviderRevocation } from "../src/revocation.js";
 
 const NOW = 1_700_000_000;
@@ -182,6 +190,154 @@ describe("dispatch: applyProviderRevocation wiring (PRXY-07)", () => {
     );
 
     const result = await handleCall(deps, { name: REVOCABLE_BINDING.tool, arguments: {} }, NOW);
+
+    expect(result.isError).toBe(true);
+    const [content] = result.content;
+    if (content === undefined || content.type !== "text") {
+      throw new Error("expected a text content block");
+    }
+    expect(content.text).toBe("denied: transient_error");
+
+    const lease = await leaseStore.load(leaseId);
+    expect(lease?.state).toBe("active");
+  });
+});
+
+// --- Task 2: forced-invalid_grant end-to-end revocation (real mock AS + --
+// real MCP Client, PRXY-07) -----------------------------------------------
+//
+// Drives the FULL stack -- a real `oauth4webapi` refresh against a real
+// loopback `oauth2-mock-server`, through the vault-backed `ExecuteStage`,
+// through a real MCP `Client` `tools/call` -- rather than a synthetic
+// `CredentialRefreshError` (Task 1 above). `forceNextTokenError` is the
+// mock's ONLY way to produce `oauth.ResponseBodyError`; its `/revoke`
+// endpoint always returns 200 with no reuse-detection (04-RESEARCH.md
+// Pitfall 2/5), so no assertion here depends on it -- the revocation
+// signal is exclusively the forced `invalid_grant` on the REFRESH request.
+
+const E2E_BINDING: ConnectorBinding = {
+  tool: "read_message",
+  resource: "inbox",
+  access: "read",
+  irreversible: false,
+  provenance: "built_in",
+};
+
+describe("PRXY-07 end-to-end: real mock AS + MCP Client (forced invalid_grant revokes; forced transient does not)", () => {
+  let harness: MockAuthHarness;
+
+  beforeEach(async () => {
+    harness = await startMockAuthServer();
+  });
+
+  afterEach(async () => {
+    await harness.stop();
+  });
+
+  async function buildE2EDeps(leaseId: string): Promise<{
+    deps: ProxyDeps;
+    leaseStore: ReturnType<typeof createInMemoryLeaseStore>;
+  }> {
+    const leaseStore = createInMemoryLeaseStore();
+    const receiptStore = createInMemoryReceiptStore();
+    await leaseStore.save(makeLease(leaseId));
+
+    const catalog = createToolCatalog([
+      {
+        name: E2E_BINDING.tool,
+        description: "Reads a message",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+    ]);
+    const bindings = createBindingSet([E2E_BINDING]);
+
+    const vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
+    // Already-expired -- forces the triggering call's resolveAccessToken to
+    // refresh (never a stale "success").
+    vault.seedCredential(leaseId, E2E_BINDING.resource, {
+      accessToken: "expired-access-token",
+      refreshToken: "seed-refresh-token",
+      expiry: NOW - 10,
+      tokenEndpoint: "unused-see-harness.oauthClient.as.token_endpoint",
+      resourceIndicator: E2E_BINDING.resource,
+    });
+
+    const deps: ProxyDeps = {
+      leaseId,
+      leaseStore,
+      receiptStore,
+      catalog,
+      bindings,
+      grantedScopes: ["read"],
+      grantedResources: [E2E_BINDING.resource],
+      limits: { max_actions: 100 },
+      approvals: { require_for: [], timeout_seconds: 30 },
+      clock: () => NOW,
+      // The adversarial echoing connector is never actually invoked on
+      // either path below (both calls are denied before connector.execute
+      // would run) -- reused here only as a type-satisfying OutboundConnector.
+      execute: createVaultExecuteStage(vault, createEchoingCredentialConnector()),
+      approve: DEFAULT_APPROVAL_STAGE,
+      enforceCaps: DEFAULT_CAP_ENFORCER,
+    };
+
+    return { deps, leaseStore };
+  }
+
+  async function connectE2EClient(deps: ProxyDeps): Promise<Client> {
+    const server = createLeaseProxyServer(deps);
+    const client = new Client({ name: "revocation-e2e-agent", version: "0.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    return client;
+  }
+
+  it("a forced invalid_grant on refresh revokes the lease (actor provider) and denies the triggering call; a subsequent call on the revoked lease is also denied", async () => {
+    const leaseId = "lease-e2e-revoke";
+    const { deps, leaseStore } = await buildE2EDeps(leaseId);
+    // The mock's ONLY way to produce oauth.ResponseBodyError -- never its
+    // /revoke endpoint's 200 no-op (Pitfall 2/5).
+    harness.forceNextTokenError("invalid_grant");
+
+    const client = await connectE2EClient(deps);
+
+    const result = (await client.callTool({ name: E2E_BINDING.tool, arguments: {} })) as CallToolResult;
+
+    expect(result.isError).toBe(true);
+    const [content] = result.content;
+    if (content === undefined || content.type !== "text") {
+      throw new Error("expected a text content block");
+    }
+    expect(content.text).toBe("denied: provider_revoked");
+
+    // The lease is now `revoked` -- reachable here ONLY via
+    // dispatch.ts's provider_revoked branch (revocation.ts's
+    // applyProviderRevocation, actor `provider`, event `grant_revoked`,
+    // unit-proven in Task 1 above); no `user`-actor `revoke` call is made
+    // anywhere in this test.
+    const revokedLease = await leaseStore.load(leaseId);
+    expect(revokedLease?.state).toBe("revoked");
+
+    // A subsequent tools/call on the now-revoked lease: denied by
+    // evaluatePolicy's lease_not_active check (LIFE-02, deny by default) --
+    // the agent cannot act on a revoked lease.
+    const second = (await client.callTool({ name: E2E_BINDING.tool, arguments: {} })) as CallToolResult;
+    expect(second.isError).toBe(true);
+    const [secondContent] = second.content;
+    if (secondContent === undefined || secondContent.type !== "text") {
+      throw new Error("expected a text content block");
+    }
+    expect(secondContent.text).toBe("denied: lease_not_active");
+  });
+
+  it("a forced non-invalid_grant (transient) refresh failure denies the call but leaves the lease active -- never revoked", async () => {
+    const leaseId = "lease-e2e-transient";
+    const { deps, leaseStore } = await buildE2EDeps(leaseId);
+    harness.forceNextTokenError("server_error");
+
+    const client = await connectE2EClient(deps);
+
+    const result = (await client.callTool({ name: E2E_BINDING.tool, arguments: {} })) as CallToolResult;
 
     expect(result.isError).toBe(true);
     const [content] = result.content;
