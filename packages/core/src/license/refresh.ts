@@ -19,9 +19,8 @@ export const DEFAULT_LICENSE_TTL_SECONDS = 300;
  * decision -- there is no cached "still valid" boolean to reuse across calls
  * (D-12, PITFALLS.md Pitfall 9).
  */
-export function needsRefresh(_exp: number, _now: number, _refreshBeforeSeconds: number): boolean {
-  // TODO(03-06 Task 1 GREEN): real boundary decision -- RED stub intentionally wrong.
-  return false;
+export function needsRefresh(exp: number, now: number, refreshBeforeSeconds: number): boolean {
+  return now >= exp - refreshBeforeSeconds;
 }
 
 /**
@@ -33,8 +32,8 @@ export function needsRefresh(_exp: number, _now: number, _refreshBeforeSeconds: 
 export function clampedLicenseExpiry(
   now: number,
   defaultTtlSeconds: number,
-  _leaseExpiresAt: number,
+  leaseExpiresAt: number,
 ): number | null {
-  // TODO(03-06 Task 1 GREEN): apply the LIC-03 clamp/refusal -- RED stub intentionally wrong.
-  return now + defaultTtlSeconds;
+  if (now >= leaseExpiresAt) return null;
+  return Math.min(now + defaultTtlSeconds, leaseExpiresAt);
 }
