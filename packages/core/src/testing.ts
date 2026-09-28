@@ -1,15 +1,20 @@
 /**
  * `@stint/core/testing` — the in-memory `LeaseStore` double and the reusable
- * `createLeaseStoreContractTests` suite factory (D-14). This subpath is the
- * ONLY place a `LeaseStore` implementation is exercised generically: the
- * public `.` entry (`./index.ts`) never re-exports anything from this file,
- * so production code cannot accidentally depend on the test double.
+ * `createLeaseStoreContractTests` suite factory (D-14), plus the in-memory
+ * `ReceiptStore` double and `createReceiptStoreContractTests` suite factory
+ * (D-08). This subpath is the ONLY place a `LeaseStore`/`ReceiptStore`
+ * implementation is exercised generically: the public `.` entry
+ * (`./index.ts`) never re-exports anything from this file, so production
+ * code cannot accidentally depend on a test double.
  *
  * Phase 6's JSON-file `LeaseStore` (HOST-03, backed by `proper-lockfile` for
  * cross-process safety) imports `createLeaseStoreContractTests` and runs the
  * IDENTICAL suite against its own implementation, so the two stores cannot
  * silently drift from the per-lease serialization guarantee ALP.md Section 9
- * requires (D-13).
+ * requires (D-13). Phase 6's JSON-file `ReceiptStore` likewise imports
+ * `createReceiptStoreContractTests` and runs the IDENTICAL suite, so it
+ * cannot silently drift from the in-memory double's append-only guarantee
+ * (D-08).
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,6 +22,8 @@ import { describe, expect, it } from "vitest";
 import { PublicProtocol } from "paseto";
 import { GenerateKeyPairFactory } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
+
+import type { Checkpoint, ReceiptChain, ReceiptEntry } from "@stint/spec";
 
 import type { Lease } from "./lease.js";
 import type { LeaseMutator, LeaseStore } from "./lease-store.js";
@@ -26,6 +33,7 @@ import { mintHeldLicense } from "./license/held-license.js";
 import type { HeldLicense } from "./license/held-license.js";
 import { clampedLicenseExpiry, DEFAULT_LICENSE_TTL_SECONDS } from "./license/refresh.js";
 import type { LicenseIssuer } from "./license/license-issuer.js";
+import type { ReceiptStore } from "./receipts/receipt-store.js";
 
 /**
  * An in-memory `LeaseStore` double backed by a `Map<string, Lease>`.
@@ -173,6 +181,49 @@ export function createLeaseStoreContractTests(makeStore: () => LeaseStore): void
       await expect(store.transaction("missing", (l) => l)).rejects.toThrow();
     });
   });
+}
+
+/**
+ * An in-memory `ReceiptStore` double backed by one `Map<ReceiptChain,
+ * ReceiptEntry[]>` (append order preserved per chain) plus one
+ * `Map<ReceiptChain, Checkpoint>` for the latest checkpoint per chain
+ * (D-08). The two chains (`"verified"` / `"attested"`) never bleed into
+ * each other: each has its own array/slot. `append` pushes onto the
+ * chain's array without ever removing or reordering a prior entry —
+ * append-only by construction, not by convention.
+ */
+export function createInMemoryReceiptStore(): ReceiptStore {
+  const chains = new Map<ReceiptChain, ReceiptEntry[]>();
+  const checkpoints = new Map<ReceiptChain, Checkpoint>();
+
+  function entriesFor(chain: ReceiptChain): ReceiptEntry[] {
+    let entries = chains.get(chain);
+    if (entries === undefined) {
+      entries = [];
+      chains.set(chain, entries);
+    }
+    return entries;
+  }
+
+  return {
+    append(chain: ReceiptChain, entry: ReceiptEntry): Promise<void> {
+      entriesFor(chain).push(entry);
+      return Promise.resolve();
+    },
+
+    load(chain: ReceiptChain): Promise<readonly ReceiptEntry[]> {
+      return Promise.resolve([...entriesFor(chain)]);
+    },
+
+    readCheckpoint(chain: ReceiptChain): Promise<Checkpoint | undefined> {
+      return Promise.resolve(checkpoints.get(chain));
+    },
+
+    writeCheckpoint(checkpoint: Checkpoint): Promise<void> {
+      checkpoints.set(checkpoint.chain, checkpoint);
+      return Promise.resolve();
+    },
+  };
 }
 
 /** The fixed `kid` the mock `LicenseIssuer` signs under (D-11). */
