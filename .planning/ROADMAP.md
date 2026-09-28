@@ -95,7 +95,7 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 
 Plans:
 **Wave 1**
@@ -109,7 +109,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md - Attested chain independent verification via the reused @stint/spec trust model + display-only merged timeline (RCPT-04, RCPT-05)
+- [x] 03-03-PLAN.md - Attested chain independent verification via the reused @stint/spec trust model + display-only merged timeline (RCPT-04, RCPT-05)
 - [ ] 03-06-PLAN.md - Bounded license refresh (clamped, never outlives the lease) + opaque HeldLicense custody + LicenseIssuer port + mock issuer + license barrel (LIC-03)
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
-| 3. Receipts & Licensing | 3/6 | In Progress|  |
+| 3. Receipts & Licensing | 4/6 | In Progress|  |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |

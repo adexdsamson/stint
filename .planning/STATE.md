@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-09-28T00:17:21.947Z"
-last_activity: 2026-09-27
+stopped_at: Completed 03-03-PLAN.md (attested chain + display-only merge)
+last_updated: "2026-09-28T00:40:11.234Z"
+last_activity: 2026-09-28
 last_activity_desc: Phase 03 execution started
-state_head: ceaa1df8cd130badf50e83a8173e43c7075c6118
+state_head: 51c79e6be97ffca49c7eb48646abad25e664f211
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 03 (Receipts & Licensing) — EXECUTING
-Plan: 05 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04, which remain pending)
-Status: 03-01, 03-02, 03-05 have SUMMARY.md; 03-03, 03-04, 03-06 still pending
-Last activity: 2026-09-28 — Completed 03-05-PLAN.md (PASETO license issue/verify)
+Plan: 4 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04; 03-03 has now also completed)
+Status: 03-01, 03-02, 03-03, 03-05 have SUMMARY.md; 03-04, 03-06 still pending
+Last activity: 2026-09-28 — Completed 03-03-PLAN.md (attested chain + display-only merge)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P01 | 25min | 3 tasks | 17 files |
 | Phase 03 P02 | 35min | 3 tasks | 10 files |
 | Phase 03 P05 | ~50min | 4 tasks | 15 files |
+| Phase 03 P03 | 40min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-05: Task 1 checkpoint confirmed paseto@4.0.1 legitimacy (panva, OIDC trusted-publish, zero deps, factory-composition API) before install.
 - [Phase 03]: [Phase 03] 03-05: Task 2 checkpoint confirmed section 8 license wire format verbatim (snake_case lease_id/job/limits custom claims, exp/iat/nbf/jti registered, kid in footer, implicit assertion over lease_id + the manifest's own spec_version, 300s TTL as runtime config).
 - [Phase 03]: [Phase 03] 03-05: deriveImplicitAssertion is the single shared function issue.ts/verify.ts import; verify.ts is the only paseto Verify call site with LICENSE_CLOCK_SKEW_SECONDS=5s explicit on every call, mapping every PasetoError subclass to a fixed non-interpolated reason code.
+- [Phase 03]: [Phase 03] 03-03: Extended AttestedClaimPayload with publisherId+sig (Rule 2) and exported @stint/spec's verifyDetached (Rule 3) so the attested chain reuses the SAME detached-EdDSA verify path verifyEnvelope uses - no second Ed25519 verify path, publisher key resolved by publisherId then kid.
+- [Phase 03]: [Phase 03] 03-03: mergeTimeline derives each timeline entry's origin from which argument (verified/attested) it came from, not re-read from entry.chain; stable sort by ts, then origin, then seq, carrying no integrity meaning (D-10).
 
 ### Pending Todos
 
@@ -121,6 +124,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T00:17:21.686Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-09-28T00:40:11.030Z
+Stopped at: Completed 03-03-PLAN.md (attested chain + display-only merge)
 Resume file: None

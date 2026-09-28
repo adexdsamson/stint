@@ -43,8 +43,8 @@
 - [ ] **RCPT-01**: Every tool call, allowed or denied, appends a receipt with args hash and binding-redacted summary; raw args and secrets never appear
 - [x] **RCPT-02**: Receipts are hash-chained using a single canonical serializer with a golden-hash fixture test
 - [x] **RCPT-03**: Runtime signs chain checkpoints with Ed25519, including a final signed receipt at teardown
-- [ ] **RCPT-04**: Publisher-signed attested entries live in a separate chain; each chain verifies independently
-- [ ] **RCPT-05**: User can view both chains merged into one plain-language timeline, clearly marking verified vs attested
+- [x] **RCPT-04**: Publisher-signed attested entries live in a separate chain; each chain verifies independently
+- [x] **RCPT-05**: User can view both chains merged into one plain-language timeline, clearly marking verified vs attested
 - [x] **RCPT-06**: Verifying a tampered or truncated chain (relative to its last checkpoint) reports the exact break
 - [ ] **RCPT-07**: Receipts survive cleanup
 
@@ -143,8 +143,8 @@
 | RCPT-01 | Phase 4 | Pending |
 | RCPT-02 | Phase 3 | Complete |
 | RCPT-03 | Phase 3 | Complete |
-| RCPT-04 | Phase 3 | Pending |
-| RCPT-05 | Phase 3 | Pending |
+| RCPT-04 | Phase 3 | Complete |
+| RCPT-05 | Phase 3 | Complete |
 | RCPT-06 | Phase 3 | Complete |
 | RCPT-07 | Phase 5 | Pending |
 | PRXY-01 | Phase 4 | Pending |
