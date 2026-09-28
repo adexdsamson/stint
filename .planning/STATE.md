@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-09-28T14:20:55.596Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-09-28T17:12:47.599Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: 948b2599750f7fdf4c829743a638288562e9fe3f
+state_head: ac10b9830c371e87668380b2a6a9756786b7e41e
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 04 execution started
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P04 | 20min | 3 tasks | 5 files |
 | Phase 04 P01 | 15min | 3 tasks | 10 files |
 | Phase 04 P02 | 25min | 3 tasks | 9 files |
+| Phase 04 P03 | 17min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-02: resolveEffectiveBinding (dispatch.ts) is the ONE place tools/list visibility and tools/call authorization both resolve a binding through, collapsing both an unbound tool and a bound-but-out-of-scope tool to the same no_binding denial
 - [Phase 04]: [Phase 04] 04-02: an errored execute() is receipted as outcome: denied with a fixed generic redactedSummary (execute_failed), never the underlying error message, since a connector error could carry request/arg material
 - [Phase 04]: [Phase 04] 04-02: kept the low-level MCP Server per RESEARCH.md Pattern 1; suppressed the resulting @typescript-eslint/no-deprecated lint error with two narrow, justified eslint-disable-next-line comments
+- [Phase 04]: [Phase 04] 04-03: Widened the 04-02 CapEnforcer seam (authorize gains limits; commit takes lease+call, returns the next Lease) as a Rule 3 blocking-issue fix needed for cap-enforcer.ts to typecheck against the seam per the plan's own behavior spec
+- [Phase 04]: [Phase 04] 04-03: ProxyDeps.enforceCaps stays required/explicitly-injected (server.ts untouched); createCapEnforcer() is exported as the production default a real deployment passes, per D-12's no-hidden-defaults discipline
+- [Phase 04]: [Phase 04] 04-03: over_actions_per_hour/over_max_actions/over_spend denials' interaction with LIFE-07's denialErrorTimestamps, and spend currency cross-checking beyond amount, are flagged for the verifier per the plan's own flagged_assumptions -- not addressed this plan
 
 ### Pending Todos
 
@@ -140,6 +144,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T14:20:54.596Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-09-28T17:12:46.855Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

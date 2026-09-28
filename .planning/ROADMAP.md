@@ -131,7 +131,7 @@ Plans:
   4. Adversarial tests show OAuth access tokens (with RFC 8707 resource indicators) are injected only on outbound calls and never appear in any agent-facing response or error, and the publisher license is never forwarded to a customer resource.
   5. When the mock authorization server revokes the customer's grant, the next call's `invalid_grant`/401 moves the lease to `revoked` with actor `provider`.
 
-**Plans**: 2/7 plans executed
+**Plans**: 3/7 plans executed
 **Wave 1**
 
 - [x] 04-01-PLAN.md — scaffold `@stint/proxy` + install 3 pinned deps (behind legitimacy checkpoint) + additive `LeaseCounters.actionTimestamps` + engines fix
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-03-PLAN.md — caps: sliding-window `actions_per_hour` + action/spend cap + pay-amount extraction, concurrency-safe (PRXY-04)
+- [x] 04-03-PLAN.md — caps: sliding-window `actions_per_hour` + action/spend cap + pay-amount extraction, concurrency-safe (PRXY-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -215,7 +215,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
-| 4. MCP Proxy & Credential Vault | 2/7 | In Progress|  |
+| 4. MCP Proxy & Credential Vault | 3/7 | In Progress|  |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
