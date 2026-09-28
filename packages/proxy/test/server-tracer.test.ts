@@ -135,3 +135,119 @@ describe("server tracer: permitted read tool end-to-end", () => {
     expect(entry.payload.resource).toBe(READ_BINDING.resource);
   });
 });
+
+// PRXY-01 completeness (Task 2): a tool whose binding exists but is
+// out-of-scope-access, and one that is out-of-scope-resource, are BOTH
+// absent from tools/list AND still denied `no_binding` if the agent names
+// them directly -- `resolveEffectiveBinding` (dispatch.ts) is the ONE place
+// this "unbound-or-out-of-scope" collapse happens for both surfaces
+// (T-04-02-TP, T-04-02-DN).
+const OUT_OF_SCOPE_ACCESS_BINDING: ConnectorBinding = {
+  tool: "send_message",
+  resource: "inbox",
+  access: "send",
+  irreversible: false,
+  provenance: "built_in",
+};
+
+const OUT_OF_SCOPE_RESOURCE_BINDING: ConnectorBinding = {
+  tool: "read_vault",
+  resource: "vault",
+  access: "read",
+  irreversible: false,
+  provenance: "built_in",
+};
+
+const UNBOUND_TOOL_NAME = "delete_everything";
+
+describe("PRXY-01 completeness: filtering + direct-name denial", () => {
+  it("tools/list excludes an out-of-scope-access tool and an out-of-scope-resource tool", async () => {
+    const { deps } = await buildDeps(
+      "lease-prxy01-list",
+      undefined,
+      [
+        {
+          name: OUT_OF_SCOPE_ACCESS_BINDING.tool,
+          description: "Sends a message",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+        {
+          name: OUT_OF_SCOPE_RESOURCE_BINDING.tool,
+          description: "Reads the vault",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+      ],
+      [OUT_OF_SCOPE_ACCESS_BINDING, OUT_OF_SCOPE_RESOURCE_BINDING],
+    );
+    const client = await connectedClient(deps);
+
+    const { tools } = await client.listTools();
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.name).toBe(READ_BINDING.tool);
+    expect(tools.map((tool) => tool.name)).not.toContain(OUT_OF_SCOPE_ACCESS_BINDING.tool);
+    expect(tools.map((tool) => tool.name)).not.toContain(OUT_OF_SCOPE_RESOURCE_BINDING.tool);
+  });
+
+  it("a tools/call naming a completely unbound tool is denied no_binding and appends one denied receipt", async () => {
+    const { deps, receiptStore } = await buildDeps("lease-prxy01-unbound");
+    const client = await connectedClient(deps);
+
+    const result = (await client.callTool({ name: UNBOUND_TOOL_NAME, arguments: {} })) as CallToolResult;
+
+    expect(result.isError).toBe(true);
+    const [first] = result.content;
+    if (first === undefined || first.type !== "text") {
+      throw new Error("expected a text content block");
+    }
+    expect(first.text).toBe("denied: no_binding");
+
+    const chain = await receiptStore.load("verified");
+    expect(chain).toHaveLength(1);
+    const [entry] = chain;
+    if (entry === undefined || entry.type !== "call") {
+      throw new Error("expected a call receipt entry");
+    }
+    expect(entry.payload.outcome).toBe("denied");
+  });
+
+  it("a tools/call naming an out-of-scope-but-cataloged tool directly is still denied no_binding, even though it is hidden from tools/list", async () => {
+    const { deps, receiptStore } = await buildDeps(
+      "lease-prxy01-hidden-call",
+      undefined,
+      [
+        {
+          name: OUT_OF_SCOPE_ACCESS_BINDING.tool,
+          description: "Sends a message",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+      ],
+      [OUT_OF_SCOPE_ACCESS_BINDING],
+    );
+    const client = await connectedClient(deps);
+
+    // Confirm it is indeed hidden first.
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).not.toContain(OUT_OF_SCOPE_ACCESS_BINDING.tool);
+
+    const result = (await client.callTool({
+      name: OUT_OF_SCOPE_ACCESS_BINDING.tool,
+      arguments: {},
+    })) as CallToolResult;
+
+    expect(result.isError).toBe(true);
+    const [first] = result.content;
+    if (first === undefined || first.type !== "text") {
+      throw new Error("expected a text content block");
+    }
+    expect(first.text).toBe("denied: no_binding");
+
+    const chain = await receiptStore.load("verified");
+    expect(chain).toHaveLength(1);
+    const [entry] = chain;
+    if (entry === undefined || entry.type !== "call") {
+      throw new Error("expected a call receipt entry");
+    }
+    expect(entry.payload.outcome).toBe("denied");
+  });
+});
