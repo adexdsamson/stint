@@ -74,6 +74,21 @@ export type { OAuthClient, RefreshOptions, RefreshResult, SeededCredential } fro
 export { createCredentialVault, CredentialRefreshError } from "./vault/credential-vault.js";
 export type { CredentialVault } from "./vault/credential-vault.js";
 
+// Downstream execution port + credential scrubber (D-01, D-02, PRXY-06,
+// LIC-05). `OutboundConnector` is the injected downstream-execution port --
+// no enforcement-path code imports `createRestOutboundConnector` (the
+// reference REST implementation) directly, it is always constructor-
+// injected. `createVaultExecuteStage` is the real, vault-backed `ExecuteStage`
+// (dispatch.ts's seam): it resolves the access token from the credential
+// vault, hands it to the injected port as `{ accessToken }` only -- never
+// the publisher license -- and wraps the port call in `scrubCredential` so
+// no token can cross the agent-facing boundary in a response or an error.
+export { createRestOutboundConnector } from "./connectors/outbound-connector.js";
+export type { FetchLike, OutboundConnector, OutboundCredential } from "./connectors/outbound-connector.js";
+export { scrubCredential, scrubError } from "./vault/scrub.js";
+export { createVaultExecuteStage } from "./vault/execute-stage.js";
+export type { LicenseAccessor } from "./vault/execute-stage.js";
+
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production
 // code must never accidentally depend on a test double.

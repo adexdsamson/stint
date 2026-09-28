@@ -9,15 +9,18 @@
  * mutates, and chain order matches call order.
  *
  * `ExecuteStage`, `ApprovalStage`, and `CapEnforcer` are the three injected
- * seams plan 04-05 (vault-backed execute) and 04-04 (real out-of-band
+ * seams plan 04-06 (vault-backed execute) and 04-04 (real out-of-band
  * approvals) implement against without editing this file's dispatch flow.
- * Plan 04-03 (sliding-window `actions_per_hour`, PRXY-04) is the one seam
- * implementation that DID require a minimal, additive `CapEnforcer` seam
- * signature extension (authorize gains `limits`; commit takes the whole
- * `lease`+`call` and returns the next `Lease`) -- the dispatch ORDER
- * (evaluate -> approve -> authorize caps -> execute -> commit, receipt in a
- * `finally`) is unchanged. `handleCall` also extracts a pay call's
- * `spendMinor` pre-authorization from the runtime-owned catalog (D-07) via
+ * Plans 04-03 (sliding-window `actions_per_hour`, PRXY-04) and 04-06
+ * (vault-backed execute, PRXY-06/LIC-05) each required a minimal, additive
+ * seam signature extension -- 04-03's `CapEnforcer.authorize` gains
+ * `limits`, `commit` takes the whole `lease`+`call` and returns the next
+ * `Lease`; 04-06's `ExecuteStage.execute` gains an explicit `now` parameter
+ * so the vault-backed implementation resolves tokens against the injected
+ * clock, never `Date.now()` -- the dispatch ORDER (evaluate -> approve ->
+ * authorize caps -> execute -> commit, receipt in a `finally`) is unchanged
+ * by either. `handleCall` also extracts a pay call's `spendMinor`
+ * pre-authorization from the runtime-owned catalog (D-07) via
  * `extractSpendMinor`, before `evaluatePolicy` runs.
  */
 
@@ -53,9 +56,22 @@ export interface CallContext {
   readonly leaseVersion: number;
 }
 
-/** The outbound execution seam (D-01/D-02) -- plan 04-05 supplies the real vault-backed implementation. */
+/**
+ * The outbound execution seam (D-01/D-02) -- plan 04-06 supplies the real
+ * vault-backed implementation (`vault/execute-stage.ts`'s
+ * `createVaultExecuteStage`). `now` is threaded through explicitly (widened
+ * from the 04-02 zero-arg signature, mirroring 04-03's `CapEnforcer` and
+ * 04-04's `ApprovalStage` widening precedent) because the vault-backed
+ * implementation resolves a token against the injected clock, never
+ * `Date.now()` -- no internal timers, no implicit "now" source, matching
+ * the credential vault's own per-call-expiry discipline (D-04). Existing
+ * implementations that ignore `now` (`DEFAULT_EXECUTE_STAGE`,
+ * `testing.ts`'s `createEchoExecuteStage`) remain valid without
+ * modification -- a function with fewer declared parameters than an
+ * interface method still satisfies it.
+ */
 export interface ExecuteStage {
-  execute(ctx: CallContext): Promise<{ readonly status: number; readonly body: unknown }>;
+  execute(ctx: CallContext, now: number): Promise<{ readonly status: number; readonly body: unknown }>;
 }
 
 /**
@@ -107,7 +123,7 @@ export interface CapEnforcer {
   commit(lease: Lease, call: PolicyCall, now: number): Lease;
 }
 
-/** Production-safe default `ExecuteStage`: no `OutboundConnector` is configured until plan 04-05 wires the vault-backed implementation. */
+/** Production-safe default `ExecuteStage`: no `OutboundConnector` is configured until plan 04-06 wires the vault-backed implementation. */
 export const DEFAULT_EXECUTE_STAGE: ExecuteStage = {
   execute() {
     return Promise.reject(new Error("@stint/proxy: no OutboundConnector configured."));
@@ -285,7 +301,7 @@ export async function handleCall(
         return nextLease;
       }
 
-      const execResult = await deps.execute.execute(ctx);
+      const execResult = await deps.execute.execute(ctx, now);
       outcome = "allowed";
       result = allowResult(execResult);
       nextLease = deps.enforceCaps.commit(lease, call, now);

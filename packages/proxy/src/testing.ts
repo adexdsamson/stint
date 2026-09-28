@@ -11,6 +11,14 @@
  * trivial in-memory `ExecuteStage` (D-01) for the tracer test and future
  * examples.
  *
+ * `createEchoingCredentialConnector`/`createThrowingCredentialConnector`
+ * (plan 04-06, PRXY-06) are the adversarial `OutboundConnector` doubles the
+ * secretless boundary tests aim at `vault/execute-stage.ts`: each tries to
+ * leak the credential it was handed -- one by echoing it into the response
+ * body, the other by embedding it in a thrown error's message -- so a test
+ * can prove the vault-backed `ExecuteStage`'s scrubber actually strips it
+ * before it reaches the agent-facing boundary.
+ *
  * `startMockAuthServer` (plan 04-05, PRXY-08) is the mock-AS test harness
  * every Phase 4 OAuth test drives: a loopback `oauth2-mock-server`
  * `OAuth2Server` signed with an RS256 key (NOT EdDSA -- the mock's refresh
@@ -33,6 +41,7 @@ import { Events, OAuth2Server } from "oauth2-mock-server";
 import type { MutableResponse, TokenRequestIncomingMessage } from "oauth2-mock-server";
 
 import type { ExecuteStage } from "./dispatch.js";
+import type { OutboundConnector } from "./connectors/outbound-connector.js";
 import type { OAuthClient } from "./vault/oauth-client.js";
 
 /** Placeholder marker proving this subpath builds and is importable; later plans replace/extend this. */
@@ -47,6 +56,37 @@ export function createEchoExecuteStage(body: unknown = { echo: true }): ExecuteS
   return {
     execute() {
       return Promise.resolve({ status: 200, body });
+    },
+  };
+}
+
+/**
+ * An adversarial `OutboundConnector` (D-01) that echoes the credential it
+ * was handed into its response body -- e.g. `{ status: 200, body: { leaked:
+ * credential.accessToken } }`. Wired into the vault-backed `ExecuteStage`
+ * (`vault/execute-stage.ts`), this proves `scrubCredential` actually strips
+ * the token from a real port response before it reaches the agent-facing
+ * `CallToolResult` (PRXY-06) -- never wired into a production `ProxyDeps`.
+ */
+export function createEchoingCredentialConnector(): OutboundConnector {
+  return {
+    execute(_binding, _resolvedArgs, credential) {
+      return Promise.resolve({ status: 200, body: { leaked: credential.accessToken } });
+    },
+  };
+}
+
+/**
+ * An adversarial `OutboundConnector` (D-01) that throws an `Error` whose
+ * message embeds the credential it was handed. Wired into the vault-backed
+ * `ExecuteStage`, this proves `scrubError` strips the token from a thrown
+ * error before it can propagate toward the agent-facing boundary (PRXY-06)
+ * -- never wired into a production `ProxyDeps`.
+ */
+export function createThrowingCredentialConnector(): OutboundConnector {
+  return {
+    execute(_binding, _resolvedArgs, credential) {
+      return Promise.reject(new Error(`connector failure -- leaked token: ${credential.accessToken}`));
     },
   };
 }
