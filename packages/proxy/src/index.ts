@@ -98,16 +98,17 @@ export type { LicenseAccessor } from "./vault/execute-stage.js";
 // revocation discriminator reused at that same call site.
 export { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
 
-// Teardown orchestrator (05-03, TEAR-01). `runTeardown` auto-chains
-// `begin_teardown` from any terminal end state via the shared
-// `chainTeardownIfEnded` helper, walks the fixed 5 steps under the
-// per-lease serializer, persists per-step progress, and lands `cleaned_up`/
-// `cleanup_incomplete`. `TeardownStep`/`createDefaultTeardownSteps` are the
-// injectable per-step port and its production happy-path defaults
-// (hardened by 05-04/05-05/05-06); `TeardownDeps` is `runTeardown`'s
-// construction-time dependency bag.
+// Teardown orchestrator (05-03, TEAR-01, TEAR-04, TEAR-05). `runTeardown`
+// auto-chains `begin_teardown` from any terminal end state via the shared
+// `chainTeardownIfEnded` helper, walks the fixed 5 steps under the per-lease
+// serializer, persists per-step progress, and lands `cleaned_up`/
+// `cleanup_incomplete`; `retryTeardown` is the explicit-only recovery path
+// from `cleanup_incomplete`. `TeardownStep`/`createDefaultTeardownSteps` are
+// the injectable per-step port and its production happy-path defaults
+// (hardened by 05-04/05-05/05-06); `TeardownDeps` is `runTeardown`'s/
+// `retryTeardown`'s construction-time dependency bag.
 export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
-export { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
+export { appendTransitionReceipt, retryTeardown, runTeardown } from "./teardown/orchestrate.js";
 export type { TeardownDeps } from "./teardown/orchestrate.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
 export type { TeardownStep } from "./teardown/steps.js";

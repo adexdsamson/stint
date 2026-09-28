@@ -1,9 +1,10 @@
 /**
- * `runTeardown` -- the fixed 5-step saga coordinator (TEAR-01). Every state
- * change goes through core's pure `reduce()` (D-16); every `LeaseStore`
- * access goes through `runInLeaseTransaction` (D-30) -- this file never
- * calls `leaseStore.load`/`.save` directly, only the serialized
- * `.transaction()` primitive, so a resume can never observe a torn write.
+ * `runTeardown`/`retryTeardown` -- the fixed 5-step saga coordinator
+ * (TEAR-01, TEAR-04, TEAR-05). Every state change goes through core's pure
+ * `reduce()` (D-16); every `LeaseStore` access goes through
+ * `runInLeaseTransaction` (D-30) -- this file never calls
+ * `leaseStore.load`/`.save` directly, only the serialized `.transaction()`
+ * primitive, so a resume can never observe a torn write.
  *
  * `runTeardown` auto-chains `begin_teardown` from any terminal end state via
  * the shared `chainTeardownIfEnded` helper (D-18), then walks every step not
@@ -12,11 +13,16 @@
  * `teardownProgress` immediately after it runs (D-14) -- so a crash between
  * steps loses no progress. It lands `teardown_succeeded` -> `cleaned_up`
  * only when every step's recorded outcome is a SUCCESS outcome (D-19), else
- * `teardown_incomplete` -> `cleanup_incomplete`. No timer, no
- * self-scheduling; one pass per call (D-15).
+ * `teardown_incomplete` -> `cleanup_incomplete`; a step failure never aborts
+ * the loop (D-15) -- the remaining steps still run. `retryTeardown` is the
+ * explicit-only recovery path (D-32): it dispatches `retry_teardown`
+ * (legal from `user` or `runtime`) and re-runs exactly the same
+ * remaining-steps walk from persisted progress -- `revoke_oauth`, once
+ * attempted, is never re-run (D-23). Neither function arms a timer or
+ * self-schedules; one pass per call (D-15).
  */
 
-import { appendEntry, reduce, runtimeEvents } from "@stint/core";
+import { appendEntry, reduce, runtimeEvents, userEvents } from "@stint/core";
 import type {
   Lease,
   LeaseStore,
@@ -181,6 +187,26 @@ export async function runTeardown(deps: TeardownDeps, now: number): Promise<Leas
   if (TERMINAL_END_STATES.has(lease.state)) {
     await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
   }
+
+  return landTeardown(deps, now);
+}
+
+/**
+ * Explicit recovery from `cleanup_incomplete` (D-15, D-32): dispatches
+ * `retry_teardown` (legal from `user` or `runtime`, ALP.md Section 7.4)
+ * landing `tearing_down`, then re-runs exactly `landTeardown`'s
+ * remaining-steps walk -- `revoke_oauth`, once attempted, is never re-run
+ * (D-23). No automatic/background retry anywhere in this module; `actor` is
+ * always caller-supplied, never inferred.
+ */
+export async function retryTeardown(
+  deps: TeardownDeps,
+  actor: "user" | "runtime",
+  now: number,
+): Promise<Lease> {
+  await applyTransition(deps, now, (l) =>
+    reduce(l, actor === "user" ? userEvents.retryTeardown() : runtimeEvents.retryTeardown(), now),
+  );
 
   return landTeardown(deps, now);
 }
