@@ -83,13 +83,15 @@ export function resolveCatalogEntry(catalog: ToolCatalog, name: string): ToolCat
  * the path is absent or the value is not a non-negative integer -- never
  * throws on a malformed/adversarial arg.
  *
- * STUB (RED phase, Task 1): always returns `undefined`, ignoring
- * `payAmount` entirely -- replaced with the real own-property-guarded read
- * in the GREEN commit.
  */
 export function extractSpendMinor(
   entry: ToolCatalogEntry,
   resolvedArgs: Readonly<Record<string, unknown>>,
 ): number | undefined {
-  return undefined;
+  if (entry.payAmount === undefined) return undefined;
+  const { amountArgPath } = entry.payAmount;
+  if (!Object.hasOwn(resolvedArgs, amountArgPath)) return undefined;
+  const value = resolvedArgs[amountArgPath];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) return undefined;
+  return value;
 }
