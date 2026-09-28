@@ -35,3 +35,18 @@ export type {
 } from "./host-adapter.js";
 
 export type { LeaseStore, LeaseMutator } from "./lease-store.js";
+
+// License public surface (LIC-01, LIC-02, LIC-03, D-11, D-13, D-15). The
+// reference `issueLicense` secret-signing path and `@stint/core/testing`'s
+// `createMockLicenseIssuer` are deliberately NOT re-exported here -- the
+// runtime depends on the injected `LicenseIssuer` port, never signs directly
+// (D-11), and the mock issuer stays testing-only (D-14's `./testing` rule).
+export { needsRefresh, clampedLicenseExpiry, DEFAULT_LICENSE_TTL_SECONDS } from "./license/refresh.js";
+export { verifyLicense, LICENSE_CLOCK_SKEW_SECONDS } from "./license/verify.js";
+export type { VerifiedLicense } from "./license/verify.js";
+export type { LicenseClaims, LicenseJobClaim, LicenseLimitsClaim } from "./license/issue.js";
+export { readLicenseToken } from "./license/held-license.js";
+export type { HeldLicense } from "./license/held-license.js";
+export type { LicenseIssuer } from "./license/license-issuer.js";
+export { LICENSE_VERIFY_REASONS } from "./license/errors.js";
+export type { LicenseVerifyReason } from "./license/errors.js";
