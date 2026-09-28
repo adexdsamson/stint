@@ -29,11 +29,39 @@ export interface LeaseCounters {
 }
 
 /**
+ * D-33: the five fixed-order teardown steps every lease ending runs through.
+ * `TeardownStepOutcome` must stay aligned with the widened
+ * `TeardownStepPayload.outcome` receipt enum (`spec/receipt.schema.json`,
+ * plan 05-01 Task 1) minus the inert `cleanup_incomplete` receipt-only value.
+ */
+export type TeardownStepName =
+  | "revoke_oauth"
+  | "invalidate_license"
+  | "cleanup_hook"
+  | "delete_cached_data"
+  | "final_receipt";
+
+export type TeardownStepOutcome =
+  | "revoked"
+  | "discarded_revocation_unsupported"
+  | "failed"
+  | "ok"
+  | "not_applicable"
+  | "attested_ok";
+
+/** A partial, per-step record of teardown progress (D-14) — absent until teardown starts. */
+export type TeardownProgress = {
+  readonly [step in TeardownStepName]?: TeardownStepOutcome;
+};
+
+/**
  * The canonical, immutable lease shape (D-01, D-04, D-06, D-20). `boundHash`
  * is the prefixed `jcs-sha256:` content hash captured at consent — never
  * the manifest itself (D-20). `grantedAt`/`expiresAt` are epoch seconds,
  * `0` until the lease is granted; only the `consent_granted` and `extend`
- * paths move `expiresAt` (D-06).
+ * paths move `expiresAt` (D-06). `teardownProgress` (D-14) is optional and
+ * absent until teardown starts; `reduce()` never writes it directly — it is
+ * carried forward unchanged by the `{ ...lease, ... }` spread in Step 4.
  */
 export interface Lease {
   readonly id: string;
@@ -44,6 +72,7 @@ export interface Lease {
   readonly expiresAt: number;
   readonly maxDurationSeconds: number;
   readonly counters: LeaseCounters;
+  readonly teardownProgress?: TeardownProgress;
 }
 
 /** D-02: at minimum these five fields; the caller persists it and Phase 3 receipts consume it. */

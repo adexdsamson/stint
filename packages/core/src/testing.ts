@@ -93,7 +93,13 @@ export function createInMemoryLeaseStore(): LeaseStore {
   };
 }
 
-function makeTestLease(id: string, overrides?: Partial<Lease>): Lease {
+/**
+ * A fixed/deterministic `active`-state `Lease` fixture (D-14). Exported (not
+ * merely module-private) so downstream test suites — including this file's
+ * own `makeTearingDownTestLease` and Phase 5's proxy teardown tests — can
+ * build on the same baseline lease shape instead of hand-rolling one.
+ */
+export function makeTestLease(id: string, overrides?: Partial<Lease>): Lease {
   return {
     id,
     state: "active",
@@ -105,6 +111,18 @@ function makeTestLease(id: string, overrides?: Partial<Lease>): Lease {
     counters: { actionCount: 0, spentMinor: 0, denialErrorTimestamps: [], actionTimestamps: [] },
     ...overrides,
   };
+}
+
+/**
+ * A `tearing_down`-state `Lease` fixture (D-14) for constructing
+ * partially-torn-down leases in downstream tests (Phase 5's teardown
+ * orchestrator/steps). Builds on `makeTestLease` and accepts the same
+ * override shape, defaulting `teardownProgress` to `{}` (teardown started,
+ * no step outcomes recorded yet) unless the caller supplies its own partial
+ * progress record via `overrides`.
+ */
+export function makeTearingDownTestLease(id: string, overrides?: Partial<Lease>): Lease {
+  return makeTestLease(id, { state: "tearing_down", teardownProgress: {}, ...overrides });
 }
 
 /**

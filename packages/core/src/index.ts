@@ -12,7 +12,7 @@ export { userEvents, clockEvents, policyEvents, providerEvents, publisherEvents,
 export type { LeaseEvent } from "./events.js";
 
 export { reduce } from "./lease.js";
-export type { Lease, LeaseCounters, TransitionRecord } from "./lease.js";
+export type { Lease, LeaseCounters, TransitionRecord, TeardownStepName, TeardownStepOutcome, TeardownProgress } from "./lease.js";
 
 export { createBindingSet, resolveBinding } from "./bindings.js";
 export type { ConnectorBinding, BindingSet, BindingProvenance } from "./bindings.js";
