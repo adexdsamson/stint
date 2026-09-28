@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-09-28T17:12:47.599Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-09-28T17:39:12.885Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: ac10b9830c371e87668380b2a6a9756786b7e41e
+state_head: 87e28be86f40a3164a0136a1e10a91f9fd65df78
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 04 execution started
 
@@ -75,6 +75,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P01 | 15min | 3 tasks | 10 files |
 | Phase 04 P02 | 25min | 3 tasks | 9 files |
 | Phase 04 P03 | 17min | 3 tasks | 5 files |
+| Phase 04 P04 | ~30min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-03: Widened the 04-02 CapEnforcer seam (authorize gains limits; commit takes lease+call, returns the next Lease) as a Rule 3 blocking-issue fix needed for cap-enforcer.ts to typecheck against the seam per the plan's own behavior spec
 - [Phase 04]: [Phase 04] 04-03: ProxyDeps.enforceCaps stays required/explicitly-injected (server.ts untouched); createCapEnforcer() is exported as the production default a real deployment passes, per D-12's no-hidden-defaults discipline
 - [Phase 04]: [Phase 04] 04-03: over_actions_per_hour/over_max_actions/over_spend denials' interaction with LIFE-07's denialErrorTimestamps, and spend currency cross-checking beyond amount, are flagged for the verifier per the plan's own flagged_assumptions -- not addressed this plan
+- [Phase 04]: [Phase 04] 04-04: D-11 commitment tuple confirmed at Task 1 checkpoint (proposed-tuple): hashCanonical({args, tool: binding.tool, provenance: binding.provenance, leaseVersion: lease.version})
+- [Phase 04]: [Phase 04] 04-04: Widened the 04-02 ApprovalStage seam (CallContext.leaseVersion, ApprovalDecision.approvalId, ApprovalStage.verifyCommitment) as a Rule 3 blocking fix, mirroring 04-03's CapEnforcer widening precedent
+- [Phase 04]: [Phase 04] 04-04: recompute-and-match re-derives binding and lease version fresh at execution time (not the pre-hold closures) so a binding hot-swap or out-of-band leaseStore.save() bypassing the transaction is actually observable and denies approval_drifted
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T17:12:46.855Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-09-28T17:39:12.683Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None

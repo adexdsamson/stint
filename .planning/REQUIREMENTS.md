@@ -54,7 +54,7 @@
 - [x] **PRXY-02**: Every `tools/call` is decided by a pure policy function; calls with no runtime-owned connector binding are denied
 - [x] **PRXY-03**: Tool-to-(resource, access, irreversible) classification comes only from runtime-owned bindings, never from the manifest (tested)
 - [x] **PRXY-04**: `actions_per_hour`, total action cap and `spend` limits are enforced per lease under concurrent calls (per-lease serialization)
-- [ ] **PRXY-05**: Calls requiring approval are held until the user decides via HostAdapter; approval is bound to a hash of exact args, binding and lease version; timeout denies
+- [x] **PRXY-05**: Calls requiring approval are held until the user decides via HostAdapter; approval is bound to a hash of exact args, binding and lease version; timeout denies
 - [ ] **PRXY-06**: Proxy injects OAuth access tokens (with RFC 8707 resource indicators) only on outbound calls; no token appears in any agent-facing response or error (adversarial tests)
 - [ ] **PRXY-07**: Customer-side OAuth revocation detected via invalid_grant/401 moves the lease to `revoked` (actor `provider`)
 - [ ] **PRXY-08**: Token refresh is serialized per credential
@@ -151,7 +151,7 @@
 | PRXY-02 | Phase 2 | Complete |
 | PRXY-03 | Phase 2 | Complete |
 | PRXY-04 | Phase 4 | Complete |
-| PRXY-05 | Phase 4 | Pending |
+| PRXY-05 | Phase 4 | Complete |
 | PRXY-06 | Phase 4 | Pending |
 | PRXY-07 | Phase 4 | Pending |
 | PRXY-08 | Phase 4 | Pending |
