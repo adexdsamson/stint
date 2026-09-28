@@ -40,7 +40,7 @@
 
 ### Receipts
 
-- [ ] **RCPT-01**: Every tool call, allowed or denied, appends a receipt with args hash and binding-redacted summary; raw args and secrets never appear
+- [x] **RCPT-01**: Every tool call, allowed or denied, appends a receipt with args hash and binding-redacted summary; raw args and secrets never appear
 - [x] **RCPT-02**: Receipts are hash-chained using a single canonical serializer with a golden-hash fixture test
 - [x] **RCPT-03**: Runtime signs chain checkpoints with Ed25519, including a final signed receipt at teardown
 - [x] **RCPT-04**: Publisher-signed attested entries live in a separate chain; each chain verifies independently
@@ -50,7 +50,7 @@
 
 ### Proxy Enforcement
 
-- [ ] **PRXY-01**: Agent connects to the proxy as an MCP server and sees only tools permitted by its lease
+- [x] **PRXY-01**: Agent connects to the proxy as an MCP server and sees only tools permitted by its lease
 - [x] **PRXY-02**: Every `tools/call` is decided by a pure policy function; calls with no runtime-owned connector binding are denied
 - [x] **PRXY-03**: Tool-to-(resource, access, irreversible) classification comes only from runtime-owned bindings, never from the manifest (tested)
 - [ ] **PRXY-04**: `actions_per_hour`, total action cap and `spend` limits are enforced per lease under concurrent calls (per-lease serialization)
@@ -140,14 +140,14 @@
 | LIC-03 | Phase 3 | Complete |
 | LIC-04 | Phase 5 | Pending |
 | LIC-05 | Phase 4 | Pending |
-| RCPT-01 | Phase 4 | Pending |
+| RCPT-01 | Phase 4 | Complete |
 | RCPT-02 | Phase 3 | Complete |
 | RCPT-03 | Phase 3 | Complete |
 | RCPT-04 | Phase 3 | Complete |
 | RCPT-05 | Phase 3 | Complete |
 | RCPT-06 | Phase 3 | Complete |
 | RCPT-07 | Phase 5 | Pending |
-| PRXY-01 | Phase 4 | Pending |
+| PRXY-01 | Phase 4 | Complete |
 | PRXY-02 | Phase 2 | Complete |
 | PRXY-03 | Phase 2 | Complete |
 | PRXY-04 | Phase 4 | Pending |

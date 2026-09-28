@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-09-28T13:44:05.930Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-09-28T14:20:55.596Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: d483e14e825732788ce8968bc1ab719bcb67c108
+state_head: 948b2599750f7fdf4c829743a638288562e9fe3f
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 04 execution started
 
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P06 | 45min | 3 tasks | 9 files |
 | Phase 03 P04 | 20min | 3 tasks | 5 files |
 | Phase 04 P01 | 15min | 3 tasks | 10 files |
+| Phase 04 P02 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-01: RED phase for LeaseCounters.actionTimestamps used pnpm typecheck (tsc -b) as the failing-test runner, not vitest, since the additive field is a compile-time-only interface change esbuild's runtime transform doesn't enforce
 - [Phase 04]: [Phase 04] 04-01: actionTimestamps is data-only this plan; sliding-window pruning/actions_per_hour enforcement deferred to plan 04-03
 - [Phase 04]: [Phase 04] 04-01: PRXY-04 requirement checkbox intentionally NOT marked complete despite the plan frontmatter's requirements:[PRXY-04] tag — this plan only lays the additive LeaseCounters.actionTimestamps groundwork; actual actions_per_hour/spend enforcement under concurrency (PRXY-04's real acceptance criteria) lands in plan 04-03, which should mark it complete
+- [Phase 04]: [Phase 04] 04-02: resolveEffectiveBinding (dispatch.ts) is the ONE place tools/list visibility and tools/call authorization both resolve a binding through, collapsing both an unbound tool and a bound-but-out-of-scope tool to the same no_binding denial
+- [Phase 04]: [Phase 04] 04-02: an errored execute() is receipted as outcome: denied with a fixed generic redactedSummary (execute_failed), never the underlying error message, since a connector error could carry request/arg material
+- [Phase 04]: [Phase 04] 04-02: kept the low-level MCP Server per RESEARCH.md Pattern 1; suppressed the resulting @typescript-eslint/no-deprecated lint error with two narrow, justified eslint-disable-next-line comments
 
 ### Pending Todos
 
@@ -136,6 +140,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T13:43:04.452Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-09-28T14:20:54.596Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
