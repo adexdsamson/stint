@@ -39,7 +39,14 @@ findings:
   warning: 2
   info: 1
   total: 4
-status: issues_found
+status: fixed
+resolved: 2026-09-28
+resolution: >
+  All 4 findings fixed and committed (TDD for CR-01). CR-01: verifyChain now
+  anchors checkpoint.headHash to the actual chain content at the checkpoint
+  boundary (b661b8e RED, bbc4345 fix, 3ed11da attested inheritance). WR-01:
+  verifyLicense direct claims.lease_id cross-check (8529a3c). WR-02: engines.node
+  floor bumped to >=22.18.0 (0af812a). typecheck + build clean; core 198/198.
 ---
 
 # Phase 03: Code Review Report
@@ -47,7 +54,7 @@ status: issues_found
 **Reviewed:** 2026-09-28T08:04:59Z
 **Depth:** standard
 **Files Reviewed:** 29
-**Status:** issues_found
+**Status:** fixed (all 4 findings resolved 2026-09-28)
 
 ## Summary
 
