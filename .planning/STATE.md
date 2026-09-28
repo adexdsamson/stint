@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-09-28T22:09:27.673Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-09-28T22:40:44.800Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: a3aa6eb9986a6c7af61cb40c04d4af456219b9fe
+state_head: b5dae25ccb54e33f3f665e845670d5c95584c144
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 25
+  completed_plans: 26
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 05 execution started
 
@@ -81,6 +81,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P06 | 25min | 3 tasks | 8 files |
 | Phase 04 P07 | 25min | 2 tasks | 6 files |
 | Phase 05 P01 | 20min | 2 tasks | 7 files |
+| Phase 05 P02 | 15min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-07: fixed a pre-existing deny-by-default gap in @stint/core/src/policy.ts -- evaluatePolicy never checked lease.state, so a revoked lease's calls could still be allowed; added POLICY_REASON_CODES.lease_not_active and a Step 2 check (Rule 2 deviation, outside this plan's declared files_modified but required by its own must_have)
 - [Phase 05]: 05-01: TeardownStepPayload.outcome widened enum (ok/not_applicable/attested_ok) landed as the additive receipt-schema vocabulary D-24 needs, golden-hash vector unaffected
 - [Phase 05]: 05-01: Lease.teardownProgress optional field + TeardownStepName/Outcome/Progress types added additively; reduce() needed no edit since its existing spread already carries the field forward; makeTestLease exported + makeTearingDownTestLease fixture added to @stint/core/testing
+- [Phase 05]: [Phase 05] 05-02: Grammar surface confirmed at checkpoint (count/sum/exists, single optional filter, numeric outer compare, exists as numeric truthiness, invalid_predicate code); sum's aggregate-field syntax (sum(rows.amount ...)) was Claude's Discretion within D-01's bound.
+- [Phase 05]: [Phase 05] 05-02: invalid_predicate was added to SPEC_ERROR_CODES in Task 2's commit (Rule 3 blocking fix) rather than Task 3's, since parse.ts's own Result<PredicateAst> rejection needed the code to type-check under tsc -b; Task 3's own errors.ts action became a documented no-op.
 
 ### Pending Todos
 
@@ -163,6 +166,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T22:09:27.233Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-09-28T22:40:33.086Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
