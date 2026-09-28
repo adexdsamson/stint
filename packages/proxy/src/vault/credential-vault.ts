@@ -18,8 +18,8 @@
  * with zero additional token-endpoint hits.
  */
 
-import { refreshAccessToken } from "./oauth-client.js";
-import type { OAuthClient, RefreshOptions, SeededCredential } from "./oauth-client.js";
+import { refreshAccessToken, revokeCredential } from "./oauth-client.js";
+import type { OAuthClient, RefreshOptions, RevokeResult, SeededCredential } from "./oauth-client.js";
 
 /** The vault's public surface (D-04). No method returns the raw store; only `resolveAccessToken` reads a token out. */
 export interface CredentialVault {
@@ -35,6 +35,46 @@ export interface CredentialVault {
    * stale "success."
    */
   resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string>;
+  /**
+   * Teardown step 1 (D-22, D-23): for every credential currently seeded
+   * under `leaseId`, calls {@link revokeCredential} internally with the
+   * refresh token this vault holds (the token never leaves the vault) and
+   * then DELETES that entry from the vault -- regardless of the resulting
+   * `RevokeResult` (revoked, unsupported, or failed). The runtime always
+   * discards its own copy, even on a failed or unsupported revoke, so it
+   * never retains a usable credential post-teardown. Returns the honest
+   * per-credential outcome so the caller (teardown step 1) can receipt each
+   * one individually. A lease with no seeded credentials returns an empty
+   * array and makes no revoke call -- the caller maps that to
+   * `not_applicable` (D-33, hosted-only lease).
+   */
+  revokeAndDiscardLeaseCredentials(
+    leaseId: string,
+    now: number,
+  ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>>;
+  /**
+   * Deletes every credential seeded under `leaseId` WITHOUT attempting any
+   * revoke call -- used by teardown step 4 ("delete cached data", a later
+   * plan) once step 1 has already made its terminal, one-time revoke
+   * attempt (D-23). Idempotent: deleting an already-discarded lease's
+   * credentials is a no-op.
+   */
+  discardLeaseCredentials(leaseId: string): void;
+}
+
+/** Every credential key currently seeded for `leaseId`, resolved back to its bare `resource` (the inverse of {@link keyFor}). The trailing colon in the prefix check prevents a lease id that is a string-prefix of another (e.g. "lease-1" vs "lease-10") from matching the wrong lease's entries. */
+function leaseCredentialEntries(
+  credentials: Map<string, SeededCredential>,
+  leaseId: string,
+): ReadonlyArray<{ readonly key: string; readonly resource: string; readonly credential: SeededCredential }> {
+  const prefix = `${leaseId}:`;
+  const entries: Array<{ key: string; resource: string; credential: SeededCredential }> = [];
+  for (const [key, credential] of credentials) {
+    if (key.startsWith(prefix)) {
+      entries.push({ key, resource: key.slice(prefix.length), credential });
+    }
+  }
+  return entries;
 }
 
 /**
@@ -134,6 +174,36 @@ export function createCredentialVault(
         }
         throw new CredentialRefreshError(key, "transient_error", result.cause);
       });
+    },
+
+    async revokeAndDiscardLeaseCredentials(
+      leaseId: string,
+      // Accepted for interface symmetry with `resolveAccessToken`'s injected
+      // clock discipline and future auditability -- the revoke call itself
+      // carries no expiry/timing logic of its own, so it is unused here.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      _now: number,
+    ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>> {
+      const entries = leaseCredentialEntries(credentials, leaseId);
+      const outcomes: Array<{ resource: string; result: RevokeResult }> = [];
+
+      for (const { key, resource, credential } of entries) {
+        const result = await revokeCredential(oauthClient, credential.refreshToken, refreshOpts);
+        // Always discard the runtime's own copy (D-22) -- regardless of
+        // revoked, discarded_revocation_unsupported, or failed. This is not
+        // gated on `result.kind`: even a failed revoke attempt permanently
+        // ends this credential's custody in the vault.
+        credentials.delete(key);
+        outcomes.push({ resource, result });
+      }
+
+      return outcomes;
+    },
+
+    discardLeaseCredentials(leaseId: string): void {
+      for (const { key } of leaseCredentialEntries(credentials, leaseId)) {
+        credentials.delete(key);
+      }
     },
   };
 }

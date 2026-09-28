@@ -162,6 +162,14 @@ describe("credential-vault: single-flight refresh (PRXY-08)", () => {
   });
 
   it("the raw token store is not reachable from any exported symbol", () => {
-    expect(Object.keys(vault).sort()).toEqual(["resolveAccessToken", "seedCredential"]);
+    // 05-04 (D-22, D-23): revokeAndDiscardLeaseCredentials/discardLeaseCredentials
+    // are additive teardown-step-1 methods -- neither returns a raw token,
+    // preserving the custody boundary this test asserts.
+    expect(Object.keys(vault).sort()).toEqual([
+      "discardLeaseCredentials",
+      "resolveAccessToken",
+      "revokeAndDiscardLeaseCredentials",
+      "seedCredential",
+    ]);
   });
 });
