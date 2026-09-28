@@ -43,8 +43,7 @@ const tokensByHandle = new WeakMap<HeldLicense, string>();
  * silently returning `undefined`.
  */
 export function mintHeldLicense(token: string): HeldLicense {
-  // TODO(03-06 Task 2 GREEN): freeze the minted handle so it cannot be mutated post-construction.
-  const held = {} as HeldLicense;
+  const held = Object.freeze({}) as HeldLicense;
   tokensByHandle.set(held, token);
   return held;
 }

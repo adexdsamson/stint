@@ -10,6 +10,15 @@
  * `min(now + defaultTTL, lease.expiresAt)` clamp the caller already applied.
  * `kid` is carried only in the token's footer -- authenticated but public,
  * non-secret (PITFALLS.md Pitfall 4) -- never as a claim.
+ *
+ * `issueLicense` itself still returns the raw signed token string: it is the
+ * reference signing primitive an injectable `LicenseIssuer` implementation
+ * composes (`@stint/core/testing`'s mock publisher, Phase 7's mock
+ * publisher), not something `@stint/core` proper calls directly. A
+ * `LicenseIssuer` implementation MUST wrap this function's return value in a
+ * `HeldLicense` via `held-license.js`'s `mintHeldLicense` before the token
+ * leaves the issuer boundary -- no agent-facing, receipt-facing, or
+ * customer-resource-facing code may hold the bare string (D-15, LIC-05).
  */
 
 import { PublicProtocol } from "paseto";
