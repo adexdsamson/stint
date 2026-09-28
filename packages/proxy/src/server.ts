@@ -77,8 +77,18 @@ function toWireTool(name: string, catalog: ToolCatalog): Tool {
  * Constructs the agent-facing `Server` for exactly one lease. `tools/list`
  * is a static handler computed once here -- never recomputed per request,
  * never influenced by anything the agent supplies (D-10).
+ *
+ * The low-level `Server` is deliberately used instead of `McpServer`: its
+ * own `@deprecated` note reads "Only use `Server` for advanced use cases"
+ * -- a per-lease, policy-gated, statically-filtered tool list is exactly
+ * that. `McpServer.registerTool()`'s `inputSchema` is Zod-typed only, while
+ * the runtime-owned catalog (D-08) is JSON-Schema-shaped and needs zero
+ * conversion against `Server`'s wire `Tool.inputSchema` field (RESEARCH.md
+ * Pattern 1 / Pitfall 1).
  */
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- see docstring above; Server is the correct choice here, not McpServer.
 export function createLeaseProxyServer(deps: ProxyDeps): Server {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- see docstring above; Server is the correct choice here, not McpServer.
   const server = new Server({ name: "stint-proxy", version: "0.1.0" }, { capabilities: { tools: {} } });
 
   const visibleTools: Tool[] = Object.keys(deps.catalog)
