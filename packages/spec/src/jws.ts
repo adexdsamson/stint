@@ -38,7 +38,9 @@ export const JWS_PROTECTED_B64: string = base64url.encode(JSON.stringify(JWS_PRO
  * Appendix F).
  */
 export async function signDetached(payload: Uint8Array, privateKey: CryptoKey): Promise<string> {
-  const jws = await new FlattenedSign(payload).setProtectedHeader(JWS_PROTECTED_HEADER).sign(privateKey);
+  const jws = await new FlattenedSign(payload)
+    .setProtectedHeader(JWS_PROTECTED_HEADER)
+    .sign(privateKey);
   return jws.signature;
 }
 
@@ -49,7 +51,11 @@ export async function signDetached(payload: Uint8Array, privateKey: CryptoKey): 
  * callers can map every failure mode to the same fixed `invalid_signature`
  * error without ever forwarding jose's exception text (T-01-15).
  */
-export async function verifyDetached(payload: Uint8Array, signature: string, publicKey: CryptoKey): Promise<boolean> {
+export async function verifyDetached(
+  payload: Uint8Array,
+  signature: string,
+  publicKey: CryptoKey,
+): Promise<boolean> {
   try {
     await flattenedVerify(
       { protected: JWS_PROTECTED_B64, payload: base64url.encode(payload), signature },

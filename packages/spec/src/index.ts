@@ -3,7 +3,12 @@ export const SPEC_VERSION = "alp/0.1";
 export { SPEC_ERROR_CODES } from "./errors.js";
 export type { SpecErrorCode, SpecError, Result } from "./errors.js";
 
-export { SUPPORTED_SPEC_VERSIONS, validateManifest, validateEnvelopeShape, resolveAuthMode } from "./validate.js";
+export {
+  SUPPORTED_SPEC_VERSIONS,
+  validateManifest,
+  validateEnvelopeShape,
+  resolveAuthMode,
+} from "./validate.js";
 
 export {
   CONTENT_HASH_PREFIX,

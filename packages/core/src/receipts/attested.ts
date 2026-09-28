@@ -45,7 +45,8 @@ function ownEntry(record: object, key: string): unknown {
 function readEd25519PublicJwk(candidateRaw: unknown): Ed25519PublicJwk | null {
   if (typeof candidateRaw !== "object" || candidateRaw === null) return null;
   const candidate = candidateRaw as Record<string, unknown>;
-  if (candidate.kty !== "OKP" || candidate.crv !== "Ed25519" || typeof candidate.x !== "string") return null;
+  if (candidate.kty !== "OKP" || candidate.crv !== "Ed25519" || typeof candidate.x !== "string")
+    return null;
   return { kty: "OKP", crv: "Ed25519", x: candidate.x };
 }
 

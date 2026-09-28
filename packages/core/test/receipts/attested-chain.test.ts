@@ -120,7 +120,9 @@ describe("verifyAttestedChain: reports the exact break point", () => {
     const chain = loadAttestedChain();
     const trustStore = loadTrustStore();
     const tampered: AttestedClaimEntry[] = chain.map((entry, i) =>
-      i === 1 ? { ...entry, payload: { ...entry.payload, claimHash: "jcs-sha256:" + "f".repeat(64) } } : entry,
+      i === 1
+        ? { ...entry, payload: { ...entry.payload, claimHash: "jcs-sha256:" + "f".repeat(64) } }
+        : entry,
     );
 
     const result = await verifyAttestedChain(tampered, trustStore);
