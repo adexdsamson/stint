@@ -174,7 +174,17 @@ function reject(brokenAtSeq: number, reason: ReceiptVerifyReason): Result<never>
  * anchor). The walk then runs exactly as the no-checkpoint path; once it
  * succeeds, a chain shorter than the checkpoint's `count` (entries removed
  * after the last checkpoint) reports `"truncated"`, `brokenAtSeq` at the
- * first absent seq (`chain.length`).
+ * first absent seq (`chain.length`). Finally (CR-01), the hash actually
+ * computed for the chain at the checkpoint's own `count` boundary — the
+ * genesis hash when `checkpoint.count === 0` (IN-01), otherwise
+ * `entryHashes[checkpoint.count - 1]` — is compared against
+ * `checkpoint.headHash`; a mismatch reports `"hash_mismatch"` at
+ * `checkpoint.count - 1` (`0` when `checkpoint.count === 0`). Internal
+ * self-consistency alone never proves the supplied `chain` is the SAME
+ * content the checkpoint was signed over — a same-length-or-longer
+ * substitution can be made internally consistent by whoever controls it, so
+ * this boundary-hash comparison is what actually anchors the checkpoint to
+ * real content rather than merely to a minimum length.
  *
  * A broken `prevHash` link during the walk is reported as `"reordered"`
  * when either the entry's own `seq` does not equal its position in `chain`
@@ -226,8 +236,26 @@ export async function verifyChain(
   const headHash = expectedPrevHash;
   const count = chain.length;
 
-  if (checkpoint !== undefined && count < checkpoint.count) {
-    return reject(count, "truncated");
+  if (checkpoint !== undefined) {
+    if (count < checkpoint.count) {
+      return reject(count, "truncated");
+    }
+
+    // The walk above only proves internal self-consistency of whatever
+    // `chain` was supplied -- it says nothing about whether that content is
+    // the SAME content the checkpoint was actually signed over. An attacker
+    // who can substitute the persisted chain can always keep the
+    // substitution internally consistent, so this comparison against the
+    // checkpoint's own claimed `headHash` at its own claimed `count`
+    // boundary is the only thing that detects a same-length-or-longer
+    // wholesale content substitution (CR-01). `checkpoint.count === 0`
+    // (IN-01) asserts "the chain was empty at this point", which compares
+    // against `GENESIS_PREV_HASH` rather than indexing `entryHashes[-1]`.
+    const boundaryHash =
+      checkpoint.count === 0 ? GENESIS_PREV_HASH : entryHashes[checkpoint.count - 1];
+    if (boundaryHash !== checkpoint.headHash) {
+      return reject(checkpoint.count === 0 ? 0 : checkpoint.count - 1, "hash_mismatch");
+    }
   }
 
   return { ok: true, value: { headHash, count } };
