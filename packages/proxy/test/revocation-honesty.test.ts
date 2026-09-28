@@ -240,3 +240,89 @@ describe("teardown step 1 (revoke_oauth): real implementation over the vault (D-
     }
   });
 });
+
+// --- Task 3: Pitfall-5 honesty matrix over the mock AS ---------------------
+// (TEAR-02, TEAR-05)
+
+const SEEDED_ACCESS_TOKEN = "access-token-pitfall5-must-never-leak";
+const SEEDED_REFRESH_TOKEN = "refresh-token-pitfall5-must-never-leak";
+
+function seedDistinctiveCredential(vault: CredentialVault, leaseId: string): void {
+  vault.seedCredential(leaseId, RESOURCE, {
+    accessToken: SEEDED_ACCESS_TOKEN,
+    refreshToken: SEEDED_REFRESH_TOKEN,
+    expiry: NOW + 3600,
+    tokenEndpoint: "unused-in-these-tests",
+    resourceIndicator: RESOURCE,
+  });
+}
+
+/** Asserts exactly one `teardown_step` receipt was appended, carrying `step: "revoke_oauth"` and the expected `outcome` -- and that NEITHER seeded token string appears anywhere in the serialized chain (Pitfall 8 scrub discipline, D-24). */
+async function expectSecretlessRevokeOauthReceipt(
+  receiptStore: ReturnType<typeof createInMemoryReceiptStore>,
+  expectedOutcome: string,
+): Promise<void> {
+  const chain = await receiptStore.load("verified");
+  expect(chain).toHaveLength(1);
+  const [entry] = chain;
+  if (entry === undefined) throw new Error("expected exactly one receipt entry");
+  expect(entry.type).toBe("teardown_step");
+  if (entry.type === "teardown_step") {
+    expect(entry.payload).toEqual({ step: "revoke_oauth", outcome: expectedOutcome });
+  }
+
+  const serializedChain = JSON.stringify(chain);
+  expect(serializedChain).not.toContain(SEEDED_ACCESS_TOKEN);
+  expect(serializedChain).not.toContain(SEEDED_REFRESH_TOKEN);
+}
+
+describe("Pitfall-5 honesty matrix through step 1 (TEAR-02, TEAR-05)", () => {
+  it("2xx-without-revoking (the mock AS's real /revoke: always 200, no reuse-detection) records revoked -- the honest structural ceiling, never a stronger 'confirmed' claim", async () => {
+    const leaseId = "lease-pitfall5-2xx";
+    const harness = await startMockAuthServer();
+    try {
+      expect(harness.oauthClient.as.revocation_endpoint).toBeDefined();
+
+      const vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
+      seedDistinctiveCredential(vault, leaseId);
+      const { step, receiptStore } = await buildRevokeOauthStep(vault);
+      const lease: Lease = makeTestLease(leaseId);
+
+      const outcome = await step.run(lease, NOW);
+
+      expect(outcome).toBe("revoked");
+      await expect(vault.resolveAccessToken(leaseId, RESOURCE, NOW)).rejects.toThrow();
+      await expectSecretlessRevokeOauthReceipt(receiptStore, "revoked");
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("the distinguisher: an AS with NO revocation_endpoint records discarded_revocation_unsupported", async () => {
+    const leaseId = "lease-pitfall5-absent";
+    const vault = createCredentialVault(makeAbsentEndpointClient(), () => NOW);
+    seedDistinctiveCredential(vault, leaseId);
+    const { step, receiptStore } = await buildRevokeOauthStep(vault);
+    const lease: Lease = makeTestLease(leaseId);
+
+    const outcome = await step.run(lease, NOW);
+
+    expect(outcome).toBe("discarded_revocation_unsupported");
+    await expect(vault.resolveAccessToken(leaseId, RESOURCE, NOW)).rejects.toThrow();
+    await expectSecretlessRevokeOauthReceipt(receiptStore, "discarded_revocation_unsupported");
+  });
+
+  it("an AS whose revoke endpoint errors records failed", async () => {
+    const leaseId = "lease-pitfall5-erroring";
+    const vault = createCredentialVault(makeErroringEndpointClient(), () => NOW, { allowInsecureRequests: true });
+    seedDistinctiveCredential(vault, leaseId);
+    const { step, receiptStore } = await buildRevokeOauthStep(vault);
+    const lease: Lease = makeTestLease(leaseId);
+
+    const outcome = await step.run(lease, NOW);
+
+    expect(outcome).toBe("failed");
+    await expect(vault.resolveAccessToken(leaseId, RESOURCE, NOW)).rejects.toThrow();
+    await expectSecretlessRevokeOauthReceipt(receiptStore, "failed");
+  });
+});
