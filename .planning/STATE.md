@@ -4,11 +4,11 @@ milestone: v0.1
 current_phase: 5
 current_phase_name: Lease Endings & Teardown
 status: planning
-stopped_at: Phase 04 complete, ready to plan Phase 5
-last_updated: "2026-09-28T19:19:42.539Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-09-28T20:17:14.640Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 complete, transitioned to Phase 5
-state_head: 22fbe99008556419903d1dcac178dc27589d901e
+state_head: 55216b6e4bcd0815f62bed5115422380e6bd54b4
 progress:
   total_phases: 7
   completed_phases: 1
@@ -160,6 +160,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T18:47:17.349Z
-Stopped at: Phase 04 complete, ready to plan Phase 5
-Resume file: None
+Last session: 2026-09-28T20:17:12.962Z
+Stopped at: Phase 5 context gathered
+Resume file: .planning/phases/05-lease-endings-teardown/05-CONTEXT.md
