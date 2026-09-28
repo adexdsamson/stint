@@ -89,12 +89,34 @@ export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";
 export type { LicenseAccessor } from "./vault/execute-stage.js";
 
-// Lazy customer-side OAuth revocation detection (D-09, PRXY-07).
-// `applyProviderRevocation` is the thin `reduce()` + `providerEvents.grantRevoked()`
-// wrapper `dispatch.ts`'s `provider_revoked` catch branch applies to the
-// transaction-loaded lease; `isProviderRevocation` is the transient-vs-
+// Lazy customer-side OAuth revocation detection (D-09, PRXY-07), retrofitted
+// (05-03, D-18, TEAR-01) to auto-chain into the teardown orchestrator.
+// `applyProviderRevocation` chains `reduce()` + `providerEvents.grantRevoked()`
+// then `chainTeardownIfEnded`'s `begin_teardown`, landing `tearing_down`;
+// `dispatch.ts`'s `provider_revoked` catch branch applies it to the
+// transaction-loaded lease. `isProviderRevocation` is the transient-vs-
 // revocation discriminator reused at that same call site.
 export { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+
+// Teardown orchestrator (05-03, TEAR-01). `runTeardown` auto-chains
+// `begin_teardown` from any terminal end state via the shared
+// `chainTeardownIfEnded` helper, walks the fixed 5 steps under the
+// per-lease serializer, persists per-step progress, and lands `cleaned_up`/
+// `cleanup_incomplete`. `TeardownStep`/`createDefaultTeardownSteps` are the
+// injectable per-step port and its production happy-path defaults
+// (hardened by 05-04/05-05/05-06); `TeardownDeps` is `runTeardown`'s
+// construction-time dependency bag.
+export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
+export { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
+export type { TeardownDeps } from "./teardown/orchestrate.js";
+export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
+export type { TeardownStep } from "./teardown/steps.js";
+export {
+  allStepsSucceeded,
+  isSuccessOutcome,
+  recordStepOutcome,
+  remainingSteps,
+} from "./teardown/progress.js";
 
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production
