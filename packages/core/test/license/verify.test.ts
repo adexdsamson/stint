@@ -9,7 +9,8 @@ import type { CryptoKey, JWK } from "jose";
 import { PublicKeyFromCryptoKey } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
 
-import { verifyLicense } from "../../src/license/verify.js";
+import { verifyLicense, LICENSE_CLOCK_SKEW_SECONDS } from "../../src/license/verify.js";
+import { LICENSE_VERIFY_REASONS } from "../../src/license/errors.js";
 
 // packages/core/test/license -> packages/core/test -> packages/core -> packages -> repo root
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +96,125 @@ describe("golden vector: spec/vectors/license/", () => {
     if (!result.ok) {
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]?.reason).toBe("license_invalid_signature");
+    }
+  });
+});
+
+/** Flips one base64url character of the token's payload segment (message+signature), corrupting the signature bytes without altering the token's overall shape. */
+function tamperSignature(token: string): string {
+  const parts = token.split(".");
+  const payload = parts[2];
+  if (payload === undefined || payload.length === 0) {
+    throw new Error("token must have a non-empty payload segment");
+  }
+  const lastChar = payload.at(-1) as string;
+  const replacement = lastChar === "A" ? "B" : "A";
+  parts[2] = payload.slice(0, -1) + replacement;
+  return parts.join(".");
+}
+
+describe("D-14: explicit clock-skew boundary", () => {
+  it("verifying 1s before exp passes", async () => {
+    const claimsVector = loadClaimsVector();
+    const publicKey = await loadVectorPublicKey();
+    const token = readVector("valid-token.txt").trim();
+
+    const result = await verifyLicense(
+      publicKey,
+      token,
+      claimsVector.lease_id,
+      claimsVector.spec_version,
+      claimsVector.exp_epoch_seconds - 1,
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("verifying just inside the skew window (exp + skew - 1) passes", async () => {
+    const claimsVector = loadClaimsVector();
+    const publicKey = await loadVectorPublicKey();
+    const token = readVector("valid-token.txt").trim();
+
+    const result = await verifyLicense(
+      publicKey,
+      token,
+      claimsVector.lease_id,
+      claimsVector.spec_version,
+      claimsVector.exp_epoch_seconds + LICENSE_CLOCK_SKEW_SECONDS - 1,
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("verifying beyond the skew window (exp + skew + 1) fails with the claim-validation code", async () => {
+    const claimsVector = loadClaimsVector();
+    const publicKey = await loadVectorPublicKey();
+    const token = readVector("valid-token.txt").trim();
+
+    const result = await verifyLicense(
+      publicKey,
+      token,
+      claimsVector.lease_id,
+      claimsVector.spec_version,
+      claimsVector.exp_epoch_seconds + LICENSE_CLOCK_SKEW_SECONDS + 1,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.reason).toBe("license_claim_invalid");
+    }
+  });
+});
+
+describe("D-16: tampered signature and sanitized error messages", () => {
+  it("a tampered signature fails with the invalid-signature code", async () => {
+    const claimsVector = loadClaimsVector();
+    const publicKey = await loadVectorPublicKey();
+    const token = tamperSignature(readVector("valid-token.txt").trim());
+
+    const result = await verifyLicense(
+      publicKey,
+      token,
+      claimsVector.lease_id,
+      claimsVector.spec_version,
+      claimsVector.now,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.reason).toBe("license_invalid_signature");
+    }
+  });
+
+  it("every rejection reason is one of the fixed strings and contains no substring of the input token", async () => {
+    const claimsVector = loadClaimsVector();
+    const publicKey = await loadVectorPublicKey();
+    const validToken = readVector("valid-token.txt").trim();
+    const wrongLeaseToken = readVector("invalid-wrong-lease.txt").trim();
+    const tamperedToken = tamperSignature(validToken);
+
+    const cases = [
+      { token: wrongLeaseToken, now: claimsVector.now },
+      { token: tamperedToken, now: claimsVector.now },
+      { token: validToken, now: claimsVector.exp_epoch_seconds + LICENSE_CLOCK_SKEW_SECONDS + 1 },
+    ];
+
+    for (const { token, now } of cases) {
+      const result = await verifyLicense(publicKey, token, claimsVector.lease_id, claimsVector.spec_version, now);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const reason = result.errors[0]?.reason;
+        expect(reason).toBeDefined();
+        expect(LICENSE_VERIFY_REASONS).toContain(reason);
+        // The reason is drawn from a small fixed English vocabulary; it can
+        // never legitimately contain a fragment of a base64url PASETO token,
+        // but assert it explicitly so a future refactor cannot silently
+        // start interpolating token/claim material into the reason (D-16).
+        const tokenFragment = token.slice(20, 40);
+        expect(reason).not.toContain(tokenFragment);
+      }
     }
   });
 });
