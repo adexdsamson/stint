@@ -45,6 +45,17 @@ export type { ToolCatalog, ToolCatalogEntry } from "./catalog.js";
 // (above) stays a naive placeholder for callers that haven't wired real caps.
 export { createCapEnforcer } from "./caps/cap-enforcer.js";
 
+// Out-of-band approvals (PRXY-05, D-11). `createApprovalDispatcher` is the
+// real `ApprovalStage` implementation -- the production value a
+// `ProxyDeps.approve` should be constructed with (a real `HostAdapter` +
+// `manifest.approvals.timeout_seconds`); `DEFAULT_APPROVAL_STAGE` (above)
+// stays a deny-by-default placeholder. `computeApprovalHash` is the single
+// D-11 commitment-hash function (`hashCanonical({ args, tool, provenance,
+// leaseVersion })`) -- exported so a platform can independently verify a
+// receipted approval's commitment offline.
+export { computeApprovalHash, createApprovalDispatcher } from "./approvals/approval-dispatcher.js";
+export type { PendingApproval } from "./approvals/approval-dispatcher.js";
+
 // Per-call receipt builder (D-13, RCPT-01). `buildCallPayload` produces the
 // secretless `CallPayload` (re-exported from `@stint/core`); `appendCallReceipt`
 // is the sole append path for a `type: "call"` verified-chain entry.

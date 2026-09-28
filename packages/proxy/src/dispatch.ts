@@ -29,9 +29,10 @@ import type {
   Lease,
   PolicyCall,
 } from "@stint/core";
-import type { Access, Limits } from "@stint/spec";
+import type { Access, ContentHash, Limits } from "@stint/spec";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
+import { computeApprovalHash } from "./approvals/approval-dispatcher.js";
 import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
@@ -48,6 +49,8 @@ export interface CallContext {
   readonly tool: string;
   readonly resolvedArgs: Readonly<Record<string, unknown>>;
   readonly binding: ConnectorBinding;
+  /** The lease's `version` at the moment this `CallContext` was built (D-11) -- part of the approval commitment tuple `createApprovalDispatcher` hashes against. */
+  readonly leaseVersion: number;
 }
 
 /** The outbound execution seam (D-01/D-02) -- plan 04-05 supplies the real vault-backed implementation. */
@@ -55,15 +58,33 @@ export interface ExecuteStage {
   execute(ctx: CallContext): Promise<{ readonly status: number; readonly body: unknown }>;
 }
 
-/** The out-of-band approval decision for `send`/`pay`/`irreversible` calls (D-11, PRXY-05). Deny-by-default. */
+/**
+ * The out-of-band approval decision for `send`/`pay`/`irreversible` calls
+ * (D-11, PRXY-05). Deny-by-default. `approvalId` is present only on
+ * `approve` -- the opaque handle `handleCall` passes to
+ * `ApprovalStage.verifyCommitment` to recompute-and-match the commitment
+ * hash against the CURRENT args/binding/lease-version before the call is
+ * allowed to proceed.
+ */
 export interface ApprovalDecision {
   readonly decision: "approve" | "deny";
   readonly reason?: string;
+  readonly approvalId?: string;
 }
 
-/** Requests an out-of-band approval for a call `evaluatePolicy` flagged `require_approval` -- plan 04-04 supplies the real HostAdapter-backed implementation (`awaitApprovalDecision` + a real `AbortSignal` timeout). */
+/**
+ * Requests an out-of-band approval for a call `evaluatePolicy` flagged
+ * `require_approval` -- `createApprovalDispatcher`
+ * (`approvals/approval-dispatcher.ts`, plan 04-04) supplies the real
+ * HostAdapter-backed implementation (`awaitApprovalDecision` + a real
+ * `AbortSignal` timeout). `verifyCommitment` is the ONLY way `handleCall`
+ * checks a held approval's commitment hash for an exact match against the
+ * CURRENT args + binding + lease version at execution time (D-11) -- any
+ * drift denies the reused approval as a new request.
+ */
 export interface ApprovalStage {
   requestApproval(ctx: CallContext, requirement: ApprovalRequirement, now: number): Promise<ApprovalDecision>;
+  verifyCommitment(approvalId: string, currentHash: ContentHash): boolean;
 }
 
 /** The result of an additional lease-limit check beyond `evaluatePolicy`'s own (e.g. the actions_per_hour sliding window, PRXY-04). */
@@ -93,10 +114,13 @@ export const DEFAULT_EXECUTE_STAGE: ExecuteStage = {
   },
 };
 
-/** Production-safe default `ApprovalStage`: deny-by-default until plan 04-04 wires the real out-of-band HostAdapter path. */
+/** Production-safe default `ApprovalStage`: deny-by-default -- never approves, so `verifyCommitment` is never meaningfully called, but the interface requires an implementation (always `false`, matching the deny-by-default discipline). */
 export const DEFAULT_APPROVAL_STAGE: ApprovalStage = {
   requestApproval() {
     return Promise.resolve({ decision: "deny", reason: "no ApprovalStage configured" });
+  },
+  verifyCommitment() {
+    return false;
   },
 };
 
@@ -206,12 +230,49 @@ export async function handleCall(
           "@stint/proxy: invariant violated -- evaluatePolicy returned a non-deny decision with no binding.",
         );
       }
-      const ctx: CallContext = { leaseId: deps.leaseId, tool: params.name, resolvedArgs, binding };
+      const ctx: CallContext = {
+        leaseId: deps.leaseId,
+        tool: params.name,
+        resolvedArgs,
+        binding,
+        leaseVersion: lease.version,
+      };
 
       if (decision.decision === "require_approval") {
         const approval = await deps.approve.requestApproval(ctx, decision.requirement, now);
         if (approval.decision === "deny") {
           detail = approval.reason ?? "approval_denied";
+          result = denyResult(detail);
+          return nextLease;
+        }
+
+        // Recompute-and-match (D-11, PRXY-05): a held approval's commitment
+        // is only valid for the EXACT args + binding identity + lease
+        // version it was minted against. Re-derive the binding and lease
+        // fresh here -- never trust the pre-hold `binding`/`lease` closures
+        // alone -- so a hot-swapped binding or a lease-version bump that
+        // happened during the out-of-band hold is caught, not silently
+        // reused. All three D-11 drift vectors (arg change, binding
+        // hot-swap, lease-version advance) collapse to the same
+        // `approval_drifted` denial; the reused approval is a new request.
+        const currentBinding = resolveEffectiveBinding(
+          deps.bindings,
+          deps.grantedScopes,
+          deps.grantedResources,
+          params.name,
+        );
+        const currentLease = (await deps.leaseStore.load(deps.leaseId)) ?? lease;
+        const currentHash =
+          currentBinding !== undefined
+            ? computeApprovalHash(resolvedArgs, currentBinding, currentLease.version)
+            : undefined;
+        const isCommitmentValid =
+          approval.approvalId !== undefined &&
+          currentHash !== undefined &&
+          deps.approve.verifyCommitment(approval.approvalId, currentHash);
+
+        if (!isCommitmentValid) {
+          detail = "approval_drifted";
           result = denyResult(detail);
           return nextLease;
         }

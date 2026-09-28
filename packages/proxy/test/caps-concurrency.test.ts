@@ -214,10 +214,18 @@ const PAY_BINDING: ConnectorBinding = {
   provenance: "built_in",
 };
 
-/** Approves every call instantly -- only used to get a `pay` call past the require_approval gate so the spend-cap boundary itself is what's under test. */
+/**
+ * Approves every call instantly -- only used to get a `pay` call past the
+ * require_approval gate so the spend-cap boundary itself is what's under
+ * test. `verifyCommitment` always matches (04-04's recompute-and-match, not
+ * under test here) so it never itself denies.
+ */
 const ALWAYS_APPROVE: ApprovalStage = {
   requestApproval() {
-    return Promise.resolve({ decision: "approve" });
+    return Promise.resolve({ decision: "approve", approvalId: "always-approve" });
+  },
+  verifyCommitment() {
+    return true;
   },
 };
 
