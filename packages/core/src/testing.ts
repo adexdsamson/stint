@@ -254,7 +254,7 @@ export function createReceiptStoreContractTests(makeStore: () => ReceiptStore): 
           {
             chain: "verified",
             type: "transition",
-            payload: { from: `state-${i}`, event: "advance", actor: "runtime", to: `state-${i + 1}` },
+            payload: { from: `state-${String(i)}`, event: "advance", actor: "runtime", to: `state-${String(i + 1)}` },
           },
           1000 + i,
         );
@@ -275,7 +275,7 @@ export function createReceiptStoreContractTests(makeStore: () => ReceiptStore): 
           {
             chain: "verified",
             type: "transition",
-            payload: { from: `state-${i}`, event: "advance", actor: "runtime", to: `state-${i + 1}` },
+            payload: { from: `state-${String(i)}`, event: "advance", actor: "runtime", to: `state-${String(i + 1)}` },
           },
           1000 + i,
         );

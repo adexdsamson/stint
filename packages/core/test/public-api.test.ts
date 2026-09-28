@@ -24,6 +24,15 @@ import {
   LICENSE_CLOCK_SKEW_SECONDS,
   readLicenseToken,
   LICENSE_VERIFY_REASONS,
+  appendEntry,
+  verifyChain,
+  GENESIS_PREV_HASH,
+  signCheckpoint,
+  verifyCheckpoint,
+  verifyAttestedEntry,
+  verifyAttestedChain,
+  mergeTimeline,
+  RECEIPT_VERIFY_REASONS,
 } from "../src/index.js";
 import type {
   Lease,
@@ -35,6 +44,9 @@ import type {
   LicenseIssuer,
   LicenseClaims,
   VerifiedLicense,
+  ReceiptStore,
+  ReceiptEntry,
+  Checkpoint,
 } from "../src/index.js";
 
 describe("@stint/core public API surface (HOST-01)", () => {
@@ -113,6 +125,35 @@ describe("@stint/core public API surface (HOST-01)", () => {
       licenseIssuer?: LicenseIssuer;
       licenseClaims?: LicenseClaims;
       verifiedLicense?: VerifiedLicense;
+    } = {};
+    expect(typeCheck).toEqual({});
+  });
+
+  it("exports the receipts public surface (RCPT-02, RCPT-03, RCPT-04, RCPT-05, D-08, D-09)", () => {
+    expect(typeof appendEntry).toBe("function");
+    expect(typeof verifyChain).toBe("function");
+    expect(typeof signCheckpoint).toBe("function");
+    expect(typeof verifyCheckpoint).toBe("function");
+    expect(typeof verifyAttestedEntry).toBe("function");
+    expect(typeof verifyAttestedChain).toBe("function");
+    expect(typeof mergeTimeline).toBe("function");
+    expect(typeof GENESIS_PREV_HASH).toBe("string");
+    expect(Array.isArray(RECEIPT_VERIFY_REASONS)).toBe(true);
+  });
+
+  it("does not export the receipts test doubles from the main entry (T-03-11, D-14)", async () => {
+    const barrel = (await import("../src/index.js")) as Record<string, unknown>;
+    expect(barrel.createInMemoryReceiptStore).toBeUndefined();
+    expect(barrel.createReceiptStoreContractTests).toBeUndefined();
+  });
+
+  it("compiles type-only imports of the receipts contract shapes", () => {
+    // Compile-time-only check: if any of these types were removed from the
+    // barrel, this file would fail to type-check.
+    const typeCheck: {
+      receiptStore?: ReceiptStore;
+      receiptEntry?: ReceiptEntry;
+      checkpoint?: Checkpoint;
     } = {};
     expect(typeCheck).toEqual({});
   });

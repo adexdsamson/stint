@@ -50,3 +50,30 @@ export type { HeldLicense } from "./license/held-license.js";
 export type { LicenseIssuer } from "./license/license-issuer.js";
 export { LICENSE_VERIFY_REASONS } from "./license/errors.js";
 export type { LicenseVerifyReason } from "./license/errors.js";
+
+// Receipts public surface (RCPT-02, RCPT-03, RCPT-04, RCPT-05, RCPT-06,
+// D-08, D-09, T-03-11). `@stint/core/testing`'s createInMemoryReceiptStore
+// and createReceiptStoreContractTests are deliberately NOT re-exported here
+// -- ./testing stays testing-only (D-14).
+export { appendEntry, verifyChain, GENESIS_PREV_HASH, canonicalizeEntry } from "./receipts/chain.js";
+export type { ReceiptEntryInput } from "./receipts/chain.js";
+export { signCheckpoint, verifyCheckpoint } from "./receipts/checkpoint.js";
+export { verifyAttestedEntry, verifyAttestedChain } from "./receipts/attested.js";
+export { mergeTimeline } from "./receipts/merge.js";
+export type { TimelineEntry, TimelineOrigin } from "./receipts/merge.js";
+export { RECEIPT_VERIFY_REASONS } from "./receipts/errors.js";
+export type { ReceiptVerifyReason, ChainVerifyFailure } from "./receipts/errors.js";
+export type { ReceiptStore } from "./receipts/receipt-store.js";
+export type {
+  ReceiptEntry,
+  ReceiptChain,
+  CallEntry,
+  CallPayload,
+  TransitionEntry,
+  TransitionPayload,
+  TeardownStepEntry,
+  TeardownStepPayload,
+  AttestedClaimEntry,
+  AttestedClaimPayload,
+  Checkpoint,
+} from "@stint/spec";
