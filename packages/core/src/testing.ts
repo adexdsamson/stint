@@ -33,6 +33,7 @@ import { mintHeldLicense } from "./license/held-license.js";
 import type { HeldLicense } from "./license/held-license.js";
 import { clampedLicenseExpiry, DEFAULT_LICENSE_TTL_SECONDS } from "./license/refresh.js";
 import type { LicenseIssuer } from "./license/license-issuer.js";
+import { appendEntry, verifyChain } from "./receipts/chain.js";
 import type { ReceiptStore } from "./receipts/receipt-store.js";
 
 /**
@@ -224,6 +225,135 @@ export function createInMemoryReceiptStore(): ReceiptStore {
       return Promise.resolve();
     },
   };
+}
+
+/**
+ * Registers a reusable Vitest `describe` block that exercises ANY
+ * `ReceiptStore` implementation `makeStore()` supplies — append-only
+ * integrity (D-08): append order preserved, a loaded chain still passes
+ * `verifyChain`, the two chains never bleed into each other, and a written
+ * checkpoint reads back unchanged. Both the in-memory double above and the
+ * Phase 6 JSON-file store call this same factory, so neither can drift from
+ * the other's guarantees.
+ */
+export function createReceiptStoreContractTests(makeStore: () => ReceiptStore): void {
+  describe("ReceiptStore contract", () => {
+    it("EMPTY: a fresh store's load returns [] and readCheckpoint returns undefined", async () => {
+      const store = makeStore();
+      expect(await store.load("verified")).toEqual([]);
+      expect(await store.readCheckpoint("verified")).toBeUndefined();
+    });
+
+    it("APPEND ORDER: appended entries load back in the exact order they were appended", async () => {
+      const store = makeStore();
+      let chain: readonly ReceiptEntry[] = [];
+      const entries = [];
+      for (let i = 0; i < 3; i++) {
+        const entry = appendEntry(
+          chain,
+          {
+            chain: "verified",
+            type: "transition",
+            payload: { from: `state-${i}`, event: "advance", actor: "runtime", to: `state-${i + 1}` },
+          },
+          1000 + i,
+        );
+        chain = [...chain, entry];
+        entries.push(entry);
+        await store.append("verified", entry);
+      }
+
+      expect(await store.load("verified")).toEqual(entries);
+    });
+
+    it("INTEGRITY: a chain persisted then loaded back still passes verifyChain", async () => {
+      const store = makeStore();
+      let chain: readonly ReceiptEntry[] = [];
+      for (let i = 0; i < 3; i++) {
+        const entry = appendEntry(
+          chain,
+          {
+            chain: "verified",
+            type: "transition",
+            payload: { from: `state-${i}`, event: "advance", actor: "runtime", to: `state-${i + 1}` },
+          },
+          1000 + i,
+        );
+        chain = [...chain, entry];
+        await store.append("verified", entry);
+      }
+
+      const loaded = await store.load("verified");
+      const result = await verifyChain(loaded);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.count).toBe(3);
+      }
+    });
+
+    it("ISOLATION: the verified and attested chains never bleed into each other", async () => {
+      const store = makeStore();
+      const verifiedEntry = appendEntry(
+        [],
+        { chain: "verified", type: "transition", payload: { from: "created", event: "activate", actor: "runtime", to: "active" } },
+        1000,
+      );
+      const attestedEntry = appendEntry(
+        [],
+        {
+          chain: "attested",
+          type: "attested_claim",
+          payload: { publisherId: "pub-1", kid: "key-1", claimType: "usage", claimHash: "jcs-sha256:bb", sig: "sig" },
+        },
+        1000,
+      );
+
+      await store.append("verified", verifiedEntry);
+      await store.append("attested", attestedEntry);
+
+      expect(await store.load("verified")).toEqual([verifiedEntry]);
+      expect(await store.load("attested")).toEqual([attestedEntry]);
+    });
+
+    it("CHECKPOINT: a written checkpoint reads back byte-equal", async () => {
+      const store = makeStore();
+      const checkpoint: Checkpoint = {
+        chain: "verified",
+        count: 1,
+        headHash: "jcs-sha256:" + "1".repeat(64),
+        ts: 2000,
+        sig: "test-sig",
+      };
+
+      await store.writeCheckpoint(checkpoint);
+
+      expect(await store.readCheckpoint("verified")).toEqual(checkpoint);
+    });
+
+    it("CHECKPOINT ISOLATION: checkpoints for different chains do not overwrite each other", async () => {
+      const store = makeStore();
+      const verifiedCheckpoint: Checkpoint = {
+        chain: "verified",
+        count: 1,
+        headHash: "jcs-sha256:" + "1".repeat(64),
+        ts: 2000,
+        sig: "verified-sig",
+      };
+      const attestedCheckpoint: Checkpoint = {
+        chain: "attested",
+        count: 1,
+        headHash: "jcs-sha256:" + "2".repeat(64),
+        ts: 2000,
+        sig: "attested-sig",
+      };
+
+      await store.writeCheckpoint(verifiedCheckpoint);
+      await store.writeCheckpoint(attestedCheckpoint);
+
+      expect(await store.readCheckpoint("verified")).toEqual(verifiedCheckpoint);
+      expect(await store.readCheckpoint("attested")).toEqual(attestedCheckpoint);
+    });
+  });
 }
 
 /** The fixed `kid` the mock `LicenseIssuer` signs under (D-11). */

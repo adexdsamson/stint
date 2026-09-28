@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ReceiptEntry } from "@stint/spec";
 
 import { appendEntry, verifyChain } from "../../src/receipts/chain.js";
-import { createInMemoryReceiptStore } from "../../src/testing.js";
+import { createInMemoryReceiptStore, createReceiptStoreContractTests } from "../../src/testing.js";
+
+createReceiptStoreContractTests(createInMemoryReceiptStore);
 
 describe("createInMemoryReceiptStore: append/load/checkpoint round-trip (D-08)", () => {
   it("a fresh store's load returns [] and readCheckpoint returns undefined", async () => {
