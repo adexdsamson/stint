@@ -6,22 +6,40 @@
  * ARCHITECTURE.md Pattern 5's `withRetry` wrapper here.
  *
  * The 5 default step implementations below were happy-path placeholders
- * hardened by later plans (05-05 invalidate_license's real
- * `LicenseIssuer.invalidate`, 05-06 cleanup_hook's real single-use
- * cleanup-token POST) -- `revoke_oauth` (this plan, 05-04, D-20/D-22/D-23/
- * D-33/TEAR-02) and `final_receipt` (05-03, D-19/D-31) are now both real,
- * permanent implementations. `receiptStore`/`signingKey`/`vault` are always
+ * hardened by later plans (05-06 cleanup_hook's real single-use
+ * cleanup-token POST is still pending) -- `revoke_oauth` (05-04, D-20/D-22/
+ * D-23/D-33/TEAR-02), `invalidate_license` (this plan, 05-05, D-21/D-33/
+ * LIC-04), and `final_receipt` (05-03, D-19/D-31) are now real, permanent
+ * implementations. `receiptStore`/`signingKey`/`vault`/`license` are always
  * caller-injected (never read from disk/env); an unverifiable chain or a
  * signing failure is caught by `runStepOnce` and recorded as `"failed"` --
  * just another step failure, landing `cleanup_incomplete` (D-15, D-19).
  */
 
 import { appendEntry, signCheckpoint, verifyChain } from "@stint/core";
-import type { Lease, ReceiptStore, TeardownStepName, TeardownStepOutcome } from "@stint/core";
+import type { Lease, LicenseIssuer, ReceiptStore, TeardownStepName, TeardownStepOutcome } from "@stint/core";
 import type { CryptoKey } from "jose";
 
 import type { CredentialVault } from "../vault/credential-vault.js";
 import type { RevokeResult } from "../vault/oauth-client.js";
+
+/**
+ * Per-lease `HeldLicense` custody discard seam (D-21, D-22) teardown step 2
+ * depends on: whether the runtime currently holds a hosted/hybrid license
+ * for `leaseId` (the D-33 delegated-only distinguisher -- no custody entry
+ * means no license to invalidate), and dropping the reference so no future
+ * reissue can recover it. Mirrors `held-license.ts`'s "discard = drop the
+ * reference" discipline without exposing the `HeldLicense` itself: this
+ * seam never reads or returns a token, only tracks presence/absence by lease
+ * id. No production per-lease license store exists yet (a later phase's
+ * concern, once the runtime actually holds licenses at request time); a
+ * caller supplies an implementation alongside a `LicenseIssuer` to exercise
+ * the real step, exactly like `vault` above does for `revoke_oauth`.
+ */
+export interface LicenseCustody {
+  hasLicense(leaseId: string): boolean;
+  discard(leaseId: string): void;
+}
 
 /** The injectable per-step port (D-27) -- the fault matrix (Task 2) forces any single step to fail/timeout by swapping in a step that rejects or resolves `"failed"`. */
 export interface TeardownStep {
@@ -136,6 +154,32 @@ function createRevokeOauthStep(vault: CredentialVault, receiptStore: ReceiptStor
 }
 
 /**
+ * The real `invalidate_license` (step 2) implementation (D-21, D-33,
+ * LIC-04): a lease with no hosted/hybrid license currently in `custody`
+ * returns `"not_applicable"` (delegated-only lease, D-33) and never calls
+ * `licenseIssuer`. Otherwise it calls `licenseIssuer.invalidate(leaseId)` --
+ * stopping any future per-call refresh from reissuing (D-21's "stop refresh
+ * means discard custody + refuse reissue, no background loop") -- then
+ * discards the `HeldLicense` from `custody` (drops the reference so no
+ * reissue can recover it, D-22) and returns `"ok"`. A thrown/rejected
+ * `licenseIssuer.invalidate` is not caught here; `runStepOnce` records it as
+ * `"failed"`, identically to every other step's failure path.
+ */
+function createInvalidateLicenseStep(licenseIssuer: LicenseIssuer, custody: LicenseCustody): TeardownStep {
+  return {
+    name: "invalidate_license",
+    async run(lease: Lease): Promise<TeardownStepOutcome> {
+      if (!custody.hasLicense(lease.id)) {
+        return "not_applicable";
+      }
+      await licenseIssuer.invalidate(lease.id);
+      custody.discard(lease.id);
+      return "ok";
+    },
+  };
+}
+
+/**
  * The real `final_receipt` (step 5) implementation (D-19, D-31): loads the
  * currently-persisted verified chain, verifies it, and -- only if it
  * verifies -- signs a checkpoint over its `headHash`/`count` and writes it.
@@ -170,23 +214,29 @@ function createFinalReceiptStep(receiptStore: ReceiptStore, signingKey: CryptoKe
  * `revoke_oauth` (05-04) and `final_receipt` (05-03) are real, permanent
  * behavior this and a prior plan ship, not placeholders.
  *
- * `vault` is OPTIONAL (Rule 3 seam widening, mirrors `ProxyDeps.teardownSteps`
- * being optional in 05-03): when supplied, `revoke_oauth` is the real
- * structural-RFC-7009 implementation (`createRevokeOauthStep`); when
- * omitted, `revoke_oauth` falls back to the prior happy-path placeholder
- * (`"revoked"`, unconditionally) so every pre-05-04 caller that constructs
- * `createDefaultTeardownSteps(receiptStore, signingKey)` with no vault
- * keeps compiling AND behaving exactly as before -- only a caller that
- * opts in by passing `vault` exercises the honest tri-state.
+ * `vault` and `license` are each OPTIONAL (Rule 3 seam widening, mirrors
+ * `ProxyDeps.teardownSteps` being optional in 05-03): when supplied, `vault`
+ * swaps in the real structural-RFC-7009 `revoke_oauth` (`createRevokeOauthStep`,
+ * 05-04) and `license` (an `{ issuer, custody }` pair, so the two collaborators
+ * are always supplied together or not at all) swaps in the real
+ * `invalidate_license` (`createInvalidateLicenseStep`, this plan). Omitting
+ * either keeps that step's prior happy-path placeholder unconditionally, so
+ * every pre-05-05 caller that constructs
+ * `createDefaultTeardownSteps(receiptStore, signingKey)` with no `vault`/
+ * `license` keeps compiling AND behaving exactly as before -- only a caller
+ * that opts in by passing one exercises that step's honest implementation.
  */
 export function createDefaultTeardownSteps(
   receiptStore: ReceiptStore,
   signingKey: CryptoKey,
   vault?: CredentialVault,
+  license?: { readonly issuer: LicenseIssuer; readonly custody: LicenseCustody },
 ): readonly TeardownStep[] {
   return [
     vault === undefined ? happyPathStep("revoke_oauth", "revoked") : createRevokeOauthStep(vault, receiptStore),
-    happyPathStep("invalidate_license", "ok"),
+    license === undefined
+      ? happyPathStep("invalidate_license", "ok")
+      : createInvalidateLicenseStep(license.issuer, license.custody),
     happyPathStep("cleanup_hook", "attested_ok"),
     happyPathStep("delete_cached_data", "ok"),
     createFinalReceiptStep(receiptStore, signingKey),

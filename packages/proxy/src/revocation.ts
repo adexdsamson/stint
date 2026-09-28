@@ -17,13 +17,21 @@
  * transaction's mutator so it is saved atomically with the triggering
  * call's `denied` receipt (D-13).
  *
+ * `applyEntitlementRevocation` (LIC-04, D-21) mirrors the same shape
+ * verbatim, chaining `entitlement_revoked` (actor `publisher` --
+ * `@stint/core`'s `publisherEvents.entitlementRevoked()`) into
+ * `begin_teardown` via the identical `chainTeardownIfEnded` helper. It is
+ * the runtime-facing entry point a platform/publisher webhook wires to in a
+ * later phase -- this phase provides the sanctioned bridge, not the webhook
+ * transport itself.
+ *
  * `isProviderRevocation` narrows the 04-05 `RefreshResult`'s failure kinds
  * (`CredentialRefreshError.kind` carries the identical union) so the
  * transient-vs-revocation discrimination reads as one boolean check, never a
  * re-derivation of D-09's classification.
  */
 
-import { providerEvents, reduce } from "@stint/core";
+import { providerEvents, publisherEvents, reduce } from "@stint/core";
 import type { Lease, Result, TransitionRecord } from "@stint/core";
 
 import { chainTeardownIfEnded } from "./teardown/auto-chain.js";
@@ -57,6 +65,37 @@ export function applyProviderRevocation(
   now: number,
 ): Result<{ lease: Lease; transitions: readonly [TransitionRecord, TransitionRecord] }> {
   const revoked = reduce(lease, providerEvents.grantRevoked(), now);
+  if (!revoked.ok) return revoked;
+  const chained = chainTeardownIfEnded(revoked.value.lease, now);
+  if (!chained.ok) return chained;
+  return {
+    ok: true,
+    value: {
+      lease: chained.value.lease,
+      transitions: [revoked.value.transition, chained.value.transition],
+    },
+  };
+}
+
+/**
+ * Moves `lease` to `revoked` via `reduce(lease, publisherEvents.entitlementRevoked(), now)`
+ * -- the ONE sanctioned publisher-actor event constructor (D-19: the agent is
+ * never an actor; only `publisher` may cause `entitlement_revoked`, LIC-04)
+ * -- then immediately auto-chains `begin_teardown` via `chainTeardownIfEnded`
+ * (D-18), landing `tearing_down`. `entitlement_revoked` is legal only from a
+ * source state the transition table permits; an illegal source state or the
+ * chained `begin_teardown` failing returns `reduce`'s own `illegal_transition`
+ * rejection rather than throwing, mirroring `applyProviderRevocation`
+ * exactly. `transitions` carries BOTH `TransitionRecord`s in order
+ * (`entitlement_revoked` then `begin_teardown`) so a caller can receipt each
+ * one -- the same shape `dispatch.ts`'s `provider_revoked` branch already
+ * consumes for the sibling end reason.
+ */
+export function applyEntitlementRevocation(
+  lease: Lease,
+  now: number,
+): Result<{ lease: Lease; transitions: readonly [TransitionRecord, TransitionRecord] }> {
+  const revoked = reduce(lease, publisherEvents.entitlementRevoked(), now);
   if (!revoked.ok) return revoked;
   const chained = chainTeardownIfEnded(revoked.value.lease, now);
   if (!chained.ok) return chained;

@@ -96,7 +96,12 @@ export type { LicenseAccessor } from "./vault/execute-stage.js";
 // `dispatch.ts`'s `provider_revoked` catch branch applies it to the
 // transaction-loaded lease. `isProviderRevocation` is the transient-vs-
 // revocation discriminator reused at that same call site.
-export { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+//
+// `applyEntitlementRevocation` (05-05, LIC-04, D-21) mirrors the same shape
+// for a publisher entitlement pull -- `publisherEvents.entitlementRevoked()`
+// then the identical `chainTeardownIfEnded` chain -- the runtime-facing
+// entry point a platform/publisher webhook wires to in a later phase.
+export { applyEntitlementRevocation, applyProviderRevocation, isProviderRevocation } from "./revocation.js";
 
 // Teardown orchestrator (05-03, TEAR-01, TEAR-04, TEAR-05). `runTeardown`
 // auto-chains `begin_teardown` from any terminal end state via the shared
@@ -111,7 +116,7 @@ export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
 export { appendTransitionReceipt, retryTeardown, runTeardown } from "./teardown/orchestrate.js";
 export type { TeardownDeps } from "./teardown/orchestrate.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
-export type { TeardownStep } from "./teardown/steps.js";
+export type { LicenseCustody, TeardownStep } from "./teardown/steps.js";
 export {
   allStepsSucceeded,
   isSuccessOutcome,
