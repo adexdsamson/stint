@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 
 import type { Checkpoint, ReceiptEntry } from "@stint/spec";
 
-import { verifyChain } from "../../src/receipts/chain.js";
+import { GENESIS_PREV_HASH, appendEntry, verifyChain } from "../../src/receipts/chain.js";
+import type { ReceiptEntryInput } from "../../src/receipts/chain.js";
 import { signCheckpoint } from "../../src/receipts/checkpoint.js";
 
 // packages/core/test/receipts -> packages/core/test -> packages/core -> packages -> repo root
@@ -131,6 +132,89 @@ describe("verifyChain: checkpoint anchoring (RCPT-06, D-09)", () => {
     if (result.ok) {
       expect(result.value.headHash).toBe(readVector("chain-expected-hash.txt").trim());
       expect(result.value.count).toBe(chain.length);
+    }
+  });
+});
+
+describe("verifyChain: checkpoint content-anchoring (CR-01 — checkpoint must anchor to actual chain content, not just length)", () => {
+  it("rejects a same-length, internally self-consistent chain whose content differs from what the valid checkpoint actually committed to", async () => {
+    const { checkpoint, publicKey } = await signCheckpointOverGoldenChain();
+
+    // Fabricate a same-length (3), internally self-consistent chain with
+    // entirely different content from the golden chain the checkpoint was
+    // actually signed over. An attacker who controls the fabricated content
+    // can always keep it internally consistent, so the hash-link walk alone
+    // (and the "truncated" length check) cannot detect this substitution --
+    // only comparing the checkpoint's boundary hash against the actual
+    // chain's computed hash at that boundary can.
+    const inputs: ReceiptEntryInput[] = [
+      {
+        chain: "verified",
+        type: "transition",
+        payload: { from: "granted", event: "activate", actor: "runtime", to: "active" },
+      },
+      {
+        chain: "verified",
+        type: "call",
+        payload: {
+          resource: "sheets.other",
+          argsHash: "jcs-sha256:" + "b".repeat(64),
+          redactedSummary: "Read 99 rows from sheets.other",
+          outcome: "allowed",
+        },
+      },
+      {
+        chain: "verified",
+        type: "teardown_step",
+        payload: { step: "revoke_delegated_grant", outcome: "revoked" },
+      },
+    ];
+    let fabricated: ReceiptEntry[] = [];
+    for (const input of inputs) {
+      fabricated = [...fabricated, appendEntry(fabricated, input, 1732104000)];
+    }
+    expect(fabricated).toHaveLength(checkpoint.count);
+
+    const result = await verifyChain(fabricated, checkpoint, publicKey);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toEqual({
+        brokenAtSeq: checkpoint.count - 1,
+        reason: "hash_mismatch",
+      });
+    }
+  });
+
+  it("count === 0 boundary (IN-01): compares against GENESIS_PREV_HASH rather than indexing entryHashes[-1]", async () => {
+    const privateKey = await loadTestPrivateKey();
+    const publicKey = await loadTestPublicKey();
+
+    const matchingCheckpoint = await signCheckpoint(
+      "verified",
+      0,
+      GENESIS_PREV_HASH,
+      1732104180,
+      privateKey,
+    );
+    const matchingResult = await verifyChain([], matchingCheckpoint, publicKey);
+    expect(matchingResult.ok).toBe(true);
+    if (matchingResult.ok) {
+      expect(matchingResult.value).toEqual({ headHash: GENESIS_PREV_HASH, count: 0 });
+    }
+
+    const mismatchedCheckpoint = await signCheckpoint(
+      "verified",
+      0,
+      "jcs-sha256:" + "c".repeat(64),
+      1732104180,
+      privateKey,
+    );
+    const mismatchedResult = await verifyChain([], mismatchedCheckpoint, publicKey);
+    expect(mismatchedResult.ok).toBe(false);
+    if (!mismatchedResult.ok) {
+      expect(mismatchedResult.errors).toEqual([{ brokenAtSeq: 0, reason: "hash_mismatch" }]);
     }
   });
 });
