@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 import type { AttestedClaimEntry, ReceiptEntry, TrustStore } from "@stint/spec";
 
 import { verifyAttestedChain, verifyAttestedEntry } from "../../src/receipts/attested.js";
-import { verifyChain } from "../../src/receipts/chain.js";
+import { appendEntry, verifyChain } from "../../src/receipts/chain.js";
+import type { ReceiptEntryInput } from "../../src/receipts/chain.js";
 import { signCheckpoint } from "../../src/receipts/checkpoint.js";
 
 // packages/core/test/receipts -> packages/core/test -> packages/core -> packages -> repo root
@@ -206,6 +207,65 @@ describe("independence from the verified chain", () => {
       expect(failsWithVerifiedKey.errors).toEqual([
         { brokenAtSeq: attestedChain.length, reason: "checkpoint_sig_invalid" },
       ]);
+    }
+  });
+});
+
+describe("verifyAttestedChain inherits verifyChain's checkpoint content-anchoring (CR-01)", () => {
+  it("rejects a same-length, internally self-consistent substituted body against a valid attested checkpoint", async () => {
+    const chain = loadAttestedChain();
+    const trustStore = loadTrustStore();
+
+    const attestedKeys = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+
+    const headResult = await verifyAttestedChain(chain, trustStore);
+    expect(headResult.ok).toBe(true);
+    const headHash = headResult.ok ? headResult.value.headHash : "";
+
+    const checkpoint = await signCheckpoint(
+      "attested",
+      chain.length,
+      headHash,
+      1700000200,
+      attestedKeys.privateKey,
+    );
+
+    // Fabricate a same-length, internally self-consistent attested chain
+    // with different claim content -- the hash-link walk alone cannot
+    // distinguish this from the real chain the checkpoint was signed over;
+    // only the checkpoint's boundary-hash comparison (verifyChain, reused
+    // unmodified here) catches it. The fabricated signatures are never
+    // even reached, because verifyChain's hash mismatch short-circuits
+    // verifyAttestedChain before it gets to per-entry signature checks.
+    const fabricatedInputs: ReceiptEntryInput[] = chain.map((entry) => ({
+      chain: "attested",
+      type: "attested_claim",
+      payload: {
+        publisherId: entry.payload.publisherId,
+        kid: entry.payload.kid,
+        claimType: entry.payload.claimType,
+        claimHash: "jcs-sha256:" + "e".repeat(64),
+        sig: "not-checked-because-hash-anchoring-fails-first",
+      },
+    }));
+    let fabricated: AttestedClaimEntry[] = [];
+    for (const input of fabricatedInputs) {
+      fabricated = [
+        ...fabricated,
+        appendEntry(fabricated, input, 1700000000) as AttestedClaimEntry,
+      ];
+    }
+
+    const result = await verifyAttestedChain(
+      fabricated,
+      trustStore,
+      checkpoint,
+      attestedKeys.publicKey,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([{ brokenAtSeq: checkpoint.count - 1, reason: "hash_mismatch" }]);
     }
   });
 });
