@@ -32,8 +32,8 @@
 
 ### Licensing
 
-- [ ] **LIC-01**: Publisher can issue a PASETO v4.public license carrying lease id, job, expiry and limits, with a 5-minute default TTL
-- [ ] **LIC-02**: Publisher server verifies licenses offline with the publisher public key using one shared implicit-assertion derivation and an explicit clock-skew tolerance
+- [x] **LIC-01**: Publisher can issue a PASETO v4.public license carrying lease id, job, expiry and limits, with a 5-minute default TTL
+- [x] **LIC-02**: Publisher server verifies licenses offline with the publisher public key using one shared implicit-assertion derivation and an explicit clock-skew tolerance
 - [ ] **LIC-03**: Runtime refreshes licenses before TTL expiry, never beyond lease expiry; the agent never holds the license
 - [ ] **LIC-04**: Publisher can revoke entitlement; revocation moves the lease to `revoked` (actor `publisher`) and triggers OAuth revocation
 - [ ] **LIC-05**: License is never forwarded to customer resources (tested)
@@ -135,8 +135,8 @@
 | LIFE-05 | Phase 2 | Complete |
 | LIFE-06 | Phase 5 | Pending |
 | LIFE-07 | Phase 2 | Complete |
-| LIC-01 | Phase 3 | Pending |
-| LIC-02 | Phase 3 | Pending |
+| LIC-01 | Phase 3 | Complete |
+| LIC-02 | Phase 3 | Complete |
 | LIC-03 | Phase 3 | Pending |
 | LIC-04 | Phase 5 | Pending |
 | LIC-05 | Phase 4 | Pending |

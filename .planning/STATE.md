@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-09-27T23:47:06.710Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-09-28T00:17:21.947Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 03 execution started
-state_head: be8300729d43a9e4784fab719629d8d3f8675947
+state_head: ceaa1df8cd130badf50e83a8173e43c7075c6118
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 03 (Receipts & Licensing) — EXECUTING
-Plan: 3 of 6
-Status: Ready to execute
-Last activity: 2026-09-27 — Phase 03 execution started
+Plan: 05 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04, which remain pending)
+Status: 03-01, 03-02, 03-05 have SUMMARY.md; 03-03, 03-04, 03-06 still pending
+Last activity: 2026-09-28 — Completed 03-05-PLAN.md (PASETO license issue/verify)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P06 | 25min | 3 tasks | 7 files |
 | Phase 03 P01 | 25min | 3 tasks | 17 files |
 | Phase 03 P02 | 35min | 3 tasks | 10 files |
+| Phase 03 P05 | ~50min | 4 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,9 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-01: Task 1 checkpoint confirmed the receipt/checkpoint wire format verbatim (ReceiptEntry field set, Option A prevHash linkage, GENESIS_PREV_HASH constant, Checkpoint field set).
 - [Phase 03]: [Phase 03] 03-01: Chose a root-level oneOf of four fully-specified Entry definitions for receipt.schema.json over allOf+if/then, so json-schema-to-typescript generates a clean discriminated union without the allOf-strip codegen path.
 - [Phase 03]: [Phase 03]: 03-02: Ed25519 checkpoints (jose, mirrors jws.ts) plus verifyChain anchoring - all four break reasons (hash_mismatch, reordered, truncated, checkpoint_sig_invalid) now report exact brokenAtSeq.
+- [Phase 03]: [Phase 03] 03-05: Task 1 checkpoint confirmed paseto@4.0.1 legitimacy (panva, OIDC trusted-publish, zero deps, factory-composition API) before install.
+- [Phase 03]: [Phase 03] 03-05: Task 2 checkpoint confirmed section 8 license wire format verbatim (snake_case lease_id/job/limits custom claims, exp/iat/nbf/jti registered, kid in footer, implicit assertion over lease_id + the manifest's own spec_version, 300s TTL as runtime config).
+- [Phase 03]: [Phase 03] 03-05: deriveImplicitAssertion is the single shared function issue.ts/verify.ts import; verify.ts is the only paseto Verify call site with LICENSE_CLOCK_SKEW_SECONDS=5s explicit on every call, mapping every PasetoError subclass to a fixed non-interpolated reason code.
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-27T23:47:06.570Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-09-28T00:17:21.686Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
