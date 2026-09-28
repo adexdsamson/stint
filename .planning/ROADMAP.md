@@ -175,7 +175,37 @@ Plans:
   4. Any single step failing lands the lease in `cleanup_incomplete` with every step's result recorded, retrying resumes idempotently, the lease can never return to `active`, and tests cover every teardown path including each single-step failure.
   5. After cleanup, both receipt chains, including the final signed receipt, remain readable and verify.
 
-**Plans**: TBD
+**Plans:** 8 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — Teardown shape foundation: widen TeardownStepPayload.outcome enum (+regen) and add optional Lease.teardownProgress + fixtures (TEAR-01, TEAR-04, RCPT-07 groundwork)
+- [ ] 05-02-PLAN.md — Predicate DSL: closed-AST parser + pure evaluator in @stint/spec, manifest-time invalid_predicate gate, close spec §7.6/§4 markers (LIFE-06) [checkpoint: grammar one-way]
+
+**Wave 2** *(blocked on 05-01)*
+
+- [ ] 05-03-PLAN.md — Teardown orchestrator tracer (auto-chain begin_teardown, fixed 5-step saga, cleaned_up + signed final receipt) + one-pass fault handling & idempotent retry_teardown resume (TEAR-01, TEAR-04, TEAR-05)
+
+**Wave 3** *(blocked on 05-03)*
+
+- [ ] 05-04-PLAN.md — Step 1 OAuth revoke honesty: structural RFC 7009 revokeCredential, vault revoke+discard, always-discard-our-copy, Pitfall-5 matrix (TEAR-02, TEAR-05)
+
+**Wave 4** *(blocked on 05-03, 05-04)*
+
+- [ ] 05-05-PLAN.md — Step 2 publisher entitlement revocation + LicenseIssuer.invalidate port + license custody discard (LIC-04)
+
+**Wave 5** *(blocked on 05-05)*
+
+- [ ] 05-06-PLAN.md — Step 3 cleanup token: jose SignJWT single-use cleanup:<lease_id>, runtime HTTPS hook client, close spec §10 marker (TEAR-03, TEAR-05) [checkpoint: token format one-way]
+
+**Wave 6** *(blocked on 05-02, 05-03, 05-06)*
+
+- [ ] 05-07-PLAN.md — Outcome verification runtime: resource_query synthetic verifier read + rowAdapter, user_confirm HostAdapter method, agent-claim-never-completes (LIFE-06)
+
+**Wave 7** *(blocked on 05-06, 05-07)*
+
+- [ ] 05-08-PLAN.md — Phase gate: step 4 delete/retain split, RCPT-07 receipts-survive + checkpoint bracketing, every-terminal-entry teardown, zero OPEN-Phase-5 markers (RCPT-07, TEAR-05)
 
 ### Phase 6: CLI & Reference Adapters
 
@@ -216,6 +246,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
-| 5. Lease Endings & Teardown | 0/TBD | Not started | - |
+| 5. Lease Endings & Teardown | 0/8 | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
