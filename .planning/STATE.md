@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
-status: executing
-stopped_at: Completed 04-06-PLAN.md
-last_updated: "2026-09-28T18:25:56.058Z"
+status: verifying
+stopped_at: Completed 04-07-PLAN.md (phase 04 complete)
+last_updated: "2026-09-28T18:47:17.637Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: a0737e6359a9ced887296b4d7aa477d68574468e
+state_head: d04e05e6143a6739e334c015b0de59f0b7a337fb
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-28 — Phase 04 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P04 | ~30min | 3 tasks | 5 files |
 | Phase 04 P05 | 35min | 3 tasks | 5 files |
 | Phase 04 P06 | 25min | 3 tasks | 8 files |
+| Phase 04 P07 | 25min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-06: widened ExecuteStage.execute to accept an explicit now parameter (Rule 3) so the vault-backed stage resolves tokens against the injected clock, never Date.now(), mirroring 04-03/04-04's seam-widening precedent
 - [Phase 04]: [Phase 04] 04-06: createVaultExecuteStage's optional licenseAccessor is accepted but deliberately never read -- exists only so license-secretless.test.ts can prove a license present in context still never reaches OutboundConnector.execute's credential argument (LIC-05)
 - [Phase 04]: [Phase 04] 04-06: scrubError constructs a NEW Error (message/stack/every own property scrubbed) rather than mutating the original in place, so the raw thrown error and any secret it carries is never exposed past the scrub boundary
+- [Phase 04]: [Phase 04] 04-07: PRXY-07 -- dispatch.ts's handleCall catch block classifies a thrown CredentialRefreshError before the generic execute_failed fallback; provider_revoked applies applyProviderRevocation (reduce + providerEvents.grantRevoked) to the transaction-loaded lease, transient_error denies without revoking
+- [Phase 04]: [Phase 04] 04-07: fixed a pre-existing deny-by-default gap in @stint/core/src/policy.ts -- evaluatePolicy never checked lease.state, so a revoked lease's calls could still be allowed; added POLICY_REASON_CODES.lease_not_active and a Step 2 check (Rule 2 deviation, outside this plan's declared files_modified but required by its own must_have)
 
 ### Pending Todos
 
@@ -156,6 +159,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T18:25:55.530Z
-Stopped at: Completed 04-06-PLAN.md
+Last session: 2026-09-28T18:47:17.349Z
+Stopped at: Completed 04-07-PLAN.md (phase 04 complete)
 Resume file: None

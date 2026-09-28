@@ -56,7 +56,7 @@
 - [x] **PRXY-04**: `actions_per_hour`, total action cap and `spend` limits are enforced per lease under concurrent calls (per-lease serialization)
 - [x] **PRXY-05**: Calls requiring approval are held until the user decides via HostAdapter; approval is bound to a hash of exact args, binding and lease version; timeout denies
 - [x] **PRXY-06**: Proxy injects OAuth access tokens (with RFC 8707 resource indicators) only on outbound calls; no token appears in any agent-facing response or error (adversarial tests)
-- [ ] **PRXY-07**: Customer-side OAuth revocation detected via invalid_grant/401 moves the lease to `revoked` (actor `provider`)
+- [x] **PRXY-07**: Customer-side OAuth revocation detected via invalid_grant/401 moves the lease to `revoked` (actor `provider`)
 - [x] **PRXY-08**: Token refresh is serialized per credential
 
 ### Teardown
@@ -153,7 +153,7 @@
 | PRXY-04 | Phase 4 | Complete |
 | PRXY-05 | Phase 4 | Complete |
 | PRXY-06 | Phase 4 | Complete |
-| PRXY-07 | Phase 4 | Pending |
+| PRXY-07 | Phase 4 | Complete |
 | PRXY-08 | Phase 4 | Complete |
 | TEAR-01 | Phase 5 | Pending |
 | TEAR-02 | Phase 5 | Pending |
