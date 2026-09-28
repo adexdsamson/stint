@@ -4,7 +4,11 @@ Issues discovered during execution that are out of scope for the plan that found
 
 ## Found during 03-03 (attested chain + display-only merge)
 
-### `packages/spec/test/codegen.test.ts` "codegen check detects stale types" fails with ENOENT, unrelated to 03-03's changes
+### ✓ RESOLVED (regression gate, 2026-09-28) — `packages/spec/test/codegen.test.ts` "codegen check detects stale types" ENOENT
+
+**Resolution:** Fixed during Phase 3's regression gate. The test's temp `--schema-dir` fixture now copies *all* `spec/*.schema.json` files dynamically (via `readdirSync().filter(.schema.json)`) instead of hardcoding two, so it stays correct as schema targets grow. `packages/spec` now 80/80 green. Retained below for history.
+
+
 
 - **Symptom:** `pnpm exec vitest run --pool=threads` in `packages/spec` fails one test: `codegen > codegen check detects stale types` throws `ENOENT: no such file or directory, open '...\receipt.schema.json'` instead of the expected `stderr` containing `"stale"`.
 - **Root cause (pre-existing, introduced in 03-01, not 03-03):** `packages/spec/scripts/codegen.mjs`'s `targets` array was extended in 03-01 (commit `b1c8f37`) to include `receipt.schema.json` and `checkpoint.schema.json` alongside `manifest.schema.json`/`envelope.schema.json`. `packages/spec/test/codegen.test.ts`'s "detects stale types" test (unmodified since Phase 1, commit `e8049ba`) builds a temp `--schema-dir` by `cpSync`-ing only `manifest.schema.json` and `envelope.schema.json` into it, then runs `codegen.mjs --check --schema-dir <tempDir>`. Since 03-01, `codegen.mjs` unconditionally tries to read all four schema files from `schemaDir`, so it now throws `ENOENT` on the missing `receipt.schema.json` before it ever reaches the "stale" detection logic the test asserts on.
