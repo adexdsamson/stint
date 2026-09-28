@@ -61,6 +61,19 @@ export type { PendingApproval } from "./approvals/approval-dispatcher.js";
 // is the sole append path for a `type: "call"` verified-chain entry.
 export { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
 
+// Credential vault refresh hot path (D-02, D-04, D-09, PRXY-08).
+// `createCredentialVault` is the secretless token store keyed
+// `leaseId:resource` with per-call expiry and per-credential single-flight
+// refresh; `refreshAccessToken`/`classifyTokenError` are the underlying
+// `oauth4webapi` refresh-grant + D-09 revocation-signal classification
+// `createCredentialVault` composes. `CredentialRefreshError`'s `.kind`
+// (`"provider_revoked" | "transient_error"`) is the classification 04-07's
+// revocation wiring consumes.
+export { classifyTokenError, refreshAccessToken } from "./vault/oauth-client.js";
+export type { OAuthClient, RefreshOptions, RefreshResult, SeededCredential } from "./vault/oauth-client.js";
+export { createCredentialVault, CredentialRefreshError } from "./vault/credential-vault.js";
+export type { CredentialVault } from "./vault/credential-vault.js";
+
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production
 // code must never accidentally depend on a test double.
