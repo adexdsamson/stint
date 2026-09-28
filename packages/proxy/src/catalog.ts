@@ -28,6 +28,18 @@ export interface ToolCatalogEntry {
     readonly properties?: Readonly<Record<string, object>>;
     readonly required?: readonly string[];
   };
+  /**
+   * Runtime-owned pay-amount descriptor (D-07, PRXY-04). Declares WHICH
+   * resolved arg holds the minor-unit spend amount for a `pay`-classified
+   * tool -- never derived from the manifest or anything the agent supplies.
+   * Absent for every non-pay tool. `currency` is carried for future
+   * `limits.spend.currency` cross-checks; this plan enforces amount only
+   * (flagged assumption, see PLAN.md).
+   */
+  readonly payAmount?: {
+    readonly amountArgPath: string;
+    readonly currency: string;
+  };
 }
 
 /** Runtime-owned lookup keyed by tool name, mirroring `@stint/core`'s `BindingSet` shape. */
@@ -59,4 +71,25 @@ export function createToolCatalog(entries: readonly ToolCatalogEntry[]): ToolCat
 export function resolveCatalogEntry(catalog: ToolCatalog, name: string): ToolCatalogEntry | undefined {
   if (!Object.hasOwn(catalog, name)) return undefined;
   return catalog[name];
+}
+
+/**
+ * Extracts the pre-authorization minor-unit spend amount for `entry`'s call
+ * (D-07, PRXY-04) -- `undefined` for a non-pay/absent `payAmount` descriptor.
+ * Reads `resolvedArgs` as an OWN property at `payAmount.amountArgPath` --
+ * never a bare bracket access alone -- so a prototype-named arg path
+ * (`__proto__`, `constructor`) can never reach `Object.prototype` (mirrors
+ * `resolveCatalogEntry`/`resolveBinding`'s guard). Returns `undefined` when
+ * the path is absent or the value is not a non-negative integer -- never
+ * throws on a malformed/adversarial arg.
+ *
+ * STUB (RED phase, Task 1): always returns `undefined`, ignoring
+ * `payAmount` entirely -- replaced with the real own-property-guarded read
+ * in the GREEN commit.
+ */
+export function extractSpendMinor(
+  entry: ToolCatalogEntry,
+  resolvedArgs: Readonly<Record<string, unknown>>,
+): number | undefined {
+  return undefined;
 }

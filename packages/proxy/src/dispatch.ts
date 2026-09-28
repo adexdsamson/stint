@@ -20,10 +20,9 @@ import type {
   BindingSet,
   ConnectorBinding,
   Lease,
-  LeaseCounters,
   PolicyCall,
 } from "@stint/core";
-import type { Access } from "@stint/spec";
+import type { Access, Limits } from "@stint/spec";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
@@ -65,10 +64,18 @@ export interface CapCheck {
   readonly reason?: string;
 }
 
-/** An additional lease-limit check plus the counters commit for an allowed call (D-06) -- plan 04-03 supplies the real sliding-window `authorize`. */
+/**
+ * An additional lease-limit check plus the counters commit for an allowed
+ * call (D-06, PRXY-04). `authorize` receives `limits` directly (the
+ * `actions_per_hour` gate it alone enforces, `evaluatePolicy` already owns
+ * `max_actions`/`spend`/`expiry`/`no_binding`); `commit` receives the whole
+ * `lease` and returns the next one -- the real `createCapEnforcer`
+ * (`caps/cap-enforcer.ts`, plan 04-03) is the sliding-window implementation
+ * of this seam.
+ */
 export interface CapEnforcer {
-  authorize(lease: Lease, call: PolicyCall, now: number): CapCheck;
-  commit(counters: LeaseCounters, now: number): LeaseCounters;
+  authorize(lease: Lease, call: PolicyCall, limits: Limits, now: number): CapCheck;
+  commit(lease: Lease, call: PolicyCall, now: number): Lease;
 }
 
 /** Production-safe default `ExecuteStage`: no `OutboundConnector` is configured until plan 04-05 wires the vault-backed implementation. */
@@ -85,16 +92,19 @@ export const DEFAULT_APPROVAL_STAGE: ApprovalStage = {
   },
 };
 
-/** Production-safe default `CapEnforcer`: authorizes every call (no additional limit beyond `evaluatePolicy`'s own checks) and commits the actionCount/actionTimestamps bump (D-06) -- plan 04-03 supplies the real actions_per_hour sliding-window `authorize`. */
+/** Production-safe default `CapEnforcer`: authorizes every call (no additional limit beyond `evaluatePolicy`'s own checks) and commits the actionCount/actionTimestamps bump (D-06) -- plan 04-03's `createCapEnforcer` (`caps/cap-enforcer.ts`) is the real sliding-window `authorize` a production `ProxyDeps` should use instead. */
 export const DEFAULT_CAP_ENFORCER: CapEnforcer = {
   authorize() {
     return { ok: true };
   },
-  commit(counters, now) {
+  commit(lease, call, now) {
     return {
-      ...counters,
-      actionCount: counters.actionCount + 1,
-      actionTimestamps: [...counters.actionTimestamps, now],
+      ...lease,
+      counters: {
+        ...lease.counters,
+        actionCount: lease.counters.actionCount + 1,
+        actionTimestamps: [...lease.counters.actionTimestamps, now],
+      },
     };
   },
 };
@@ -193,7 +203,7 @@ export async function handleCall(
         }
       }
 
-      const capCheck = deps.enforceCaps.authorize(lease, call, now);
+      const capCheck = deps.enforceCaps.authorize(lease, call, deps.limits, now);
       if (!capCheck.ok) {
         detail = capCheck.reason ?? "cap_exceeded";
         result = denyResult(detail);
@@ -203,7 +213,7 @@ export async function handleCall(
       const execResult = await deps.execute.execute(ctx);
       outcome = "allowed";
       result = allowResult(execResult);
-      nextLease = { ...lease, counters: deps.enforceCaps.commit(lease.counters, now) };
+      nextLease = deps.enforceCaps.commit(lease, call, now);
       return nextLease;
     } catch {
       outcome = "denied";
