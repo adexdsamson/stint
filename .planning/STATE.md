@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-09-28T17:39:12.885Z"
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-09-28T18:02:51.302Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 04 execution started
-state_head: 87e28be86f40a3164a0136a1e10a91f9fd65df78
+state_head: fa60e68459c84a5f7bf5969a62d60955226f56b8
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 04 execution started
 
@@ -76,6 +76,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P02 | 25min | 3 tasks | 9 files |
 | Phase 04 P03 | 17min | 3 tasks | 5 files |
 | Phase 04 P04 | ~30min | 3 tasks | 5 files |
+| Phase 04 P05 | 35min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-04: D-11 commitment tuple confirmed at Task 1 checkpoint (proposed-tuple): hashCanonical({args, tool: binding.tool, provenance: binding.provenance, leaseVersion: lease.version})
 - [Phase 04]: [Phase 04] 04-04: Widened the 04-02 ApprovalStage seam (CallContext.leaseVersion, ApprovalDecision.approvalId, ApprovalStage.verifyCommitment) as a Rule 3 blocking fix, mirroring 04-03's CapEnforcer widening precedent
 - [Phase 04]: [Phase 04] 04-04: recompute-and-match re-derives binding and lease version fresh at execution time (not the pre-hold closures) so a binding hot-swap or out-of-band leaseStore.save() bypassing the transaction is actually observable and denies approval_drifted
+- [Phase 04]: [Phase 04] 04-05: credential Map + single-flight tails Map live in createCredentialVault's closure (not module scope like approval-dispatcher.ts's pendingApprovals) -- avoids cross-instance/cross-test leaseId:resource key collisions while still satisfying D-02's never-exported custody requirement
+- [Phase 04]: [Phase 04] 04-05: single-flight refresh proven by counting token-endpoint hits (oauth2-mock-server has no native reuse-detection), not by absence of error -- N=20 concurrent same-key resolves collapse to exactly 1 hit, N concurrent cross-key resolves stay independent (2 hits)
+- [Phase 04]: [Phase 04] 04-05: SeededCredential.tokenEndpoint carried per D-04's seed-seam shape but unused by this plan's single-OAuthClient-per-vault wiring; multi-provider dispatch flagged out of scope, not silently assumed
 
 ### Pending Todos
 
@@ -148,6 +152,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T17:39:12.683Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-09-28T18:02:51.158Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None
