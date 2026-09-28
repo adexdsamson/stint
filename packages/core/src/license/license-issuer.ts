@@ -42,4 +42,14 @@ export interface LicenseIssuer {
     leaseExpiresAt: number,
     jti?: string,
   ): Promise<HeldLicense | null>;
+
+  /**
+   * Tells this issuer to stop issuing for `leaseId` (LIC-04, D-21): after
+   * `invalidate` resolves, {@link reissue} for that lease must refuse
+   * (return `null`) rather than sign a fresh token. "Stop refresh" means
+   * discard custody + refuse reissue -- there is no background refresh loop
+   * anywhere in this port. Idempotent and additive: invalidating an unknown
+   * or already-invalidated lease resolves without throwing.
+   */
+  invalidate(leaseId: string): Promise<void>;
 }

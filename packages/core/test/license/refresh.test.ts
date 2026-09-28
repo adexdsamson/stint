@@ -97,3 +97,22 @@ describe("end-to-end refresh through the mock LicenseIssuer", () => {
     expect(held).toBeNull();
   });
 });
+
+describe("LicenseIssuer.invalidate (LIC-04, D-21)", () => {
+  it("refuses reissue for a lease after invalidate -- returns null, no background loop", async () => {
+    const issuer = await createMockLicenseIssuer();
+    const now = 1_700_000_000;
+    const leaseExpiresAt = now + 10_000; // far beyond DEFAULT_LICENSE_TTL_SECONDS
+
+    await issuer.invalidate(TEST_LEASE_ID);
+    const held = await issuer.reissue(testClaims, TEST_SPEC_VERSION, now, leaseExpiresAt);
+
+    expect(held).toBeNull();
+  });
+
+  it("invalidate for an unknown lease resolves without throwing (idempotent no-op)", async () => {
+    const issuer = await createMockLicenseIssuer();
+
+    await expect(issuer.invalidate("lease-never-seen")).resolves.toBeUndefined();
+  });
+});

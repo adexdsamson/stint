@@ -398,6 +398,11 @@ export interface MockLicenseIssuer extends LicenseIssuer {
 export async function createMockLicenseIssuer(): Promise<MockLicenseIssuer> {
   const { secretKey, publicKey } = await keyPairProtocol.GenerateKeyPair({ extractable: true });
   const kid = MOCK_LICENSE_ISSUER_KID;
+  // LIC-04/D-21: leases the runtime has told this issuer to stop issuing
+  // for -- `reissue` refuses (returns null) for any lease id in this set.
+  // No background loop anywhere here: this is a plain custody flag flipped
+  // once by `invalidate` and checked once per `reissue` call.
+  const invalidatedLeaseIds = new Set<string>();
 
   async function issue(
     claims: LicenseClaims,
@@ -417,10 +422,16 @@ export async function createMockLicenseIssuer(): Promise<MockLicenseIssuer> {
     leaseExpiresAt: number,
     jti?: string,
   ): Promise<HeldLicense | null> {
+    if (invalidatedLeaseIds.has(claims.lease_id)) return null;
     const expEpochSeconds = clampedLicenseExpiry(now, DEFAULT_LICENSE_TTL_SECONDS, leaseExpiresAt);
     if (expEpochSeconds === null) return null;
     return issue(claims, specVersion, now, expEpochSeconds, jti);
   }
 
-  return { kid, publicKey, issue, reissue };
+  async function invalidate(leaseId: string): Promise<void> {
+    invalidatedLeaseIds.add(leaseId);
+    return Promise.resolve();
+  }
+
+  return { kid, publicKey, issue, reissue, invalidate };
 }
