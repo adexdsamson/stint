@@ -58,6 +58,34 @@ describe("evaluatePolicy", () => {
     expect(result).toEqual({ decision: "deny", reason: "no_binding" });
   });
 
+  it("LEASE NOT ACTIVE: a revoked lease denies with lease_not_active, checked before expiry, even on an otherwise-unexpired lease (LIFE-02, PRXY-07)", () => {
+    const revokedLease = activeLease({ state: "revoked", expiresAt: 5000 });
+    const result = evaluatePolicy(
+      revokedLease,
+      baseCall(),
+      readBinding(),
+      baseLimits(),
+      baseApprovals(),
+      500,
+    );
+
+    expect(result).toEqual({ decision: "deny", reason: "lease_not_active" });
+  });
+
+  it("LEASE NOT ACTIVE: a granted (not-yet-activated) lease also denies with lease_not_active", () => {
+    const grantedLease = activeLease({ state: "granted" });
+    const result = evaluatePolicy(
+      grantedLease,
+      baseCall(),
+      readBinding(),
+      baseLimits(),
+      baseApprovals(),
+      500,
+    );
+
+    expect(result).toEqual({ decision: "deny", reason: "lease_not_active" });
+  });
+
   it("CLASSIFICATION SOURCE: a manifest labeling the tool 'read' cannot override the binding's 'send' classification (PRXY-03)", () => {
     const sendBinding = readBinding({ tool: "email.send", access: "send" });
     // A manifest-like object mislabeling the same tool "read" — deliberately never

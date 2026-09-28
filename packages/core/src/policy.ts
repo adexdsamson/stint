@@ -17,6 +17,13 @@
  * classification ONLY from the `binding` argument — it never reads the
  * manifest for classification (PRXY-03). A missing binding (`undefined`)
  * denies with `no_binding` before any other check (PRXY-02, deny by default).
+ *
+ * `lease.state !== "active"` denies with `lease_not_active` immediately
+ * after the binding check (LIFE-02, deny by default): once a lease leaves
+ * `active` — by any actor, for any reason, including the provider-side
+ * `revoked` transition 04-07 (PRXY-07, D-09) applies — no further call on
+ * it may be allowed or reach an approval flow. This is a plain field
+ * comparison, never a second read of the lease store.
  */
 
 import type { Lease, LeaseCounters } from "./lease.js";
@@ -31,6 +38,7 @@ import type { Approvals, ApprovalTrigger, ErrorThreshold, Limits } from "@stint/
  */
 export const POLICY_REASON_CODES = [
   "no_binding",
+  "lease_not_active",
   "expired",
   "over_max_actions",
   "over_actions_per_hour",
@@ -79,14 +87,18 @@ function triggerForBinding(binding: ConnectorBinding): ApprovalTrigger | undefin
  *
  * 1. No resolved binding -> `deny('no_binding')` (PRXY-02) — checked before
  *    anything else, including expiry.
- * 2. Past-expiry lease -> `deny('expired')`, a pure comparison against the
+ * 2. `lease.state !== 'active'` -> `deny('lease_not_active')` (LIFE-02) — a
+ *    lease that has ended (`revoked`, `expired`, `failed`, ...) or has not
+ *    yet been activated (`proposed`, `granted`) can never authorize a call,
+ *    regardless of which actor or reason moved it out of `active`.
+ * 3. Past-expiry lease -> `deny('expired')`, a pure comparison against the
  *    injected `now` (LIFE-04, D-07) — no timer.
- * 3. Lifetime action cap exceeded -> `deny('over_max_actions')`.
- * 4. Spend cap exceeded -> `deny('over_spend')`.
- * 5. `send` / `pay` / `irreversible` bindings require approval; `pay` always
+ * 4. Lifetime action cap exceeded -> `deny('over_max_actions')`.
+ * 5. Spend cap exceeded -> `deny('over_spend')`.
+ * 6. `send` / `pay` / `irreversible` bindings require approval; `pay` always
  *    requires approval even if a manifest's `approvals.require_for` omits it
  *    (spec/ALP.md Section 9).
- * 6. Otherwise -> `allow`.
+ * 7. Otherwise -> `allow`.
  *
  * `limits.actions_per_hour`'s code (`over_actions_per_hour`) is part of the
  * stable reason vocabulary above, but full sliding-window enforcement under
@@ -107,17 +119,23 @@ export function evaluatePolicy(
     return deny("no_binding");
   }
 
-  // Step 2 — per-call expiry: pure comparison against the injected clock (LIFE-04).
+  // Step 2 — a lease that has left `active` (ended for any reason/actor, or
+  // never activated) can never authorize a call (LIFE-02, deny by default).
+  if (lease.state !== "active") {
+    return deny("lease_not_active");
+  }
+
+  // Step 3 — per-call expiry: pure comparison against the injected clock (LIFE-04).
   if (now >= lease.expiresAt) {
     return deny("expired");
   }
 
-  // Step 3 — lifetime action cap.
+  // Step 4 — lifetime action cap.
   if (lease.counters.actionCount >= limits.max_actions) {
     return deny("over_max_actions");
   }
 
-  // Step 4 — spend cap (only when the call declares a spend amount and the manifest sets one).
+  // Step 5 — spend cap (only when the call declares a spend amount and the manifest sets one).
   if (
     call.spendMinor !== undefined &&
     limits.spend !== undefined &&
@@ -126,7 +144,7 @@ export function evaluatePolicy(
     return deny("over_spend");
   }
 
-  // Step 5 — approval: classification comes only from `binding`, never the manifest (PRXY-03).
+  // Step 6 — approval: classification comes only from `binding`, never the manifest (PRXY-03).
   const trigger = triggerForBinding(binding);
   // `approvals.require_for`'s generated type is a union of fixed-length tuples
   // (0-3 items); widening to a plain readonly array first avoids TypeScript
@@ -136,7 +154,7 @@ export function evaluatePolicy(
     return { decision: "require_approval", requirement: { trigger, binding } };
   }
 
-  // Step 6 — nothing else applies.
+  // Step 7 — nothing else applies.
   return { decision: "allow" };
 }
 
