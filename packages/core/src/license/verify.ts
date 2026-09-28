@@ -109,6 +109,19 @@ export async function verifyLicense(
     return err("license_claim_invalid");
   }
 
+  // Defense-in-depth (WR-01): the implicit assertion above already binds a
+  // conforming issuer's token to `leaseId`, but that binding holds only
+  // because the reference `issueLicense` happens to derive its implicit
+  // assertion from `claims.lease_id`, the same field it signs -- a
+  // non-conforming `LicenseIssuer` (an injectable port third-party
+  // publishers implement) could derive its implicit assertion from
+  // something else and still verify successfully for a lease other than
+  // the one its own `claims.lease_id` names. Cross-check directly rather
+  // than relying solely on that side channel.
+  if (leaseIdClaim !== leaseId) {
+    return err("license_claim_invalid");
+  }
+
   const expEpochSeconds = Math.floor(new Date(expClaim).getTime() / 1000);
   if (!Number.isFinite(expEpochSeconds)) {
     return err("license_claim_invalid");

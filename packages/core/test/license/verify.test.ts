@@ -4,13 +4,15 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { importJWK } from "jose";
+import { generateKeyPair, importJWK } from "jose";
 import type { CryptoKey, JWK } from "jose";
-import { PublicKeyFromCryptoKey } from "paseto/v4/public";
+import { PublicProtocol } from "paseto";
+import { PublicKeyFromCryptoKey, SecretKeyFromCryptoKey, SignFactory } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
 
 import { verifyLicense, LICENSE_CLOCK_SKEW_SECONDS } from "../../src/license/verify.js";
 import { LICENSE_VERIFY_REASONS } from "../../src/license/errors.js";
+import { deriveImplicitAssertion } from "../../src/license/implicit-assertion.js";
 
 // packages/core/test/license -> packages/core/test -> packages/core -> packages -> repo root
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -157,6 +159,66 @@ describe("D-14: explicit clock-skew boundary", () => {
       claimsVector.lease_id,
       claimsVector.spec_version,
       claimsVector.exp_epoch_seconds + LICENSE_CLOCK_SKEW_SECONDS + 1,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.reason).toBe("license_claim_invalid");
+    }
+  });
+});
+
+describe("WR-01: verifyLicense cross-checks claims.lease_id against the leaseId parameter directly", () => {
+  it("rejects a token whose implicit assertion matches leaseId but whose lease_id claim names a different lease (non-conforming issuer)", async () => {
+    const claimsVector = loadClaimsVector();
+    const realLeaseId = claimsVector.lease_id;
+    const otherLeaseId = `${realLeaseId}-different-lease`;
+
+    const { publicKey: cryptoPublicKey, privateKey: cryptoPrivateKey } = await generateKeyPair(
+      "EdDSA",
+      { crv: "Ed25519", extractable: true },
+    );
+    const secretKey = await SecretKeyFromCryptoKey(cryptoPrivateKey);
+    const publicKey = await PublicKeyFromCryptoKey(cryptoPublicKey);
+
+    // The implicit assertion is derived from the REAL leaseId -- exactly
+    // what a conforming verifier expects -- but the signed payload's
+    // `lease_id` claim names a DIFFERENT lease. This simulates a
+    // non-conforming `LicenseIssuer` (an injectable port) that does not
+    // derive its implicit assertion from `claims.lease_id` the way the
+    // reference `issueLicense` does. Before WR-01's direct check, this
+    // token would verify successfully against `realLeaseId` even though
+    // its own `claims.lease_id` disagrees.
+    const implicitAssertion = deriveImplicitAssertion(realLeaseId, claimsVector.spec_version);
+    const nowDate = new Date(claimsVector.now * 1000);
+    const exp = new Date(claimsVector.exp_epoch_seconds * 1000).toISOString();
+
+    const signProtocol = new PublicProtocol(SignFactory);
+    const token = await signProtocol.Sign(
+      secretKey,
+      {
+        lease_id: otherLeaseId,
+        job: claimsVector.job,
+        limits: claimsVector.limits,
+        exp,
+        nbf: nowDate.toISOString(),
+        jti: crypto.randomUUID(),
+      },
+      {
+        now: nowDate,
+        addIssuedAt: true,
+        footer: new TextEncoder().encode(JSON.stringify({ kid: claimsVector.kid })),
+        implicitAssertion,
+      },
+    );
+
+    const result = await verifyLicense(
+      publicKey,
+      token,
+      realLeaseId,
+      claimsVector.spec_version,
+      claimsVector.now,
     );
 
     expect(result.ok).toBe(false);
