@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & ALP Spec** - Cross-platform monorepo with CI, normative `spec/ALP.md`, and the validated, typed, hashed and signed manifest (`@stint/spec`) (completed 2026-09-27)
 - [x] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core` (completed 2026-09-27)
-- [ ] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh
+- [x] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh (completed 2026-09-28)
 - [ ] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`)
 - [ ] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording
 - [ ] **Phase 6: CLI & Reference Adapters** - `@stint/cli` commands, terminal reference HostAdapter, and the Windows-safe JSON-file LeaseStore
@@ -95,7 +95,7 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans:** 6/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
-| 3. Receipts & Licensing | 6/6 | In Progress|  |
+| 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
 | 5. Lease Endings & Teardown | 0/TBD | Not started | - |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
