@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-09-28T22:40:44.800Z"
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-09-28T23:20:34.251Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: b5dae25ccb54e33f3f665e845670d5c95584c144
+state_head: 64d0177284d7974c53e6523a7932156bbd61bf00
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 26
+  completed_plans: 27
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 05 execution started
 
@@ -82,6 +82,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P07 | 25min | 2 tasks | 6 files |
 | Phase 05 P01 | 20min | 2 tasks | 7 files |
 | Phase 05 P02 | 15min | 2 tasks | 9 files |
+| Phase 05 P03 | 45min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,8 @@ Recent decisions affecting current work:
 - [Phase 05]: 05-01: Lease.teardownProgress optional field + TeardownStepName/Outcome/Progress types added additively; reduce() needed no edit since its existing spread already carries the field forward; makeTestLease exported + makeTearingDownTestLease fixture added to @stint/core/testing
 - [Phase 05]: [Phase 05] 05-02: Grammar surface confirmed at checkpoint (count/sum/exists, single optional filter, numeric outer compare, exists as numeric truthiness, invalid_predicate code); sum's aggregate-field syntax (sum(rows.amount ...)) was Claude's Discretion within D-01's bound.
 - [Phase 05]: [Phase 05] 05-02: invalid_predicate was added to SPEC_ERROR_CODES in Task 2's commit (Rule 3 blocking fix) rather than Task 3's, since parse.ts's own Result<PredicateAst> rejection needed the code to type-check under tsc -b; Task 3's own errors.ts action became a documented no-op.
+- [Phase 05]: 05-03: teardown orchestrator (runTeardown/retryTeardown) drives all state changes through reduce(), persists per-step progress after each step, and lands cleaned_up/cleanup_incomplete honestly — TEAR-01/04/05: one-pass fault handling, attempted-is-terminal for revoke_oauth (D-23), never returns a lease to active
+- [Phase 05]: 05-03: applyProviderRevocation retrofitted to auto-chain begin_teardown via chainTeardownIfEnded (D-18) -- a provider revocation now runs the full teardown, not a bare revoked lease — TEAR-01: ending a lease for any reason runs teardown; dispatch.ts runs the orchestrator in its own transaction after the triggering call's transaction commits, never nested
 
 ### Pending Todos
 
@@ -166,6 +169,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T22:40:33.086Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-09-28T23:20:24.078Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
