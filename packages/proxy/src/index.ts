@@ -33,9 +33,17 @@ export type {
 
 // Runtime-owned tool catalog (D-08, D-12) -- paired with (never merged
 // into) `@stint/core`'s `BindingSet` for `tools/list`'s agent-facing
-// presentation.
-export { createToolCatalog, resolveCatalogEntry } from "./catalog.js";
+// presentation. `extractSpendMinor` and `ToolCatalogEntry.payAmount` are the
+// PRXY-04 pay-amount descriptor (D-07): the runtime-owned, pre-authorization
+// spend source `dispatch.ts` extracts before `evaluatePolicy` runs.
+export { createToolCatalog, extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 export type { ToolCatalog, ToolCatalogEntry } from "./catalog.js";
+
+// Sliding-window cap enforcement (PRXY-04, D-05, D-06). `createCapEnforcer`
+// is the real `CapEnforcer` implementation -- the production value a
+// `ProxyDeps.enforceCaps` should be constructed with; `DEFAULT_CAP_ENFORCER`
+// (above) stays a naive placeholder for callers that haven't wired real caps.
+export { createCapEnforcer } from "./caps/cap-enforcer.js";
 
 // Per-call receipt builder (D-13, RCPT-01). `buildCallPayload` produces the
 // secretless `CallPayload` (re-exported from `@stint/core`); `appendCallReceipt`

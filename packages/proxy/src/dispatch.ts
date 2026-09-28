@@ -9,9 +9,16 @@
  * mutates, and chain order matches call order.
  *
  * `ExecuteStage`, `ApprovalStage`, and `CapEnforcer` are the three injected
- * seams plan 04-05 (vault-backed execute), 04-04 (real out-of-band
- * approvals), and 04-03 (sliding-window actions_per_hour) implement
- * against, without editing this file.
+ * seams plan 04-05 (vault-backed execute) and 04-04 (real out-of-band
+ * approvals) implement against without editing this file's dispatch flow.
+ * Plan 04-03 (sliding-window `actions_per_hour`, PRXY-04) is the one seam
+ * implementation that DID require a minimal, additive `CapEnforcer` seam
+ * signature extension (authorize gains `limits`; commit takes the whole
+ * `lease`+`call` and returns the next `Lease`) -- the dispatch ORDER
+ * (evaluate -> approve -> authorize caps -> execute -> commit, receipt in a
+ * `finally`) is unchanged. `handleCall` also extracts a pay call's
+ * `spendMinor` pre-authorization from the runtime-owned catalog (D-07) via
+ * `extractSpendMinor`, before `evaluatePolicy` runs.
  */
 
 import { evaluatePolicy, resolveBinding } from "@stint/core";
@@ -25,6 +32,7 @@ import type {
 import type { Access, Limits } from "@stint/spec";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
+import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
 import type { ProxyDeps } from "./server.js";
@@ -167,6 +175,12 @@ export async function handleCall(
 ): Promise<CallToolResult> {
   const resolvedArgs: Record<string, unknown> = { ...(params.arguments ?? {}) };
   const binding = resolveEffectiveBinding(deps.bindings, deps.grantedScopes, deps.grantedResources, params.name);
+  // Pre-authorization spend extraction (D-07): a pay tool's runtime-owned
+  // catalog descriptor is the ONLY amount source -- never the manifest, never
+  // anything the agent supplies beyond the arg value itself. A read/write/send
+  // tool (no `payAmount` descriptor) always yields `undefined` here.
+  const catalogEntry = resolveCatalogEntry(deps.catalog, params.name);
+  const spendMinor = catalogEntry !== undefined ? extractSpendMinor(catalogEntry, resolvedArgs) : undefined;
 
   let result: CallToolResult | undefined;
 
@@ -176,7 +190,7 @@ export async function handleCall(
     let detail: string | undefined;
 
     try {
-      const call: PolicyCall = { tool: params.name, spendMinor: undefined };
+      const call: PolicyCall = { tool: params.name, spendMinor };
       const decision = evaluatePolicy(lease, call, binding, deps.limits, deps.approvals, now);
 
       if (decision.decision === "deny") {
