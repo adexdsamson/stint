@@ -47,7 +47,14 @@ export interface TeardownStepEntry {
 }
 export interface TeardownStepPayload {
   step: string;
-  outcome: "revoked" | "discarded_revocation_unsupported" | "failed" | "cleanup_incomplete";
+  outcome:
+    | "revoked"
+    | "discarded_revocation_unsupported"
+    | "failed"
+    | "cleanup_incomplete"
+    | "ok"
+    | "not_applicable"
+    | "attested_ok";
 }
 export interface AttestedClaimEntry {
   seq: number;

@@ -755,7 +755,10 @@ export const receiptSchema = {
             "revoked",
             "discarded_revocation_unsupported",
             "failed",
-            "cleanup_incomplete"
+            "cleanup_incomplete",
+            "ok",
+            "not_applicable",
+            "attested_ok"
           ]
         }
       },
