@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 03
 current_phase_name: Receipts & Licensing
 status: executing
-stopped_at: Completed 03-03-PLAN.md (attested chain + display-only merge)
-last_updated: "2026-09-28T00:40:11.234Z"
+stopped_at: Completed 03-06-PLAN.md (bounded license refresh + held-license custody)
+last_updated: "2026-09-28T00:59:23.683Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 03 execution started
-state_head: 51c79e6be97ffca49c7eb48646abad25e664f211
+state_head: 637ecb7dcab97450263b0039eb0469438772f8a5
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 03 (Receipts & Licensing) — EXECUTING
-Plan: 4 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04; 03-03 has now also completed)
+Plan: 5 of 6 complete (wave-based execution: 03-05 depended only on 03-01 and ran ahead of 03-03/03-04; 03-03 has now also completed)
 Status: 03-01, 03-02, 03-03, 03-05 have SUMMARY.md; 03-04, 03-06 still pending
 Last activity: 2026-09-28 — Completed 03-03-PLAN.md (attested chain + display-only merge)
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 35min | 3 tasks | 10 files |
 | Phase 03 P05 | ~50min | 4 tasks | 15 files |
 | Phase 03 P03 | 40min | 2 tasks | 14 files |
+| Phase 03 P06 | 45min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-05: deriveImplicitAssertion is the single shared function issue.ts/verify.ts import; verify.ts is the only paseto Verify call site with LICENSE_CLOCK_SKEW_SECONDS=5s explicit on every call, mapping every PasetoError subclass to a fixed non-interpolated reason code.
 - [Phase 03]: [Phase 03] 03-03: Extended AttestedClaimPayload with publisherId+sig (Rule 2) and exported @stint/spec's verifyDetached (Rule 3) so the attested chain reuses the SAME detached-EdDSA verify path verifyEnvelope uses - no second Ed25519 verify path, publisher key resolved by publisherId then kid.
 - [Phase 03]: [Phase 03] 03-03: mergeTimeline derives each timeline entry's origin from which argument (verified/attested) it came from, not re-read from entry.chain; stable sort by ts, then origin, then seq, carrying no integrity meaning (D-10).
+- [Phase 03]: [Phase 03] 03-06: HeldLicense stores its raw token in a module-private WeakMap<HeldLicense,string> keyed by object identity, not a public interface field -- stricter than VerifiedManifest's brand pattern, since the wrapped value here is the secret itself; readLicenseToken is the only accessor by construction, proven with a type-level @ts-expect-error on direct field access.
+- [Phase 03]: [Phase 03] 03-06: LicenseIssuer.reissue owns the LIC-03 clamp internally (calls clampedLicenseExpiry, returns null on refusal) rather than requiring callers to pre-clamp; issueLicense (03-05) keeps returning a raw string, and the mock LicenseIssuer wraps it in mintHeldLicense at the issuer boundary so 03-05's existing tests stayed unchanged.
 
 ### Pending Todos
 
@@ -124,6 +127,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T00:40:11.030Z
-Stopped at: Completed 03-03-PLAN.md (attested chain + display-only merge)
+Last session: 2026-09-28T00:59:23.487Z
+Stopped at: Completed 03-06-PLAN.md (bounded license refresh + held-license custody)
 Resume file: None
