@@ -81,6 +81,68 @@ export function classifyTokenError(err: unknown): "provider_revoked" | "transien
 }
 
 /**
+ * The honest, closed tri-state a single RFC 7009 revoke attempt collapses to
+ * (D-20, TEAR-02, Pitfall 5). `"revoked"` is the ceiling of what the runtime
+ * can ever claim from a bare 2xx -- it is NEVER upgraded to a stronger
+ * "confirmed" claim, because RFC 7009 explicitly permits an AS to return 2xx
+ * for a token it does not recognize or has already invalidated by other
+ * means. `"failed"` carries `cause` for local diagnostics only -- callers
+ * (the vault, teardown step 1) must never let `cause` reach a receipt or the
+ * agent (Pitfall 8 scrub discipline); it is collapsed to the closed
+ * `"failed"` string before it crosses that boundary.
+ */
+export type RevokeResult =
+  | { readonly kind: "revoked" }
+  | { readonly kind: "discarded_revocation_unsupported" }
+  | { readonly kind: "failed"; readonly cause: unknown };
+
+/**
+ * Attempts one RFC 7009 revocation of `refreshToken` against
+ * `oauthClient`'s authorization server. Support is determined STRUCTURALLY,
+ * BEFORE any network call (D-20): if `oauthClient.as.revocation_endpoint` is
+ * absent from the discovered/constructed AS metadata, this function returns
+ * `{ kind: "discarded_revocation_unsupported" }` immediately and makes no
+ * HTTP request at all -- the absence of the endpoint is the signal, never a
+ * response code. When a `revocation_endpoint` IS present, a 2xx response
+ * (per RFC 7009 Section 2.2, an AS returns 200 even for a token it does not
+ * recognize) maps to `{ kind: "revoked" }` and nothing stronger; any thrown
+ * error (network failure, non-2xx, malformed response) is caught and
+ * collapsed to `{ kind: "failed", cause: err }` -- a raw `oauth4webapi`
+ * exception never escapes this function unclassified.
+ */
+export async function revokeCredential(
+  oauthClient: OAuthClient,
+  refreshToken: string,
+  opts: RefreshOptions = {},
+): Promise<RevokeResult> {
+  if (oauthClient.as.revocation_endpoint === undefined) {
+    return { kind: "discarded_revocation_unsupported" };
+  }
+
+  try {
+    const requestOptions: oauth.RevocationRequestOptions = {};
+    if (opts.allowInsecureRequests === true) {
+      // Deliberate, opt-in-only: see `refreshAccessToken`'s identical guard
+      // above -- only the loopback mock-AS test harness ever sets this.
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      requestOptions[oauth.allowInsecureRequests] = true;
+    }
+
+    const response = await oauth.revocationRequest(
+      oauthClient.as,
+      oauthClient.client,
+      oauthClient.clientAuth,
+      refreshToken,
+      requestOptions,
+    );
+    await oauth.processRevocationResponse(response);
+    return { kind: "revoked" };
+  } catch (err) {
+    return { kind: "failed", cause: err };
+  }
+}
+
+/**
  * Performs one OAuth 2.1 refresh-token grant against `credential`'s
  * authorization server, carrying the RFC 8707 `resource` indicator, and
  * returns a classified {@link RefreshResult}. `now` (the injected clock, not
