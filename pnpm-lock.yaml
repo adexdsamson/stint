@@ -229,6 +229,9 @@ importers:
       '@stint/spec':
         specifier: workspace:*
         version: link:../spec
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       oauth4webapi:
         specifier: 3.8.8
         version: 3.8.8

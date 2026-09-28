@@ -28,9 +28,20 @@
  * The catch block below classifies it BEFORE falling through to the
  * generic `execute_failed` path -- `provider_revoked` applies
  * `revocation.ts`'s `applyProviderRevocation` to the transaction-loaded
- * `lease` (saving `revoked`, actor `provider`) and denies the triggering
- * call; `transient_error` denies the call and returns `lease` UNCHANGED, so
- * a single upstream blip never revokes.
+ * `lease` (saving `tearing_down` -- `grant_revoked` actor `provider`
+ * auto-chained into `begin_teardown` actor `runtime`, D-18, TEAR-01) and
+ * denies the triggering call; `transient_error` denies the call and returns
+ * `lease` UNCHANGED, so a single upstream blip never revokes.
+ *
+ * 05-03 (TEAR-01, D-18, D-30): once `applyProviderRevocation`'s two
+ * transition receipts and the triggering call's `denied` receipt are all
+ * appended inside the SAME per-lease transaction as before, `handleCall`
+ * checks -- AFTER that transaction resolves -- whether the lease is now in
+ * a teardown state and, if `deps.teardownSteps` is configured, runs
+ * `teardown/orchestrate.ts`'s `runTeardown` in its OWN, separate per-lease
+ * transaction. This is never nested on the same lease id: the outer
+ * transaction has already committed and released the per-id serializer
+ * queue slot by the time `runTeardown` opens its own.
  */
 
 import { evaluatePolicy, resolveBinding } from "@stint/core";
@@ -49,8 +60,12 @@ import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
 import { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+import { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
 import { CredentialRefreshError } from "./vault/credential-vault.js";
 import type { ProxyDeps } from "./server.js";
+
+/** Lease states reachable at the end of `handleCall`'s transaction that mean "teardown should run now" (05-03, TEAR-01). */
+const TEARDOWN_TRIGGER_STATES: ReadonlySet<Lease["state"]> = new Set(["tearing_down", "cleanup_incomplete"]);
 
 /**
  * One resolved call's context, handed to the three injected seams below.
@@ -235,7 +250,7 @@ export async function handleCall(
 
   let result: CallToolResult | undefined;
 
-  await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+  const finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
     let nextLease = lease;
     let outcome: "allowed" | "denied" = "denied";
     let detail: string | undefined;
@@ -330,6 +345,12 @@ export async function handleCall(
           const revocation = applyProviderRevocation(lease, now);
           if (revocation.ok) {
             nextLease = revocation.value.lease;
+            // grant_revoked then begin_teardown, in order (D-18) -- appended
+            // inside this SAME per-lease transaction so the ending is
+            // receipted atomically with the triggering call's denial.
+            for (const transition of revocation.value.transitions) {
+              await appendTransitionReceipt(deps.receiptStore, transition, now);
+            }
           }
           return nextLease;
         }
@@ -352,5 +373,23 @@ export async function handleCall(
     // unreachable: every path above sets `result` before returning from the mutator.
     throw new Error("@stint/proxy: handleCall produced no result.");
   }
+
+  // 05-03 (TEAR-01, D-18, D-30): the triggering call's own transaction has
+  // fully committed above -- this opens a SEPARATE, later per-lease
+  // transaction, never a nested one. Opt-in via `deps.teardownSteps` so
+  // callers that don't wire it (every pre-05-03 `ProxyDeps`) keep working
+  // unchanged.
+  if (deps.teardownSteps !== undefined && TEARDOWN_TRIGGER_STATES.has(finalLease.state)) {
+    await runTeardown(
+      {
+        leaseStore: deps.leaseStore,
+        receiptStore: deps.receiptStore,
+        leaseId: deps.leaseId,
+        steps: deps.teardownSteps,
+      },
+      now,
+    );
+  }
+
   return result;
 }

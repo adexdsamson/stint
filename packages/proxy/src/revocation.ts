@@ -4,13 +4,18 @@
  * the 04-05 vault's `provider_revoked` classification to the ONE sanctioned
  * provider-actor lifecycle event (`@stint/core`'s `providerEvents.grantRevoked()`).
  *
- * `applyProviderRevocation` is a thin wrapper over `reduce()` -- it never
- * hand-rolls the transition, never imports a broader slice of `@stint/core`'s
- * events module, and never trusts a caller-supplied actor (the agent is
- * never an actor, D-19). `dispatch.ts`'s `provider_revoked` catch branch is
- * the sole call site: the resulting `revoked` lease is returned from the
- * per-lease transaction's mutator so it is saved atomically with the single
- * `denied` receipt for the triggering call (D-13).
+ * `applyProviderRevocation` chains TWO `reduce()` calls -- `grant_revoked`
+ * (actor `provider`) then, via the shared `chainTeardownIfEnded` helper
+ * (D-18), `begin_teardown` (actor `runtime`) -- so a provider revocation now
+ * drives the full teardown, not just a bare `revoked` lease (D-18, TEAR-01).
+ * It never hand-rolls either transition, never imports a broader slice of
+ * `@stint/core`'s events module beyond `providerEvents`, and never trusts a
+ * caller-supplied actor (the agent is never an actor, D-19). Both
+ * `TransitionRecord`s are returned (in order) so `dispatch.ts`'s
+ * `provider_revoked` catch branch -- the sole call site -- can receipt each
+ * one; the resulting `tearing_down` lease is returned from the per-lease
+ * transaction's mutator so it is saved atomically with the triggering
+ * call's `denied` receipt (D-13).
  *
  * `isProviderRevocation` narrows the 04-05 `RefreshResult`'s failure kinds
  * (`CredentialRefreshError.kind` carries the identical union) so the
@@ -21,6 +26,7 @@
 import { providerEvents, reduce } from "@stint/core";
 import type { Lease, Result, TransitionRecord } from "@stint/core";
 
+import { chainTeardownIfEnded } from "./teardown/auto-chain.js";
 import type { RefreshResult } from "./vault/oauth-client.js";
 
 /**
@@ -37,14 +43,28 @@ export function isProviderRevocation(kind: Exclude<RefreshResult["kind"], "ok">)
 /**
  * Moves `lease` to `revoked` via `reduce(lease, providerEvents.grantRevoked(), now)`
  * -- the ONE sanctioned provider-actor event constructor (D-19: the agent is
- * never an actor). Legal from `active` or `granted` (ALP.md Section 7.4);
- * any other source state returns `reduce`'s own `illegal_transition`
- * rejection rather than throwing, so a caller can branch on `Result.ok`
- * without a try/catch.
+ * never an actor) -- then immediately auto-chains `begin_teardown` via
+ * `chainTeardownIfEnded` (D-18), landing `tearing_down`. `grant_revoked` is
+ * legal from `active` or `granted` (ALP.md Section 7.4); either that
+ * transition or the chained `begin_teardown` failing returns `reduce`'s own
+ * `illegal_transition` rejection rather than throwing, so a caller can
+ * branch on `Result.ok` without a try/catch. `transitions` carries BOTH
+ * `TransitionRecord`s in order (`grant_revoked` then `begin_teardown`) so
+ * the caller can receipt each one.
  */
 export function applyProviderRevocation(
   lease: Lease,
   now: number,
-): Result<{ lease: Lease; transition: TransitionRecord }> {
-  return reduce(lease, providerEvents.grantRevoked(), now);
+): Result<{ lease: Lease; transitions: readonly [TransitionRecord, TransitionRecord] }> {
+  const revoked = reduce(lease, providerEvents.grantRevoked(), now);
+  if (!revoked.ok) return revoked;
+  const chained = chainTeardownIfEnded(revoked.value.lease, now);
+  if (!chained.ok) return chained;
+  return {
+    ok: true,
+    value: {
+      lease: chained.value.lease,
+      transitions: [revoked.value.transition, chained.value.transition],
+    },
+  };
 }

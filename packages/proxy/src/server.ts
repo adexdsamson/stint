@@ -26,6 +26,7 @@ import type { ToolCatalog } from "./catalog.js";
 import { resolveCatalogEntry } from "./catalog.js";
 import type { ApprovalStage, CapEnforcer, ExecuteStage } from "./dispatch.js";
 import { handleCall, resolveEffectiveBinding } from "./dispatch.js";
+import type { TeardownStep } from "./teardown/steps.js";
 
 /**
  * Every construction-time dependency `createLeaseProxyServer` and
@@ -33,6 +34,14 @@ import { handleCall, resolveEffectiveBinding } from "./dispatch.js";
  * and injected, never derived from the manifest or a downstream fetch
  * (D-08, D-12). `execute`/`approve`/`enforceCaps` are the three seams
  * plans 04-03/04-04/04-05 implement against without editing `dispatch.ts`.
+ *
+ * `teardownSteps` (05-03, TEAR-01) is optional: when supplied, a provider
+ * revocation drives the full teardown orchestrator (`teardown/orchestrate.ts`'s
+ * `runTeardown`) after the triggering call's own transaction commits, in its
+ * OWN per-lease transaction (never nested). Omitting it (every pre-05-03
+ * `ProxyDeps` literal) leaves the lease at `tearing_down` after the
+ * auto-chained `begin_teardown` -- still a legal, honestly-receipted state,
+ * just without the steps having run.
  */
 export interface ProxyDeps {
   readonly leaseId: string;
@@ -48,6 +57,7 @@ export interface ProxyDeps {
   readonly execute: ExecuteStage;
   readonly approve: ApprovalStage;
   readonly enforceCaps: CapEnforcer;
+  readonly teardownSteps?: readonly TeardownStep[];
 }
 
 function toWireTool(name: string, catalog: ToolCatalog): Tool {

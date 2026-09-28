@@ -7,6 +7,15 @@
  * proofs, not protocol proofs. Task 2 extends this file with the forced-
  * `invalid_grant` end-to-end proof over a real mock authorization server and
  * a real MCP `Client`.
+ *
+ * 05-03 (D-18, TEAR-01) retrofit: `applyProviderRevocation` now chains
+ * `grant_revoked` (actor `provider`) into `begin_teardown` (actor
+ * `runtime`) via the shared `chainTeardownIfEnded` helper, landing
+ * `tearing_down` rather than a bare `revoked`. `ProxyDeps.teardownSteps` is
+ * wired into every `ProxyDeps` fixture in this file so `handleCall` runs
+ * the full orchestrator after its own transaction commits -- the
+ * post-revocation state assertions below read `cleaned_up` (not `revoked`),
+ * matching TEAR-01's "ending a lease for any reason runs teardown".
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { generateKeyPair } from "jose";
 
 import { createBindingSet } from "@stint/core";
 import type { ConnectorBinding, Lease } from "@stint/core";
@@ -26,6 +36,7 @@ import { createLeaseProxyServer } from "../src/server.js";
 import type { ProxyDeps } from "../src/server.js";
 import { createEchoingCredentialConnector, startMockAuthServer } from "../src/testing.js";
 import type { MockAuthHarness } from "../src/testing.js";
+import { createDefaultTeardownSteps } from "../src/teardown/steps.js";
 import { createCredentialVault, CredentialRefreshError } from "../src/vault/credential-vault.js";
 import { createVaultExecuteStage } from "../src/vault/execute-stage.js";
 import { applyProviderRevocation, isProviderRevocation } from "../src/revocation.js";
@@ -48,30 +59,37 @@ function makeLease(id: string, overrides?: Partial<Lease>): Lease {
 
 // --- Task 1: applyProviderRevocation / isProviderRevocation (unit) -------
 
-describe("applyProviderRevocation", () => {
-  it("moves an active lease to revoked with actor provider, event grant_revoked", () => {
+describe("applyProviderRevocation (05-03 retrofit: chains begin_teardown, D-18)", () => {
+  it("moves an active lease through grant_revoked (provider) then begin_teardown (runtime), landing tearing_down", () => {
     const lease = makeLease("lease-apply-active", { state: "active" });
 
     const result = applyProviderRevocation(lease, NOW);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.lease.state).toBe("revoked");
-    expect(result.value.transition.actor).toBe("provider");
-    expect(result.value.transition.event).toBe("grant_revoked");
-    expect(result.value.transition.from).toBe("active");
-    expect(result.value.transition.to).toBe("revoked");
+    expect(result.value.lease.state).toBe("tearing_down");
+
+    const [grantRevoked, beginTeardown] = result.value.transitions;
+    expect(grantRevoked.actor).toBe("provider");
+    expect(grantRevoked.event).toBe("grant_revoked");
+    expect(grantRevoked.from).toBe("active");
+    expect(grantRevoked.to).toBe("revoked");
+    expect(beginTeardown.actor).toBe("runtime");
+    expect(beginTeardown.event).toBe("begin_teardown");
+    expect(beginTeardown.from).toBe("revoked");
+    expect(beginTeardown.to).toBe("tearing_down");
   });
 
-  it("moves a granted lease to revoked with actor provider (the other legal source state)", () => {
+  it("moves a granted lease to tearing_down (the other legal grant_revoked source state)", () => {
     const lease = makeLease("lease-apply-granted", { state: "granted" });
 
     const result = applyProviderRevocation(lease, NOW);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.lease.state).toBe("revoked");
-    expect(result.value.transition.actor).toBe("provider");
+    expect(result.value.lease.state).toBe("tearing_down");
+    expect(result.value.transitions[0].actor).toBe("provider");
+    expect(result.value.transitions[1].actor).toBe("runtime");
   });
 
   it("returns reduce's illegal_transition rejection (not a throw) for a non-active/non-granted source state", () => {
@@ -134,6 +152,12 @@ async function buildRevocationDeps(
   ]);
   const bindings = createBindingSet([REVOCABLE_BINDING]);
 
+  // 05-03 (TEAR-01): a real Ed25519 key so the wired orchestrator's
+  // final_receipt step can sign a real checkpoint -- this file cares only
+  // that the orchestrator runs and reaches cleaned_up, not about the key
+  // material itself.
+  const { privateKey } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+
   const deps: ProxyDeps = {
     leaseId,
     leaseStore,
@@ -148,13 +172,14 @@ async function buildRevocationDeps(
     execute,
     approve: DEFAULT_APPROVAL_STAGE,
     enforceCaps: DEFAULT_CAP_ENFORCER,
+    teardownSteps: createDefaultTeardownSteps(receiptStore, privateKey),
   };
 
   return { deps, leaseStore, receiptStore };
 }
 
-describe("dispatch: applyProviderRevocation wiring (PRXY-07)", () => {
-  it("a provider_revoked CredentialRefreshError applies applyProviderRevocation, saves the revoked lease (actor provider), and denies the call with exactly one receipt", async () => {
+describe("dispatch: applyProviderRevocation wiring drives the full teardown orchestrator (PRXY-07, 05-03 TEAR-01)", () => {
+  it("a provider_revoked CredentialRefreshError auto-chains begin_teardown, denies the triggering call, and the orchestrator (run in its OWN transaction after) lands cleaned_up", async () => {
     const leaseId = "lease-revoke-1";
     const { deps, leaseStore, receiptStore } = await buildRevocationDeps(
       leaseId,
@@ -170,16 +195,35 @@ describe("dispatch: applyProviderRevocation wiring (PRXY-07)", () => {
     }
     expect(content.text).toBe("denied: provider_revoked");
 
+    // Not a bare `revoked` lease (TEAR-01) -- the orchestrator ran to completion.
     const lease = await leaseStore.load(leaseId);
-    expect(lease?.state).toBe("revoked");
+    expect(lease?.state).toBe("cleaned_up");
 
     const chain = await receiptStore.load("verified");
-    expect(chain).toHaveLength(1);
-    const [entry] = chain;
-    if (entry === undefined || entry.type !== "call") {
-      throw new Error("expected a call receipt entry");
+    // grant_revoked + begin_teardown (dispatch's own transaction) + denied
+    // call + 5 teardown_step + teardown_succeeded (the orchestrator's
+    // separate, later transaction) = 9 entries.
+    expect(chain).toHaveLength(9);
+
+    const [grantRevokedEntry, beginTeardownEntry, callEntry] = chain;
+    expect(grantRevokedEntry?.type).toBe("transition");
+    if (grantRevokedEntry?.type === "transition") {
+      expect(grantRevokedEntry.payload).toEqual({ from: "active", event: "grant_revoked", actor: "provider", to: "revoked" });
     }
-    expect(entry.payload.outcome).toBe("denied");
+    expect(beginTeardownEntry?.type).toBe("transition");
+    if (beginTeardownEntry?.type === "transition") {
+      expect(beginTeardownEntry.payload).toEqual({ from: "revoked", event: "begin_teardown", actor: "runtime", to: "tearing_down" });
+    }
+    expect(callEntry?.type).toBe("call");
+    if (callEntry?.type === "call") {
+      expect(callEntry.payload.outcome).toBe("denied");
+    }
+
+    const lastEntry = chain.at(-1);
+    expect(lastEntry?.type).toBe("transition");
+    if (lastEntry?.type === "transition") {
+      expect(lastEntry.payload).toEqual({ from: "tearing_down", event: "teardown_succeeded", actor: "runtime", to: "cleaned_up" });
+    }
   });
 
   it("a transient_error CredentialRefreshError denies the call but leaves the lease active (never calls providerEvents.grantRevoked)", async () => {
@@ -200,6 +244,52 @@ describe("dispatch: applyProviderRevocation wiring (PRXY-07)", () => {
 
     const lease = await leaseStore.load(leaseId);
     expect(lease?.state).toBe("active");
+  });
+
+  it("runs the orchestrator in its OWN transaction AFTER the dispatch transaction commits -- never nested on the same lease id (D-30)", async () => {
+    const leaseId = "lease-revoke-no-deadlock";
+    const { deps, leaseStore } = await buildRevocationDeps(
+      leaseId,
+      makeThrowingExecuteStage(new CredentialRefreshError(`${leaseId}:inbox`, "provider_revoked")),
+    );
+
+    // Wrap `leaseStore.transaction` to record each call's start and
+    // settlement in a single shared order log. A nested transaction on the
+    // SAME id would either deadlock (the in-memory double's per-id promise
+    // chain awaits the outer mutator before starting the inner one -- this
+    // test would then time out) or, if it somehow completed, its "start"
+    // would be logged BEFORE the outer transaction's own "end" -- proving
+    // interleaving rather than sequencing. Neither happens here.
+    const order: string[] = [];
+    let callCounter = 0;
+    const originalTransaction = leaseStore.transaction.bind(leaseStore);
+    const instrumentedStore = {
+      ...leaseStore,
+      transaction(id: string, mutate: Parameters<typeof originalTransaction>[1]) {
+        const callIndex = callCounter++;
+        order.push(`start-${String(callIndex)}`);
+        return originalTransaction(id, mutate).finally(() => {
+          order.push(`end-${String(callIndex)}`);
+        });
+      },
+    };
+
+    await handleCall({ ...deps, leaseStore: instrumentedStore }, { name: REVOCABLE_BINDING.tool, arguments: {} }, NOW);
+
+    // handleCall's own transaction (index 0) plus every transaction() call
+    // the orchestrator's separate run makes (indices 1..N) -- proving
+    // strict sequencing (each call's "end" before the NEXT call's "start")
+    // is exactly what rules out nesting: a mutator that opened a SECOND
+    // transaction() on the same id from inside itself would show that
+    // inner call's "start" BEFORE its own outer "end", breaking this
+    // pattern (and, on the real in-memory store, would simply hang).
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    expect(order.length % 2).toBe(0);
+    const expectedPattern: string[] = [];
+    for (let i = 0; i < order.length / 2; i++) {
+      expectedPattern.push(`start-${String(i)}`, `end-${String(i)}`);
+    }
+    expect(order).toEqual(expectedPattern);
   });
 });
 
@@ -262,6 +352,11 @@ describe("PRXY-07 end-to-end: real mock AS + MCP Client (forced invalid_grant re
       resourceIndicator: E2E_BINDING.resource,
     });
 
+    // 05-03 (TEAR-01): same rationale as `buildRevocationDeps` above -- wires
+    // the real orchestrator so a forced `invalid_grant` proves the FULL
+    // teardown path, not just the bare `grant_revoked` transition.
+    const { privateKey } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+
     const deps: ProxyDeps = {
       leaseId,
       leaseStore,
@@ -279,6 +374,7 @@ describe("PRXY-07 end-to-end: real mock AS + MCP Client (forced invalid_grant re
       execute: createVaultExecuteStage(vault, createEchoingCredentialConnector()),
       approve: DEFAULT_APPROVAL_STAGE,
       enforceCaps: DEFAULT_CAP_ENFORCER,
+      teardownSteps: createDefaultTeardownSteps(receiptStore, privateKey),
     };
 
     return { deps, leaseStore };
@@ -292,7 +388,7 @@ describe("PRXY-07 end-to-end: real mock AS + MCP Client (forced invalid_grant re
     return client;
   }
 
-  it("a forced invalid_grant on refresh revokes the lease (actor provider) and denies the triggering call; a subsequent call on the revoked lease is also denied", async () => {
+  it("a forced invalid_grant on refresh auto-chains begin_teardown and runs the orchestrator to cleaned_up (05-03, TEAR-01) and denies the triggering call; a subsequent call on the torn-down lease is also denied", async () => {
     const leaseId = "lease-e2e-revoke";
     const { deps, leaseStore } = await buildE2EDeps(leaseId);
     // The mock's ONLY way to produce oauth.ResponseBodyError -- never its
@@ -310,17 +406,19 @@ describe("PRXY-07 end-to-end: real mock AS + MCP Client (forced invalid_grant re
     }
     expect(content.text).toBe("denied: provider_revoked");
 
-    // The lease is now `revoked` -- reachable here ONLY via
-    // dispatch.ts's provider_revoked branch (revocation.ts's
-    // applyProviderRevocation, actor `provider`, event `grant_revoked`,
-    // unit-proven in Task 1 above); no `user`-actor `revoke` call is made
-    // anywhere in this test.
-    const revokedLease = await leaseStore.load(leaseId);
-    expect(revokedLease?.state).toBe("revoked");
+    // The lease is now `cleaned_up` -- NOT a bare `revoked` (05-03, TEAR-01):
+    // reachable here ONLY via dispatch.ts's provider_revoked branch
+    // (revocation.ts's retrofitted `applyProviderRevocation`, chaining
+    // grant_revoked (actor provider) into begin_teardown (actor runtime),
+    // unit-proven above) followed by the orchestrator's own, separate
+    // transaction running the fixed 5 steps to completion; no `user`-actor
+    // `revoke` call is made anywhere in this test.
+    const finalLease = await leaseStore.load(leaseId);
+    expect(finalLease?.state).toBe("cleaned_up");
 
-    // A subsequent tools/call on the now-revoked lease: denied by
+    // A subsequent tools/call on the now-torn-down lease: denied by
     // evaluatePolicy's lease_not_active check (LIFE-02, deny by default) --
-    // the agent cannot act on a revoked lease.
+    // the agent cannot act on a lease that is no longer active.
     const second = (await client.callTool({ name: E2E_BINDING.tool, arguments: {} })) as CallToolResult;
     expect(second.isError).toBe(true);
     const [secondContent] = second.content;
