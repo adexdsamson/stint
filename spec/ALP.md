@@ -83,7 +83,7 @@ Every top-level field, in schema order:
 - `publisher`: `{ id, name }`, using the same `Identifier` charset for `id`. The publisher identity claimed here MUST match the identity the envelope's signature attests to (Section 5); a manifest is never trusted on `publisher.id` alone.
 - `version`: the agent's own semantic version string (SemVer 2.0.0), a field distinct from the protocol's own `spec_version`.
 - `job`: `{ description, verifier }`. `verifier` is a tagged union of exactly three types, discriminated by its own `type` field, and closed: a value combining fields from two branches (for example a `resource_query` verifier that also carries a `user_confirm` `prompt`) MUST be rejected, not silently accepted by discarding the extra field.
-  - `resource_query`: `{ type: "resource_query", resource, predicate }`. The runtime evaluates `predicate` against `resource` through the proxy, using its own held credentials (Section 7.6); the predicate grammar is `[OPEN: Phase 5]`.
+  - `resource_query`: `{ type: "resource_query", resource, predicate }`. The runtime evaluates `predicate` against `resource` through the proxy, using its own held credentials; `predicate` is a closed aggregate-and-compare grammar defined normatively in Section 7.6, never arbitrary code.
   - `user_confirm`: `{ type: "user_confirm", prompt }`. The runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable.
   - `none`: `{ type: "none" }`. The lease can never reach `completed`; it can only end by expiry or by a user or policy action (Section 7.4).
 - `scopes`: a non-empty list of `{ resource, access }`. `resource` is an opaque `Identifier` resolved only by a runtime-owned connector binding (Section 9); the manifest never names a tool, and nothing in a manifest can change a tool's classification. `access` is a non-empty, duplicate-free list drawn only from the fixed vocabulary `read`, `write`, `send`, `pay`; there is no free-form scope string and no way for a manifest to introduce a fifth access class.
@@ -399,7 +399,23 @@ The runtime MUST re-check the manifest's content hash against the hash bound at 
 
 The manifest's `job.verifier` (Section 4) determines how, if at all, a lease reaches `completed`:
 
-- `resource_query`: the runtime evaluates `job.verifier.predicate` against `job.verifier.resource` through the proxy, using runtime-held credentials, never publisher-supplied code. The predicate grammar is `[OPEN: Phase 5]`.
+- `resource_query`: the runtime evaluates `job.verifier.predicate` against `job.verifier.resource` through the proxy, using runtime-held credentials, never publisher-supplied code. The predicate is a closed, minimal aggregate-and-compare grammar: never arbitrary code, and deliberately without boolean combinators or nesting, so grammar size stays small enough to be the entire attack surface. In informal BNF:
+
+  ```
+  predicate      = aggregate-expr ws compare-op ws number
+  aggregate-expr = "count(rows" [ws "where" ws filter] ")"
+                  | "sum(rows." field [ws "where" ws filter] ")"
+                  | "exists(rows" [ws "where" ws filter] ")"
+  filter         = field ws compare-op ws literal
+  compare-op     = "!=" | "<=" | ">=" | "=" | "<" | ">"
+  literal        = string-literal | number
+  string-literal = "'" { any character except "'" } "'"
+  number         = ["-"] digit {digit} ["." digit {digit}]
+  field          = identifier
+  identifier     = letter { letter | digit | "_" }
+  ```
+
+  The aggregate set is exactly `count`, `sum` and `exists`, and no other aggregate is ever accepted. `sum` requires an aggregate field reference (for example `sum(rows.amount)`); `count` and `exists` take none. The optional `filter` is a single `field OP literal` clause restricting which rows the aggregate runs over; a predicate MUST NOT combine more than one filter clause and MUST NOT use `AND`, `OR`, or any nesting. The outer comparison is always `aggregate-expr compare-op number`, where `number` is a numeric literal: an `exists` predicate is evaluated as a truthiness count (`0` or `1`) compared numerically, for example `exists(rows where status = 'reconciled') >= 1`, never as a boolean literal. `rows` is the normalized row set the runtime's connector binding produces for `job.verifier.resource` (Section 9), each row shaped `{ field: value }`; this normalization is runtime-owned and never publisher-supplied. A manifest whose predicate does not parse under this grammar is rejected at manifest validation, before consent, with the same discipline as an unknown scope. The conformance example `count(rows where status = 'reconciled') >= 1` (Section 4's annotated example) parses to the aggregate `count`, the filter `status = 'reconciled'`, and the outer comparison `>= 1`.
 - `user_confirm`: the runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable, using `job.verifier.prompt`.
 - `none`: `completed` is unreachable for this lease; the lease can only end by expiry or by a user or policy action (Section 7.4).
 

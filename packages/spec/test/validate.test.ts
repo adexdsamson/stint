@@ -309,6 +309,63 @@ describe("validateManifest", () => {
     }
   });
 
+  it("semantic: resource_query verifier with a valid predicate passes", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    expect(manifest.job.verifier.type).toBe("resource_query");
+    expect(validateManifest(manifest).ok).toBe(true);
+  });
+
+  it("semantic: resource_query verifier with an out-of-grammar predicate is rejected with invalid_predicate", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    if (manifest.job.verifier.type !== "resource_query") {
+      throw new Error("fixture drifted: expected a resource_query verifier");
+    }
+    // AND is a boolean combinator; the grammar has none (D-01).
+    manifest.job.verifier.predicate = "count(rows where status = 'reconciled') >= 1 AND count(rows) < 5";
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        {
+          path: "/job/verifier/predicate",
+          code: "invalid_predicate",
+          message: expect.any(String) as string,
+        },
+      ]);
+    }
+  });
+
+  it("semantic: resource_query verifier with an unparseable predicate is rejected with invalid_predicate", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    if (manifest.job.verifier.type !== "resource_query") {
+      throw new Error("fixture drifted: expected a resource_query verifier");
+    }
+    manifest.job.verifier.predicate = "not a predicate at all";
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        {
+          path: "/job/verifier/predicate",
+          code: "invalid_predicate",
+          message: expect.any(String) as string,
+        },
+      ]);
+    }
+  });
+
+  it("semantic: user_confirm verifier never triggers predicate parsing", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    manifest.job.verifier = { type: "user_confirm", prompt: "Did this complete correctly?" };
+    expect(validateManifest(manifest).ok).toBe(true);
+  });
+
+  it("semantic: none verifier never triggers predicate parsing", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    manifest.job.verifier = { type: "none" };
+    expect(validateManifest(manifest).ok).toBe(true);
+  });
+
   it("errors are deterministic and Stint-owned", () => {
     const manifest = cloneManifest(paymentReconcilerManifest());
     (manifest.scopes[0] as { access: string[] }).access = ["delete"];
