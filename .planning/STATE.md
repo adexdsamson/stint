@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 04
 current_phase_name: MCP Proxy & Credential Vault
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-09-28T13:17:51.181Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-09-28T13:44:05.930Z"
 last_activity: 2026-09-28
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
-state_head: 979cb5ad43eae5788c1f8d5ea41449cbeff7ab58
+last_activity_desc: Phase 04 execution started
+state_head: d483e14e825732788ce8968bc1ab719bcb67c108
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 24
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-27)
 
 **Core value:** A prompt-injected or misbehaving agent can never act outside the lease the user granted, and when the lease ends, for any reason, every credential is revoked and the teardown is honestly receipted.
-**Current focus:** Phase 03 — Receipts & Licensing
+**Current focus:** Phase 04 — MCP Proxy & Credential Vault
 
 ## Current Position
 
-Phase: 04 (MCP Proxy & Credential Vault) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (MCP Proxy & Credential Vault) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-09-28 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-09-28 — Phase 04 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P03 | 40min | 2 tasks | 14 files |
 | Phase 03 P06 | 45min | 3 tasks | 9 files |
 | Phase 03 P04 | 20min | 3 tasks | 5 files |
+| Phase 04 P01 | 15min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-06: LicenseIssuer.reissue owns the LIC-03 clamp internally (calls clampedLicenseExpiry, returns null on refusal) rather than requiring callers to pre-clamp; issueLicense (03-05) keeps returning a raw string, and the mock LicenseIssuer wraps it in mintHeldLicense at the issuer boundary so 03-05's existing tests stayed unchanged.
 - [Phase 03]: [Phase 03] 03-04: ReceiptStore's method names/internal Map-of-arrays representation are Claude's Discretion per 03-CONTEXT.md, mirroring LeaseStore's async CRUD shape scoped to append/load/checkpoint.
 - [Phase 03]: [Phase 03] 03-04: The receipts public barrel re-exports ReceiptEntry/ReceiptChain/Checkpoint and payload/entry variant types directly from @stint/spec rather than re-declaring them in @stint/core.
+- [Phase 04]: [Phase 04] 04-01: Task 1's package-legitimacy checkpoint pre-cleared by orchestrator; installed @modelcontextprotocol/sdk@1.30.1, oauth4webapi@3.8.8, oauth2-mock-server@9.2.0 at exact pins
+- [Phase 04]: [Phase 04] 04-01: RED phase for LeaseCounters.actionTimestamps used pnpm typecheck (tsc -b) as the failing-test runner, not vitest, since the additive field is a compile-time-only interface change esbuild's runtime transform doesn't enforce
+- [Phase 04]: [Phase 04] 04-01: actionTimestamps is data-only this plan; sliding-window pruning/actions_per_hour enforcement deferred to plan 04-03
+- [Phase 04]: [Phase 04] 04-01: PRXY-04 requirement checkbox intentionally NOT marked complete despite the plan frontmatter's requirements:[PRXY-04] tag — this plan only lays the additive LeaseCounters.actionTimestamps groundwork; actual actions_per_hour/spend enforcement under concurrency (PRXY-04's real acceptance criteria) lands in plan 04-03, which should mark it complete
 
 ### Pending Todos
 
@@ -131,6 +136,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T09:15:47.425Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-mcp-proxy-credential-vault/04-CONTEXT.md
+Last session: 2026-09-28T13:43:04.452Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
