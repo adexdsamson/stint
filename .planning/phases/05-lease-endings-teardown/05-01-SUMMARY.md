@@ -177,6 +177,10 @@ None - no external service configuration required.
 - D4 (the auth-mode-to-outcome mapping logic: null cleanup hook -> `not_applicable`, hosted/delegated-only step -> `not_applicable`) is vocabulary-only in this plan; the actual step-decision logic is deferred to the plan implementing `packages/proxy/src/teardown/steps.ts`, per 05-PATTERNS.md's file classification.
 - No blockers.
 
+## Self-Check: PASSED
+
+All 6 key files and the SUMMARY.md itself found on disk; all 5 commit hashes (RED/GREEN x2 tasks + this SUMMARY's docs commit) found in git log.
+
 ---
 *Phase: 05-lease-endings-teardown*
 *Completed: 2026-09-28*

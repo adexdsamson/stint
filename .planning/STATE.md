@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 05
-current_phase_name: lease-endings-teardown
+current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-09-28T21:44:23.893Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-09-28T22:09:27.673Z"
 last_activity: 2026-09-28
-last_activity_desc: Phase 04 complete, transitioned to Phase 5
-state_head: 1c9fd0cca74794a57e1fe5ccbd2a4bf1ae50c597
+last_activity_desc: Phase 05 execution started
+state_head: a3aa6eb9986a6c7af61cb40c04d4af456219b9fe
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 32
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-27)
 
 **Core value:** A prompt-injected or misbehaving agent can never act outside the lease the user granted, and when the lease ends, for any reason, every credential is revoked and the teardown is honestly receipted.
-**Current focus:** Phase 04 — MCP Proxy & Credential Vault
+**Current focus:** Phase 05 — Lease Endings & Teardown
 
 ## Current Position
 
-Phase: 05 (lease-endings-teardown) — READY TO EXECUTE
-Plan: Not started
+Phase: 05 (Lease Endings & Teardown) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-09-28 — Phase 04 complete, transitioned to Phase 5
+Last activity: 2026-09-28 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P05 | 35min | 3 tasks | 5 files |
 | Phase 04 P06 | 25min | 3 tasks | 8 files |
 | Phase 04 P07 | 25min | 2 tasks | 6 files |
+| Phase 05 P01 | 20min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04] 04-06: scrubError constructs a NEW Error (message/stack/every own property scrubbed) rather than mutating the original in place, so the raw thrown error and any secret it carries is never exposed past the scrub boundary
 - [Phase 04]: [Phase 04] 04-07: PRXY-07 -- dispatch.ts's handleCall catch block classifies a thrown CredentialRefreshError before the generic execute_failed fallback; provider_revoked applies applyProviderRevocation (reduce + providerEvents.grantRevoked) to the transaction-loaded lease, transient_error denies without revoking
 - [Phase 04]: [Phase 04] 04-07: fixed a pre-existing deny-by-default gap in @stint/core/src/policy.ts -- evaluatePolicy never checked lease.state, so a revoked lease's calls could still be allowed; added POLICY_REASON_CODES.lease_not_active and a Step 2 check (Rule 2 deviation, outside this plan's declared files_modified but required by its own must_have)
+- [Phase 05]: 05-01: TeardownStepPayload.outcome widened enum (ok/not_applicable/attested_ok) landed as the additive receipt-schema vocabulary D-24 needs, golden-hash vector unaffected
+- [Phase 05]: 05-01: Lease.teardownProgress optional field + TeardownStepName/Outcome/Progress types added additively; reduce() needed no edit since its existing spread already carries the field forward; makeTestLease exported + makeTearingDownTestLease fixture added to @stint/core/testing
 
 ### Pending Todos
 
@@ -160,6 +163,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-28T20:17:12.962Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-lease-endings-teardown/05-CONTEXT.md
+Last session: 2026-09-28T22:09:27.233Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
