@@ -58,7 +58,9 @@ export interface AttestedClaimEntry {
   payload: AttestedClaimPayload;
 }
 export interface AttestedClaimPayload {
+  publisherId: string;
   kid: string;
   claimType: string;
   claimHash: ContentHash;
+  sig: string;
 }

@@ -19,6 +19,8 @@ export type { ContentHash } from "./canonical.js";
 export { MAX_ENVELOPE_BYTES, parseEnvelope, verifyEnvelope } from "./envelope.js";
 export type { TrustStore, Ed25519PublicJwk, VerifiedManifest } from "./envelope.js";
 
+export { verifyDetached } from "./jws.js";
+
 export type {
   Manifest,
   Agent,

@@ -769,6 +769,11 @@ export const receiptSchema = {
       "title": "AttestedClaimPayload",
       "type": "object",
       "properties": {
+        "publisherId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "kid": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._-]{1,128}$"
@@ -780,12 +785,19 @@ export const receiptSchema = {
         },
         "claimHash": {
           "$ref": "#/definitions/ContentHash"
+        },
+        "sig": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
         }
       },
       "required": [
+        "publisherId",
         "kid",
         "claimType",
-        "claimHash"
+        "claimHash",
+        "sig"
       ],
       "additionalProperties": false
     },

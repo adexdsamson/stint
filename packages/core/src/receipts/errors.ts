@@ -23,6 +23,7 @@ export const RECEIPT_VERIFY_REASONS = [
   "reordered",
   "truncated",
   "checkpoint_sig_invalid",
+  "claim_sig_invalid",
 ] as const;
 
 export type ReceiptVerifyReason = (typeof RECEIPT_VERIFY_REASONS)[number];

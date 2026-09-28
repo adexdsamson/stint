@@ -1,11 +1,18 @@
 /**
  * One shared protected-header constant and detached EdDSA sign/verify (D-03).
  *
- * Internal only — never re-exported from `./index.ts`. Both `testing.ts`
- * (signing) and `envelope.ts` (verification) import this module, so the
- * header literal exists exactly once in the codebase (RESEARCH Pitfall 5:
- * reconstructing this per call site risks the exact "compute a
- * security-relevant blob in two places" mistake this file exists to avoid).
+ * `signDetached` stays internal only — never re-exported from `./index.ts`.
+ * `testing.ts` (signing) and `envelope.ts` (verification) import this module
+ * directly, so the header literal exists exactly once in the codebase
+ * (RESEARCH Pitfall 5: reconstructing this per call site risks the exact
+ * "compute a security-relevant blob in two places" mistake this file exists
+ * to avoid).
+ *
+ * `verifyDetached` IS re-exported from `./index.ts` (Phase 3, D-07): the
+ * attested receipt chain's publisher-signature verification
+ * (`@stint/core`'s `receipts/attested.ts`) reuses this exact function — the
+ * same one `verifyEnvelope` uses for manifest signatures — rather than
+ * defining a second Ed25519 verify path in a different package.
  *
  * Signature format (follows RFC 7515 Appendix F "detached content", per
  * CONTEXT.md canonical_refs — NOT RFC 7797's `b64: false` unencoded-payload
