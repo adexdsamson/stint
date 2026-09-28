@@ -24,6 +24,7 @@ export const SPEC_ERROR_CODES = [
   "unknown_publisher",
   "unknown_key",
   "invalid_signature",
+  "invalid_predicate",
 ] as const;
 
 export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];

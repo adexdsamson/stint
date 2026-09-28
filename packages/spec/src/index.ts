@@ -26,6 +26,11 @@ export type { TrustStore, Ed25519PublicJwk, VerifiedManifest } from "./envelope.
 
 export { verifyDetached } from "./jws.js";
 
+export { parsePredicate } from "./predicate/parse.js";
+export { evaluatePredicate } from "./predicate/evaluate.js";
+export type { Aggregate, CompareOp, PredicateAst, PredicateFilter } from "./predicate/ast.js";
+export type { PredicateRow } from "./predicate/evaluate.js";
+
 export type {
   Manifest,
   Agent,
