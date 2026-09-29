@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Completed 05-06-PLAN.md
-last_updated: "2026-09-29T05:29:21.498Z"
+stopped_at: Completed 05-07-PLAN.md
+last_updated: "2026-09-29T06:11:18.451Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: 732a9cdd80fe970d15f3ca87262c782404363881
+state_head: b9e6c48d24202eb8078f8df01da01699032de741
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 30
+  completed_plans: 31
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 05 execution started
 
@@ -86,6 +86,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-lease-endings-teardown P04 | ~35min | 3 tasks | 5 files |
 | Phase 05-lease-endings-teardown P05 | 30min | 3 tasks | 7 files |
 | Phase 05-lease-endings-teardown P06 | 35min | 3 tasks | 6 files |
+| Phase 05-lease-endings-teardown P07 | ~55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,8 @@ Recent decisions affecting current work:
 - [Phase 05]: LIC-04: applyEntitlementRevocation mirrors applyProviderRevocation verbatim; LicenseCustody ships as an interface only (no production per-lease license store exists yet), mock/in-memory doubles exercise the real invalidate_license step — Keeps the third end-transition call site (entitlement revocation) consistent with the shared chainTeardownIfEnded pattern and defers the real per-lease license-holding store to whichever later phase actually wires hosted-license issuance into the live call path
 - [Phase 05-lease-endings-teardown]: Cleanup token confirmed as Option A: scope cleanup:<lease_id>, jti/iat/exp, EdDSA, 120s runtime-constant TTL, fresh-mint single-use, no aud — User-confirmed at Task 1 checkpoint; becomes normative §10 contract every publisher hook verifies against
 - [Phase 05-lease-endings-teardown]: postCleanupToken uses AbortSignal.timeout() instead of a manual setTimeout/AbortController pair — Avoids a false trip of the existing D-15 no-retry/backoff grep test in teardown-orchestrate.test.ts while keeping an identical bounded per-request deadline
+- [Phase 05-lease-endings-teardown]: 05-07: verification-attempt receipts reuse the existing CallPayload/CallEntry shape rather than a new receipt schema entry -- outcome true/false/error maps to allowed/denied, redactedSummary carries actor=verifier + outcome + a stable reason (D-07)
+- [Phase 05-lease-endings-teardown]: 05-07: resource_query/user_confirm true/confirm outcomes funnel through the SAME shared completeViaVerifier -> chainTeardownIfEnded -> runTeardown path (D-18); a query/read error records toward LIFE-07's denialErrorTimestamps counter without dispatching checkErrorThreshold -- that dispatch wiring is a pre-existing Phase 6 gap, not invented here
 
 ### Pending Todos
 
@@ -177,6 +180,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T05:29:20.631Z
-Stopped at: Completed 05-06-PLAN.md
+Last session: 2026-09-29T06:11:17.875Z
+Stopped at: Completed 05-07-PLAN.md
 Resume file: None

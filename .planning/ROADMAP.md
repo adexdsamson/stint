@@ -201,7 +201,7 @@ Plans:
 
 **Wave 6** *(blocked on 05-02, 05-03, 05-06)*
 
-- [ ] 05-07-PLAN.md — Outcome verification runtime: resource_query synthetic verifier read + rowAdapter, user_confirm HostAdapter method, agent-claim-never-completes (LIFE-06)
+- [x] 05-07-PLAN.md — Outcome verification runtime: resource_query synthetic verifier read + rowAdapter, user_confirm HostAdapter method, agent-claim-never-completes (LIFE-06)
 
 **Wave 7** *(blocked on 05-06, 05-07)*
 
