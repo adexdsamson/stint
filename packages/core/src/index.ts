@@ -15,7 +15,14 @@ export { reduce } from "./lease.js";
 export type { Lease, LeaseCounters, TransitionRecord, TeardownStepName, TeardownStepOutcome, TeardownProgress } from "./lease.js";
 
 export { createBindingSet, resolveBinding } from "./bindings.js";
-export type { ConnectorBinding, BindingSet, BindingProvenance } from "./bindings.js";
+export type {
+  ConnectorBinding,
+  BindingSet,
+  BindingProvenance,
+  BindingRow,
+  BindingRowResult,
+  ConnectorRowAdapter,
+} from "./bindings.js";
 
 export { POLICY_REASON_CODES, evaluatePolicy, checkErrorThreshold } from "./policy.js";
 export type { PolicyDecision, PolicyReason, PolicyCall, ApprovalRequirement } from "./policy.js";

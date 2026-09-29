@@ -18,13 +18,46 @@ import type { Access } from "@stint/spec";
 /** Distinguishes runtime-shipped bindings from user-approved custom ones (D-12). */
 export type BindingProvenance = "built_in" | "user_approved_custom";
 
-/** A single tool's runtime-owned classification. `access` is only ever `read | write | send | pay` (D-12). */
+/**
+ * The runtime-normalized `{ field: value }` row shape a `resource_query`
+ * verifier's predicate evaluates over (D-06) -- mirrors `@stint/spec`'s
+ * `PredicateRow` exactly so a binding's `rowAdapter` output feeds directly
+ * into `evaluatePredicate` with no re-shaping at the call site.
+ */
+export type BindingRow = Readonly<Record<string, unknown>>;
+
+/** The row-adapter's output: the closed `{ rows }` shape `evaluatePredicate` consumes (D-06). */
+export interface BindingRowResult {
+  readonly rows: readonly BindingRow[];
+}
+
+/**
+ * Normalizes an arbitrary connector read result (the same `{ status, body }`
+ * shape `OutboundConnector.execute` returns) to `{ rows }` for the
+ * `resource_query` outcome verifier (D-06, LIFE-06). Runtime-owned: a
+ * binding's `rowAdapter` is resolved from the runtime's own `BindingSet`,
+ * never derived from manifest content or connector response shape alone --
+ * nothing publisher- or manifest-supplied can substitute a different
+ * adapter for a given tool/resource.
+ */
+export type ConnectorRowAdapter = (result: {
+  readonly status: number;
+  readonly body: unknown;
+}) => BindingRowResult;
+
+/**
+ * A single tool's runtime-owned classification. `access` is only ever
+ * `read | write | send | pay` (D-12). `rowAdapter` is optional and only
+ * meaningful for a binding a `resource_query` verifier reads through
+ * (D-06) -- most bindings never need one.
+ */
 export interface ConnectorBinding {
   readonly tool: string;
   readonly resource: string;
   readonly access: Access;
   readonly irreversible: boolean;
   readonly provenance: BindingProvenance;
+  readonly rowAdapter?: ConnectorRowAdapter;
 }
 
 /** Runtime-owned lookup keyed by tool name, mirroring `@stint/spec`'s `TrustStore` keyed-`Record` shape. */
