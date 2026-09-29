@@ -1,9 +1,8 @@
 /**
- * `verification.test.ts` -- LIFE-06 outcome verification. This file starts
- * with Task 1's `resource_query` coverage (D-02, D-03, D-06, D-07) and now
- * adds Task 2's `user_confirm` coverage (D-05, D-07); Task 3 (`none` +
- * agent-claim-never-completes trigger discipline) extends it in a later
- * commit.
+ * `verification.test.ts` -- LIFE-06 outcome verification (Tasks 1-3):
+ * `resource_query` (D-02, D-03, D-06, D-07), `user_confirm` (D-05, D-07), and
+ * `none` (D-03) -- proving the agent's own "check done" claim only ever
+ * TRIGGERS a runtime-run evaluation and never itself completes a lease.
  */
 
 import { readFileSync } from "node:fs";
@@ -14,6 +13,7 @@ import { generateKeyPair } from "jose";
 import type { CryptoKey } from "jose";
 import { describe, expect, it } from "vitest";
 
+import { reduce, verifierEvents } from "@stint/core";
 import type { ConnectorBinding, HostAdapter, Lease, OutcomeConfirmDecision, ReceiptEntry } from "@stint/core";
 import { createInMemoryLeaseStore, createInMemoryReceiptStore, makeTestLease } from "@stint/core/testing";
 import { parsePredicate } from "@stint/spec";
@@ -21,6 +21,7 @@ import type { PredicateAst } from "@stint/spec";
 
 import {
   createDefaultTeardownSteps,
+  runNoneVerification,
   runResourceQueryVerification,
   runUserConfirmVerification,
 } from "../src/index.js";
@@ -362,5 +363,47 @@ describe("runUserConfirmVerification (LIFE-06, D-05, D-07)", () => {
 
     expect(outcome).toBe("false");
     expect((await leaseStore.load(deps.leaseId))?.state).toBe("active");
+  });
+});
+
+describe("runNoneVerification (LIFE-06, D-03): completes nothing", () => {
+  it("is a pure no-op -- returns 'none', touches no lease, appends no receipt", async () => {
+    const leaseStore = createInMemoryLeaseStore();
+    const receiptStore = createInMemoryReceiptStore();
+    const leaseId = "lease-none-verifier";
+    const lease = makeTestLease(leaseId);
+    await leaseStore.save(lease);
+
+    const outcome = runNoneVerification();
+
+    expect(outcome).toBe("none");
+    expect(await leaseStore.load(leaseId)).toEqual(lease);
+    expect(await receiptStore.load("verified")).toEqual([]);
+  });
+});
+
+describe("Trigger discipline (D-03, D-19): the agent's own claim never completes a lease", () => {
+  it("reduce() rejects a forged agent-actor outcome_verified event -- wrong_actor, never completed", () => {
+    const lease = makeTestLease("lease-forged-actor");
+    const forgedEvent = { type: "outcome_verified", actor: "agent" } as unknown as Parameters<typeof reduce>[1];
+
+    const result = reduce(lease, forgedEvent, NOW);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors[0]?.code).toBe("wrong_actor");
+    }
+  });
+
+  it("the ONLY way outcome_verified is legally dispatched is via verifierEvents.outcomeVerified() (actor verifier)", () => {
+    const lease = makeTestLease("lease-real-verifier-event");
+
+    const result = reduce(lease, verifierEvents.outcomeVerified(), NOW);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.lease.state).toBe("completed");
+      expect(result.value.transition.actor).toBe("verifier");
+    }
   });
 });

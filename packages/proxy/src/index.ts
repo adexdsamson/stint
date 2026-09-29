@@ -136,19 +136,22 @@ export type { CleanupTokenClaims } from "./teardown/cleanup-token.js";
 export { postCleanupToken } from "./teardown/cleanup-client.js";
 export type { CleanupFetchLike, PostCleanupTokenOptions } from "./teardown/cleanup-client.js";
 
-// Outcome verification -- resource_query (05-07, LIFE-06, D-02, D-03, D-06,
-// D-07). `runResourceQueryVerification` runs a verifier-actor synthetic read
-// through the SAME vault/connector path a real call uses, normalizes it via
-// the binding's `rowAdapter`, and evaluates `@stint/spec`'s pure
-// `evaluatePredicate`; a `true` outcome funnels through `completeViaVerifier`
-// (D-18) -- the shared completion path a later plan's `user_confirm`
-// verifier also uses. Every attempt appends exactly one verification receipt
-// via `appendVerificationReceipt` (D-07). The agent's own "check done"
-// signal only ever TRIGGERS this function -- it never itself completes a
-// lease (D-03).
+// Outcome verification -- resource_query + none (05-07, LIFE-06, D-02, D-03,
+// D-06, D-07). `runResourceQueryVerification` runs a verifier-actor
+// synthetic read through the SAME vault/connector path a real call uses,
+// normalizes it via the binding's `rowAdapter`, and evaluates
+// `@stint/spec`'s pure `evaluatePredicate`; a `true` outcome funnels through
+// `completeViaVerifier` (D-18) -- the shared completion path the
+// `user_confirm` verifier below also uses. Every attempt appends exactly one
+// verification receipt via `appendVerificationReceipt` (D-07).
+// `runNoneVerification` is the explicit no-op for a `none` verifier -- it
+// completes nothing; the lease ends only via expiry or user action. The
+// agent's own "check done" signal only ever TRIGGERS one of these functions
+// -- it never itself completes a lease (D-03).
 export {
   appendVerificationReceipt,
   completeViaVerifier,
+  runNoneVerification,
   runResourceQueryVerification,
 } from "./verification/resource-query.js";
 export type { ResourceQueryDeps, ResourceQueryOutcome, VerifierCompletionDeps } from "./verification/resource-query.js";

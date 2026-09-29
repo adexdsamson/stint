@@ -1,6 +1,6 @@
 /**
- * `runResourceQueryVerification` -- the `resource_query` outcome-verification
- * trigger (LIFE-06, D-02, D-03, D-06, D-07).
+ * `runResourceQueryVerification`/`runNoneVerification` -- the `resource_query`
+ * and `none` outcome-verification triggers (LIFE-06, D-02, D-03, D-06, D-07).
  *
  * The agent may only SIGNAL "check done"; this module IS the runtime-run
  * evaluation that signal triggers (D-03) -- there is no code path anywhere in
@@ -40,6 +40,11 @@
  * denied`. NEVER a raw row, field value, or the query result (D-07) --
  * `argsHash` is always `hashCanonical({})` (the synthetic read carries no
  * agent-supplied args), never a hash of the read result.
+ *
+ * `runNoneVerification` (LIFE-06): a `none` verifier's agent-signalled
+ * trigger completes NOTHING -- no `reduce()` call, no receipt append. The
+ * lease ends only via expiry or user action. There is no "attempt" to record
+ * for a verifier that never evaluates anything.
  */
 
 import { appendEntry, reduce, verifierEvents } from "@stint/core";
@@ -265,4 +270,15 @@ export async function runResourceQueryVerification(
   await appendVerificationReceipt(deps.receiptStore, "resource_query", deps.binding.resource, outcome, reason, now);
 
   return outcome;
+}
+
+/**
+ * The `none` verifier's agent-signalled trigger (LIFE-06, D-03): completes
+ * NOTHING. No `reduce()` call, no receipt append -- the lease ends only via
+ * expiry or user action. Exists so callers dispatching on `job.verifier.type`
+ * have an explicit, symmetric no-op to call for `"none"`, proving by
+ * construction that this code path never transitions a lease.
+ */
+export function runNoneVerification(): "none" {
+  return "none";
 }
