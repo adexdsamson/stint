@@ -12,16 +12,26 @@
  */
 
 import { generateKeyPair } from "jose";
-import type { CryptoKey } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { HeldLicense, Lease } from "@stint/core";
-import { createInMemoryReceiptStore, createMockLicenseIssuer, makeTestLease } from "@stint/core/testing";
+import { readLicenseToken } from "@stint/core";
+import type { HeldLicense, Lease, LifecycleEvent } from "@stint/core";
+import {
+  createInMemoryLeaseStore,
+  createInMemoryReceiptStore,
+  createMockLicenseIssuer,
+  makeTestLease,
+} from "@stint/core/testing";
 import type { MockLicenseIssuer } from "@stint/core/testing";
 
 import { applyEntitlementRevocation } from "../src/revocation.js";
+import { appendTransitionReceipt, runTeardown } from "../src/teardown/orchestrate.js";
+import type { TeardownDeps } from "../src/teardown/orchestrate.js";
 import { createDefaultTeardownSteps } from "../src/teardown/steps.js";
 import type { LicenseCustody, TeardownStep } from "../src/teardown/steps.js";
+import { startMockAuthServer } from "../src/testing.js";
+import type { MockAuthHarness } from "../src/testing.js";
+import { createCredentialVault } from "../src/vault/credential-vault.js";
 
 const NOW = 1_700_000_000;
 
@@ -142,6 +152,7 @@ describe("teardown step 2 (invalidate_license): real implementation over License
     let invalidateCalled = false;
     const issuer: MockLicenseIssuer = {
       ...(await createMockLicenseIssuer()),
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- this spy only needs to record that invalidate was called, never which lease id.
       invalidate(_leaseId: string): Promise<void> {
         invalidateCalled = true;
         return Promise.resolve();
@@ -155,5 +166,118 @@ describe("teardown step 2 (invalidate_license): real implementation over License
 
     expect(outcome).toBe("not_applicable");
     expect(invalidateCalled).toBe(false);
+  });
+});
+
+// --- Task 3: LIC-04 end-to-end (entitlement -> teardown -> license --------
+// invalidated + discarded, credential discarded, secretless receipts) ------
+
+const E2E_RESOURCE = "inbox";
+const E2E_ACCESS_TOKEN = "access-token-lic04-must-never-leak";
+const E2E_REFRESH_TOKEN = "refresh-token-lic04-must-never-leak";
+
+describe("LIC-04 end-to-end: entitlement revocation -> teardown -> license + credential gone (Task 3)", () => {
+  let harness: MockAuthHarness;
+
+  beforeEach(async () => {
+    harness = await startMockAuthServer();
+  });
+
+  afterEach(async () => {
+    await harness.stop();
+  });
+
+  it("a hosted/hybrid active lease with a held license + seeded credential reaches cleaned_up with the license invalidated, custody + credential gone, publisher actor, notify fired, and no secret in any receipt", async () => {
+    const leaseId = "lease-lic04-e2e";
+    const receiptStore = createInMemoryReceiptStore();
+    const leaseStore = createInMemoryLeaseStore();
+
+    // License side: a real HeldLicense minted for this lease, seeded into a
+    // fresh LicenseCustody, plus a spy proving LicenseIssuer.invalidate was
+    // actually called (not just custody-emptied by the test itself).
+    const baseIssuer = await createMockLicenseIssuer();
+    let invalidateCalled = false;
+    const issuer: MockLicenseIssuer = {
+      ...baseIssuer,
+      invalidate(id: string): Promise<void> {
+        invalidateCalled = true;
+        return baseIssuer.invalidate(id);
+      },
+    };
+    const custody = createInMemoryLicenseCustody();
+    const heldLicense = await mintTestHeldLicense(issuer, leaseId);
+    const licenseToken = readLicenseToken(heldLicense);
+    custody.seed(leaseId, heldLicense);
+
+    // Credential side: a real 2xx revoke over the loopback mock AS (D-20,
+    // matching revocation-honesty.test.ts's happy path) so step 1 reaches
+    // the SUCCESS outcome "revoked" and the overall run can reach
+    // cleaned_up -- TEAR-02's own honesty matrix already covers the
+    // unsupported/failed tri-state branches; this test only needs step 1 to
+    // run and discard the credential alongside step 2's license work.
+    const vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
+    vault.seedCredential(leaseId, E2E_RESOURCE, {
+      accessToken: E2E_ACCESS_TOKEN,
+      refreshToken: E2E_REFRESH_TOKEN,
+      expiry: NOW + 3600,
+      tokenEndpoint: "unused-in-this-test",
+      resourceIndicator: E2E_RESOURCE,
+    });
+
+    const { privateKey } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+    const steps = createDefaultTeardownSteps(receiptStore, privateKey, vault, { issuer, custody });
+
+    const notified: LifecycleEvent[] = [];
+    const notify = (event: LifecycleEvent): Promise<void> => {
+      notified.push(event);
+      return Promise.resolve();
+    };
+
+    // Start from an active lease, exactly like a real publisher-webhook call
+    // site would: applyEntitlementRevocation computes the two transitions,
+    // the caller persists the resulting tearing_down lease and receipts both
+    // transitions BEFORE running the orchestrator in its own, later pass
+    // (mirrors dispatch.ts's non-nested provider-revocation pattern, D-30).
+    const activeLease = makeTestLease(leaseId, { state: "active" });
+    await leaseStore.save(activeLease);
+
+    const revocationResult = applyEntitlementRevocation(activeLease, NOW);
+    expect(revocationResult.ok).toBe(true);
+    if (!revocationResult.ok) return;
+    expect(revocationResult.value.lease.state).toBe("tearing_down");
+    const [entitlementRevoked, beginTeardown] = revocationResult.value.transitions;
+    expect(entitlementRevoked.actor).toBe("publisher");
+    expect(beginTeardown.actor).toBe("runtime");
+
+    await leaseStore.save(revocationResult.value.lease);
+    await appendTransitionReceipt(receiptStore, entitlementRevoked, NOW);
+    await appendTransitionReceipt(receiptStore, beginTeardown, NOW);
+
+    const deps: TeardownDeps = { leaseStore, receiptStore, leaseId, steps, notify };
+    const finalLease = await runTeardown(deps, NOW + 1);
+
+    expect(finalLease.state).toBe("cleaned_up");
+    expect(invalidateCalled).toBe(true);
+    expect(custody.hasLicense(leaseId)).toBe(false);
+    // Step 1 (revoke_oauth) ran too -- the credential is gone from the vault.
+    await expect(vault.resolveAccessToken(leaseId, E2E_RESOURCE, NOW + 1)).rejects.toThrow();
+
+    expect(notified.some((event) => event.type === "cleaned_up")).toBe(true);
+
+    const chain = await receiptStore.load("verified");
+    const serializedChain = JSON.stringify(chain);
+    expect(serializedChain).not.toContain(E2E_ACCESS_TOKEN);
+    expect(serializedChain).not.toContain(E2E_REFRESH_TOKEN);
+    expect(serializedChain).not.toContain(licenseToken);
+
+    // The revoke leg's actor is publisher, verified independently from the
+    // persisted receipt chain (not just the in-memory TransitionRecord).
+    const entitlementRevokedEntry = chain.find(
+      (entry) => entry.type === "transition" && entry.payload.event === "entitlement_revoked",
+    );
+    expect(entitlementRevokedEntry?.type).toBe("transition");
+    if (entitlementRevokedEntry?.type === "transition") {
+      expect(entitlementRevokedEntry.payload.actor).toBe("publisher");
+    }
   });
 });
