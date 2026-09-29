@@ -219,7 +219,28 @@ Plans:
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
 
-**Plans**: TBD
+**Plans:** 7 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 06-01-PLAN.md — Tracer: Windows-safe atomic JSON LeaseStore + atomic-file helper passing the shared contract suite; package scaffold, exit-code map, path safety, picocolors CLAUDE.md row [checkpoint: on-disk layout one-way] (HOST-03)
+
+**Wave 2** *(blocked on 06-01)*
+
+- [ ] 06-02-PLAN.md — JSON ReceiptStore (per-lease, append-only) + in-process & cross-process concurrency hammer on Windows CI (HOST-03)
+- [ ] 06-03-PLAN.md — Reference terminal HostAdapter (four methods, deny-by-default core-owned) + sanitize/style/prompt/consent-view (HOST-02)
+
+**Wave 3** *(blocked on 06-01, 06-03)*
+
+- [ ] 06-04-PLAN.md — CLI foundation: runtime Ed25519 key + trust store + credentials parser, commander program factory + bin (all commands registered), stint create + inspect (CLI-01, HOST-02)
+
+**Wave 4** *(blocked on 06-04; 06-05/06-06/06-07 parallel)*
+
+- [ ] 06-05-PLAN.md — stint receipts (merged timeline, --json) + stint verify (checkpoint-anchored break locus, 5-reason table) (CLI-02)
+- [ ] 06-06-PLAN.md — Live stint run over MCP stdio (SC#2 proof: approval + user_confirm + timeout-deny under a real in-process client) [checkpoint: run transport topology one-way] (HOST-02, CLI-01)
+- [ ] 06-07-PLAN.md — stint revoke + cleanup (user-actor revoke, idempotent teardown resume, honest revoke_oauth) + full public barrel (CLI-01, HOST-02)
+
 **Research flag**: yes - Windows file atomicity: `write-file-atomic@^7` and `proper-lockfile@4.1.2` behavior under EPERM/EBUSY on rename with concurrent readers; the concurrency test must run on Windows CI.
 
 ### Phase 7: End-to-End Example & README
@@ -247,5 +268,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
-| 6. CLI & Reference Adapters | 0/TBD | Not started | - |
+| 6. CLI & Reference Adapters | 0/7 | Planned | - |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
