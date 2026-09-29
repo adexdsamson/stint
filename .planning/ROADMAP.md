@@ -175,7 +175,7 @@ Plans:
   4. Any single step failing lands the lease in `cleanup_incomplete` with every step's result recorded, retrying resumes idempotently, the lease can never return to `active`, and tests cover every teardown path including each single-step failure.
   5. After cleanup, both receipt chains, including the final signed receipt, remain readable and verify.
 
-**Plans:** 3/8 plans executed
+**Plans:** 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -205,7 +205,7 @@ Plans:
 
 **Wave 7** *(blocked on 05-06, 05-07)*
 
-- [ ] 05-08-PLAN.md — Phase gate: step 4 delete/retain split, RCPT-07 receipts-survive + checkpoint bracketing, every-terminal-entry teardown, zero OPEN-Phase-5 markers (RCPT-07, TEAR-05)
+- [x] 05-08-PLAN.md — Phase gate: step 4 delete/retain split, RCPT-07 receipts-survive + checkpoint bracketing, every-terminal-entry teardown, zero OPEN-Phase-5 markers (RCPT-07, TEAR-05)
 
 ### Phase 6: CLI & Reference Adapters
 
@@ -246,6 +246,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
-| 5. Lease Endings & Teardown | 3/8 | In Progress|  |
+| 5. Lease Endings & Teardown | 8/8 | In Progress|  |
 | 6. CLI & Reference Adapters | 0/TBD | Not started | - |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |

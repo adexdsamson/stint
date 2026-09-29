@@ -46,7 +46,7 @@
 - [x] **RCPT-04**: Publisher-signed attested entries live in a separate chain; each chain verifies independently
 - [x] **RCPT-05**: User can view both chains merged into one plain-language timeline, clearly marking verified vs attested
 - [x] **RCPT-06**: Verifying a tampered or truncated chain (relative to its last checkpoint) reports the exact break
-- [ ] **RCPT-07**: Receipts survive cleanup
+- [x] **RCPT-07**: Receipts survive cleanup
 
 ### Proxy Enforcement
 
@@ -65,7 +65,7 @@
 - [x] **TEAR-02**: Each credential records `revoked | discarded_revocation_unsupported | failed`; a bare 2xx is never treated as proof beyond what RFC 7009 guarantees
 - [x] **TEAR-03**: Uninstall hook authenticates with a single-use cleanup token scoped to `cleanup:<lease_id>`
 - [x] **TEAR-04**: Any step failure lands the lease in `cleanup_incomplete` with every step's result recorded; retrying resumes idempotently; the lease can never return to active
-- [ ] **TEAR-05**: Every teardown path, including each single-step failure, is covered by tests
+- [x] **TEAR-05**: Every teardown path, including each single-step failure, is covered by tests
 
 ### Host Integration & Storage
 
@@ -146,7 +146,7 @@
 | RCPT-04 | Phase 3 | Complete |
 | RCPT-05 | Phase 3 | Complete |
 | RCPT-06 | Phase 3 | Complete |
-| RCPT-07 | Phase 5 | Pending |
+| RCPT-07 | Phase 5 | Complete |
 | PRXY-01 | Phase 4 | Complete |
 | PRXY-02 | Phase 2 | Complete |
 | PRXY-03 | Phase 2 | Complete |
@@ -159,7 +159,7 @@
 | TEAR-02 | Phase 5 | Complete |
 | TEAR-03 | Phase 5 | Complete |
 | TEAR-04 | Phase 5 | Complete |
-| TEAR-05 | Phase 5 | Pending |
+| TEAR-05 | Phase 5 | Complete |
 | HOST-01 | Phase 2 | Complete |
 | HOST-02 | Phase 6 | Pending |
 | HOST-03 | Phase 6 | Pending |

@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
-status: executing
-stopped_at: Completed 05-07-PLAN.md
-last_updated: "2026-09-29T06:11:18.451Z"
+status: verifying
+stopped_at: Completed 05-08-PLAN.md
+last_updated: "2026-09-29T06:41:57.361Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: b9e6c48d24202eb8078f8df01da01699032de741
+state_head: 2ffc1bed1143e3067d591c6ae88c992c7de28094
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 31
+  completed_plans: 32
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-28 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -87,6 +87,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-lease-endings-teardown P05 | 30min | 3 tasks | 7 files |
 | Phase 05-lease-endings-teardown P06 | 35min | 3 tasks | 6 files |
 | Phase 05-lease-endings-teardown P07 | ~55min | 3 tasks | 9 files |
+| Phase 05 P08 | 30min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,8 @@ Recent decisions affecting current work:
 - [Phase 05-lease-endings-teardown]: postCleanupToken uses AbortSignal.timeout() instead of a manual setTimeout/AbortController pair — Avoids a false trip of the existing D-15 no-retry/backoff grep test in teardown-orchestrate.test.ts while keeping an identical bounded per-request deadline
 - [Phase 05-lease-endings-teardown]: 05-07: verification-attempt receipts reuse the existing CallPayload/CallEntry shape rather than a new receipt schema entry -- outcome true/false/error maps to allowed/denied, redactedSummary carries actor=verifier + outcome + a stable reason (D-07)
 - [Phase 05-lease-endings-teardown]: 05-07: resource_query/user_confirm true/confirm outcomes funnel through the SAME shared completeViaVerifier -> chainTeardownIfEnded -> runTeardown path (D-18); a query/read error records toward LIFE-07's denialErrorTimestamps counter without dispatching checkErrorThreshold -- that dispatch wiring is a pre-existing Phase 6 gap, not invented here
+- [Phase 05]: [Phase 05-lease-endings-teardown]: 05-08: D-31 terminal-transition checkpoint lives in orchestrate.ts's runTeardown (gated by an optional signingKey), not scattered across each end-transition call site -- one call site covers both the already-tearing_down production call shape and runTeardown's own auto-chain-from-terminal-state shape
+- [Phase 05]: [Phase 05-lease-endings-teardown]: 05-08: delete_cached_data (step 4) reuses createDefaultTeardownSteps's existing vault/license optional parameters rather than adding a new one -- D-17 is a belt-and-suspenders sweep over the same collaborators steps 1/2 already hold
 
 ### Pending Todos
 
@@ -180,6 +183,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T06:11:17.875Z
-Stopped at: Completed 05-07-PLAN.md
+Last session: 2026-09-29T06:41:56.854Z
+Stopped at: Completed 05-08-PLAN.md
 Resume file: None
