@@ -116,13 +116,25 @@ export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
 export { appendTransitionReceipt, retryTeardown, runTeardown } from "./teardown/orchestrate.js";
 export type { TeardownDeps } from "./teardown/orchestrate.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
-export type { LicenseCustody, TeardownStep } from "./teardown/steps.js";
+export type { CleanupHookConfig, LicenseCustody, TeardownStep } from "./teardown/steps.js";
 export {
   allStepsSucceeded,
   isSuccessOutcome,
   recordStepOutcome,
   remainingSteps,
 } from "./teardown/progress.js";
+
+// Cleanup token + HTTPS client (05-06, TEAR-03, D-08 to D-13). `mintCleanupToken`
+// is the single-use `cleanup:<lease_id>` token mint (jose SignJWT EdDSA,
+// reusing the runtime's Ed25519 checkpoint key, D-09); `verifyCleanupToken`
+// is a reference-only verify shape (the REAL verify runs on the publisher's
+// hook). `postCleanupToken` is the small runtime-owned HTTPS client
+// `teardown/steps.ts`'s real `cleanup_hook` step POSTs the token with --
+// deliberately NOT the `OutboundConnector` (D-12).
+export { CLEANUP_TOKEN_TTL_SECONDS, mintCleanupToken, verifyCleanupToken } from "./teardown/cleanup-token.js";
+export type { CleanupTokenClaims } from "./teardown/cleanup-token.js";
+export { postCleanupToken } from "./teardown/cleanup-client.js";
+export type { CleanupFetchLike, PostCleanupTokenOptions } from "./teardown/cleanup-client.js";
 
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production

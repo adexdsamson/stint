@@ -6,15 +6,17 @@
  * ARCHITECTURE.md Pattern 5's `withRetry` wrapper here.
  *
  * The 5 default step implementations below were happy-path placeholders
- * hardened by later plans (05-06 cleanup_hook's real single-use
- * cleanup-token POST is still pending) -- `revoke_oauth` (05-04, D-20/D-22/
- * D-23/D-33/TEAR-02), `invalidate_license` (this plan, 05-05, D-21/D-33/
- * LIC-04), and `final_receipt` (05-03, D-19/D-31) are now real, permanent
- * implementations. `receiptStore`/`signingKey`/`vault`/`license` are always
- * caller-injected (never read from disk/env); an unverifiable chain or a
- * signing failure is caught by `runStepOnce` and recorded as `"failed"` --
- * just another step failure, landing `cleanup_incomplete` (D-15, D-19).
+ * hardened by later plans -- `revoke_oauth` (05-04, D-20/D-22/D-23/D-33/
+ * TEAR-02), `invalidate_license` (05-05, D-21/D-33/LIC-04), `cleanup_hook`
+ * (this plan, 05-06, D-08 to D-13/TEAR-03), and `final_receipt` (05-03,
+ * D-19/D-31) are now real, permanent implementations. `receiptStore`/
+ * `signingKey`/`vault`/`license`/`cleanup` are always caller-injected (never
+ * read from disk/env); an unverifiable chain or a signing failure is caught
+ * by `runStepOnce` and recorded as `"failed"` -- just another step failure,
+ * landing `cleanup_incomplete` (D-15, D-19).
  */
+
+import { randomUUID } from "node:crypto";
 
 import { appendEntry, signCheckpoint, verifyChain } from "@stint/core";
 import type { Lease, LicenseIssuer, ReceiptStore, TeardownStepName, TeardownStepOutcome } from "@stint/core";
@@ -22,6 +24,9 @@ import type { CryptoKey } from "jose";
 
 import type { CredentialVault } from "../vault/credential-vault.js";
 import type { RevokeResult } from "../vault/oauth-client.js";
+import { postCleanupToken } from "./cleanup-client.js";
+import type { PostCleanupTokenOptions } from "./cleanup-client.js";
+import { mintCleanupToken } from "./cleanup-token.js";
 
 /**
  * Per-lease `HeldLicense` custody discard seam (D-21, D-22) teardown step 2
@@ -180,6 +185,50 @@ function createInvalidateLicenseStep(licenseIssuer: LicenseIssuer, custody: Lice
 }
 
 /**
+ * The manifest-derived, runtime-owned cleanup-hook configuration teardown
+ * step 3 depends on (D-13): `url` is `null` when the manifest's `cleanup`
+ * field is `null` (no publisher hook) -- the step then runs but mints no
+ * token and never makes an HTTP call. `timeoutMs` is an optional override of
+ * {@link postCleanupToken}'s default client-side timeout, useful for tests
+ * that need a fast-failing "unresponsive hook" case.
+ */
+export interface CleanupHookConfig {
+  readonly url: string | null;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * The real `cleanup_hook` (step 3) implementation (D-08 to D-13, TEAR-03): a
+ * `null` `cleanup.url` (no publisher hook, D-13) returns `"not_applicable"`
+ * immediately and mints no token. Otherwise it mints a FRESH single-use
+ * token every attempt (`randomUUID()` jti, D-10 -- never reused across
+ * attempts, including retries) via {@link mintCleanupToken} using the SAME
+ * Ed25519 key `final_receipt`'s checkpoint signing uses (D-09), POSTs it via
+ * the small runtime-owned {@link postCleanupToken} client (D-12, never the
+ * `OutboundConnector`), and maps a 2xx to `"attested_ok"` (an ATTESTED
+ * publisher claim, never over-trusted as verified, D-12) or anything else
+ * (non-2xx, network failure, timeout) to `"failed"`. The token string itself
+ * never crosses into a receipt (D-24) -- only this closed outcome does.
+ */
+function createCleanupHookStep(config: CleanupHookConfig, signingKey: CryptoKey): TeardownStep {
+  return {
+    name: "cleanup_hook",
+    async run(lease: Lease, now: number): Promise<TeardownStepOutcome> {
+      if (config.url === null) {
+        return "not_applicable";
+      }
+
+      const jti = randomUUID();
+      const token = await mintCleanupToken(lease.id, jti, now, signingKey);
+      const postOpts: PostCleanupTokenOptions =
+        config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs };
+      const result = await postCleanupToken(config.url, token, postOpts);
+      return result.ok ? "attested_ok" : "failed";
+    },
+  };
+}
+
+/**
  * The real `final_receipt` (step 5) implementation (D-19, D-31): loads the
  * currently-persisted verified chain, verifies it, and -- only if it
  * verifies -- signs a checkpoint over its `headHash`/`count` and writes it.
@@ -214,30 +263,34 @@ function createFinalReceiptStep(receiptStore: ReceiptStore, signingKey: CryptoKe
  * `revoke_oauth` (05-04) and `final_receipt` (05-03) are real, permanent
  * behavior this and a prior plan ship, not placeholders.
  *
- * `vault` and `license` are each OPTIONAL (Rule 3 seam widening, mirrors
- * `ProxyDeps.teardownSteps` being optional in 05-03): when supplied, `vault`
- * swaps in the real structural-RFC-7009 `revoke_oauth` (`createRevokeOauthStep`,
- * 05-04) and `license` (an `{ issuer, custody }` pair, so the two collaborators
- * are always supplied together or not at all) swaps in the real
- * `invalidate_license` (`createInvalidateLicenseStep`, this plan). Omitting
- * either keeps that step's prior happy-path placeholder unconditionally, so
- * every pre-05-05 caller that constructs
+ * `vault`, `license`, and `cleanup` are each OPTIONAL (Rule 3 seam widening,
+ * mirrors `ProxyDeps.teardownSteps` being optional in 05-03): when supplied,
+ * `vault` swaps in the real structural-RFC-7009 `revoke_oauth`
+ * (`createRevokeOauthStep`, 05-04), `license` (an `{ issuer, custody }`
+ * pair, so the two collaborators are always supplied together or not at
+ * all) swaps in the real `invalidate_license` (`createInvalidateLicenseStep`,
+ * 05-05), and `cleanup` swaps in the real single-use cleanup-token
+ * `cleanup_hook` (`createCleanupHookStep`, this plan, 05-06). Omitting any
+ * of the three keeps that step's prior happy-path placeholder
+ * unconditionally, so every pre-05-06 caller that constructs
  * `createDefaultTeardownSteps(receiptStore, signingKey)` with no `vault`/
- * `license` keeps compiling AND behaving exactly as before -- only a caller
- * that opts in by passing one exercises that step's honest implementation.
+ * `license`/`cleanup` keeps compiling AND behaving exactly as before -- only
+ * a caller that opts in by passing one exercises that step's honest
+ * implementation.
  */
 export function createDefaultTeardownSteps(
   receiptStore: ReceiptStore,
   signingKey: CryptoKey,
   vault?: CredentialVault,
   license?: { readonly issuer: LicenseIssuer; readonly custody: LicenseCustody },
+  cleanup?: CleanupHookConfig,
 ): readonly TeardownStep[] {
   return [
     vault === undefined ? happyPathStep("revoke_oauth", "revoked") : createRevokeOauthStep(vault, receiptStore),
     license === undefined
       ? happyPathStep("invalidate_license", "ok")
       : createInvalidateLicenseStep(license.issuer, license.custody),
-    happyPathStep("cleanup_hook", "attested_ok"),
+    cleanup === undefined ? happyPathStep("cleanup_hook", "attested_ok") : createCleanupHookStep(cleanup, signingKey),
     happyPathStep("delete_cached_data", "ok"),
     createFinalReceiptStep(receiptStore, signingKey),
   ];
