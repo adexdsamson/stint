@@ -193,7 +193,7 @@ Plans:
 
 **Wave 4** *(blocked on 05-03, 05-04)*
 
-- [ ] 05-05-PLAN.md — Step 2 publisher entitlement revocation + LicenseIssuer.invalidate port + license custody discard (LIC-04)
+- [x] 05-05-PLAN.md — Step 2 publisher entitlement revocation + LicenseIssuer.invalidate port + license custody discard (LIC-04)
 
 **Wave 5** *(blocked on 05-05)*
 
