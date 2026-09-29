@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 05
 current_phase_name: Lease Endings & Teardown
 status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-09-29T00:04:45.069Z"
+stopped_at: Completed 05-06-PLAN.md
+last_updated: "2026-09-29T05:29:21.498Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 05 execution started
-state_head: 021159064bf5cd5eef2c4beb18febb04e2b3fbe7
+state_head: 732a9cdd80fe970d15f3ca87262c782404363881
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 32
-  completed_plans: 29
+  completed_plans: 30
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 05 (Lease Endings & Teardown) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-09-28 — Phase 05 execution started
 
@@ -85,6 +85,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P03 | 45min | 3 tasks | 12 files |
 | Phase 05-lease-endings-teardown P04 | ~35min | 3 tasks | 5 files |
 | Phase 05-lease-endings-teardown P05 | 30min | 3 tasks | 7 files |
+| Phase 05-lease-endings-teardown P06 | 35min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,8 @@ Recent decisions affecting current work:
 - [Phase 05-lease-endings-teardown]: createDefaultTeardownSteps gains an OPTIONAL vault parameter (Rule 3 seam widening) -- omitted keeps the pre-05-04 happy-path revoke_oauth so tests outside this plan's declared scope keep compiling and behaving unchanged
 - [Phase 05-lease-endings-teardown]: revokeCredential determines RFC 7009 support structurally from as.revocation_endpoint's presence before any HTTP call, and never upgrades a bare 2xx beyond revoked (Pitfall 5)
 - [Phase 05]: LIC-04: applyEntitlementRevocation mirrors applyProviderRevocation verbatim; LicenseCustody ships as an interface only (no production per-lease license store exists yet), mock/in-memory doubles exercise the real invalidate_license step — Keeps the third end-transition call site (entitlement revocation) consistent with the shared chainTeardownIfEnded pattern and defers the real per-lease license-holding store to whichever later phase actually wires hosted-license issuance into the live call path
+- [Phase 05-lease-endings-teardown]: Cleanup token confirmed as Option A: scope cleanup:<lease_id>, jti/iat/exp, EdDSA, 120s runtime-constant TTL, fresh-mint single-use, no aud — User-confirmed at Task 1 checkpoint; becomes normative §10 contract every publisher hook verifies against
+- [Phase 05-lease-endings-teardown]: postCleanupToken uses AbortSignal.timeout() instead of a manual setTimeout/AbortController pair — Avoids a false trip of the existing D-15 no-retry/backoff grep test in teardown-orchestrate.test.ts while keeping an identical bounded per-request deadline
 
 ### Pending Todos
 
@@ -174,6 +177,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T00:04:44.891Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-09-29T05:29:20.631Z
+Stopped at: Completed 05-06-PLAN.md
 Resume file: None

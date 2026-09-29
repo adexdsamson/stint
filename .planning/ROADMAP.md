@@ -197,7 +197,7 @@ Plans:
 
 **Wave 5** *(blocked on 05-05)*
 
-- [ ] 05-06-PLAN.md — Step 3 cleanup token: jose SignJWT single-use cleanup:<lease_id>, runtime HTTPS hook client, close spec §10 marker (TEAR-03, TEAR-05) [checkpoint: token format one-way]
+- [x] 05-06-PLAN.md — Step 3 cleanup token: jose SignJWT single-use cleanup:<lease_id>, runtime HTTPS hook client, close spec §10 marker (TEAR-03, TEAR-05) [checkpoint: token format one-way]
 
 **Wave 6** *(blocked on 05-02, 05-03, 05-06)*
 
