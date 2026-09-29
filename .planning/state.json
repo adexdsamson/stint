@@ -26,7 +26,7 @@
     {
       "number": "5",
       "name": "Lease Endings & Teardown",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "6",
@@ -41,8 +41,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 05 of 7 · ready to verify"
+    "label": "Advance to the next step (plan phase 6)",
+    "reason": "Phase 6 of 7 — needs a plan"
   },
-  "updated_at": "2026-09-29T06:41:20.723Z"
+  "updated_at": "2026-09-29T07:04:05.658Z"
 }
