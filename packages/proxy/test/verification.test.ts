@@ -1,8 +1,9 @@
 /**
  * `verification.test.ts` -- LIFE-06 outcome verification. This file starts
- * with Task 1's `resource_query` coverage (D-02, D-03, D-06, D-07); Task 2
- * (`user_confirm`) and Task 3 (`none` + agent-claim-never-completes trigger
- * discipline) extend it in later commits.
+ * with Task 1's `resource_query` coverage (D-02, D-03, D-06, D-07) and now
+ * adds Task 2's `user_confirm` coverage (D-05, D-07); Task 3 (`none` +
+ * agent-claim-never-completes trigger discipline) extends it in a later
+ * commit.
  */
 
 import { readFileSync } from "node:fs";
@@ -13,13 +14,17 @@ import { generateKeyPair } from "jose";
 import type { CryptoKey } from "jose";
 import { describe, expect, it } from "vitest";
 
-import type { ConnectorBinding, Lease, ReceiptEntry } from "@stint/core";
+import type { ConnectorBinding, HostAdapter, Lease, OutcomeConfirmDecision, ReceiptEntry } from "@stint/core";
 import { createInMemoryLeaseStore, createInMemoryReceiptStore, makeTestLease } from "@stint/core/testing";
 import { parsePredicate } from "@stint/spec";
 import type { PredicateAst } from "@stint/spec";
 
-import { createDefaultTeardownSteps, runResourceQueryVerification } from "../src/index.js";
-import type { CredentialVault, OutboundConnector, ResourceQueryDeps } from "../src/index.js";
+import {
+  createDefaultTeardownSteps,
+  runResourceQueryVerification,
+  runUserConfirmVerification,
+} from "../src/index.js";
+import type { CredentialVault, OutboundConnector, ResourceQueryDeps, UserConfirmDeps } from "../src/index.js";
 
 const NOW = 1_700_000_000;
 
@@ -254,5 +259,108 @@ describe("runResourceQueryVerification (LIFE-06, D-02, D-03, D-06, D-07)", () =>
     // no catalog/tools-list reference exists.
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(code).not.toMatch(/catalog|ToolCatalog/i);
+  });
+});
+
+describe("runUserConfirmVerification (LIFE-06, D-05, D-07)", () => {
+  function adapterResolving(decision: OutcomeConfirmDecision): HostAdapter {
+    return {
+      requestConsent() {
+        return Promise.reject(new Error("n/a"));
+      },
+      requestApproval() {
+        return Promise.reject(new Error("n/a"));
+      },
+      requestOutcomeConfirmation() {
+        return Promise.resolve(decision);
+      },
+      notify() {
+        return Promise.resolve();
+      },
+    };
+  }
+
+  async function buildUserConfirmDeps(
+    adapter: HostAdapter,
+  ): Promise<{
+    deps: UserConfirmDeps;
+    leaseStore: ReturnType<typeof createInMemoryLeaseStore>;
+    receiptStore: ReturnType<typeof createInMemoryReceiptStore>;
+  }> {
+    const leaseStore = createInMemoryLeaseStore();
+    const receiptStore = createInMemoryReceiptStore();
+    const { privateKey } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+    const leaseId = "lease-user-confirm";
+    await leaseStore.save(makeTestLease(leaseId));
+
+    const deps: UserConfirmDeps = {
+      leaseStore,
+      receiptStore,
+      leaseId,
+      adapter,
+      prompt: "Did the reconciliation job complete?",
+      signal: new AbortController().signal,
+      teardownSteps: createDefaultTeardownSteps(receiptStore, privateKey),
+    };
+
+    return { deps, leaseStore, receiptStore };
+  }
+
+  it("YES: an explicit confirm completes the lease and auto-chains into the full teardown", async () => {
+    const { deps, leaseStore, receiptStore } = await buildUserConfirmDeps(
+      adapterResolving({ decision: "confirm" }),
+    );
+
+    const outcome = await runUserConfirmVerification(deps, NOW);
+
+    expect(outcome).toBe("true");
+    expect((await leaseStore.load(deps.leaseId))?.state).toBe("cleaned_up");
+
+    const chain = await receiptStore.load("verified");
+    const entry = chain.find((e) => e.type === "call" && e.payload.resource === "user_confirm");
+    expect(entry).toBeDefined();
+    if (entry?.type === "call") {
+      expect(entry.payload.outcome).toBe("allowed");
+    }
+  });
+
+  it("NO: an explicit rejection never completes the lease", async () => {
+    const { deps, leaseStore, receiptStore } = await buildUserConfirmDeps(
+      adapterResolving({ decision: "reject", reason: "user_rejected" }),
+    );
+
+    const outcome = await runUserConfirmVerification(deps, NOW);
+
+    expect(outcome).toBe("false");
+    expect((await leaseStore.load(deps.leaseId))?.state).toBe("active");
+    const chain = await receiptStore.load("verified");
+    expect(chain).toHaveLength(1);
+  });
+
+  it("TIMEOUT: an aborted signal (never-resolving adapter) never completes the lease -- deny-by-default", async () => {
+    const controller = new AbortController();
+    const neverAdapter: HostAdapter = {
+      requestConsent() {
+        return Promise.reject(new Error("n/a"));
+      },
+      requestApproval() {
+        return Promise.reject(new Error("n/a"));
+      },
+      requestOutcomeConfirmation() {
+        return new Promise<OutcomeConfirmDecision>(() => {});
+      },
+      notify() {
+        return Promise.resolve();
+      },
+    };
+    const { deps, leaseStore } = await buildUserConfirmDeps(neverAdapter);
+    const timedDeps: UserConfirmDeps = { ...deps, signal: controller.signal };
+
+    const pending = runUserConfirmVerification(timedDeps, NOW);
+    controller.abort();
+    const outcome = await pending;
+
+    expect(outcome).toBe("false");
+    expect((await leaseStore.load(deps.leaseId))?.state).toBe("active");
   });
 });

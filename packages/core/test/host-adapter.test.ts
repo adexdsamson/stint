@@ -4,13 +4,15 @@ import { verifyEnvelope } from "@stint/spec";
 import { signManifestForTest } from "@stint/spec/testing";
 import type { Manifest, VerifiedManifest } from "@stint/spec";
 
-import { awaitApprovalDecision, awaitConsentDecision } from "../src/host-adapter.js";
+import { awaitApprovalDecision, awaitConsentDecision, awaitOutcomeConfirmDecision } from "../src/host-adapter.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
   ConsentDecision,
   ConsentRequest,
   HostAdapter,
+  OutcomeConfirmDecision,
+  OutcomeConfirmRequest,
 } from "../src/host-adapter.js";
 import type { ConnectorBinding } from "../src/bindings.js";
 
@@ -67,11 +69,17 @@ async function consentRequest(): Promise<ConsentRequest> {
   return { consentId: "consent-1", manifest: await verifiedManifestFor("agent-consent") };
 }
 
+function outcomeConfirmRequest(): OutcomeConfirmRequest {
+  return { leaseId: "lease-1", prompt: "Did the reconciliation job complete?" };
+}
+
 /** A fake HostAdapter whose only exercised methods are stubbed per test; the rest throw if called. */
 function fakeAdapter(overrides: Partial<HostAdapter>): HostAdapter {
   return {
     requestConsent: overrides.requestConsent ?? (() => Promise.reject(new Error("not stubbed"))),
     requestApproval: overrides.requestApproval ?? (() => Promise.reject(new Error("not stubbed"))),
+    requestOutcomeConfirmation:
+      overrides.requestOutcomeConfirmation ?? (() => Promise.reject(new Error("not stubbed"))),
     notify: overrides.notify ?? (() => Promise.reject(new Error("not stubbed"))),
   };
 }
@@ -171,5 +179,66 @@ describe("awaitConsentDecision", () => {
     const decision = await awaitConsentDecision(adapter, await consentRequest(), controller.signal);
 
     expect(decision).toEqual({ decision: "decline", reason: "timeout" });
+  });
+});
+
+describe("awaitOutcomeConfirmDecision (D-05)", () => {
+  it("CONFIRM PASSTHROUGH: a non-aborted confirm resolves unchanged", async () => {
+    const adapter = fakeAdapter({
+      requestOutcomeConfirmation: () => Promise.resolve({ decision: "confirm" } satisfies OutcomeConfirmDecision),
+    });
+    const controller = new AbortController();
+
+    const decision = await awaitOutcomeConfirmDecision(adapter, outcomeConfirmRequest(), controller.signal);
+
+    expect(decision).toEqual({ decision: "confirm" });
+  });
+
+  it("REJECT PASSTHROUGH: an explicit user_rejected resolves unchanged", async () => {
+    const adapter = fakeAdapter({
+      requestOutcomeConfirmation: () =>
+        Promise.resolve({ decision: "reject", reason: "user_rejected" } satisfies OutcomeConfirmDecision),
+    });
+    const controller = new AbortController();
+
+    const decision = await awaitOutcomeConfirmDecision(adapter, outcomeConfirmRequest(), controller.signal);
+
+    expect(decision).toEqual({ decision: "reject", reason: "user_rejected" });
+  });
+
+  it("TIMEOUT: a never-resolving adapter + abort resolves reject/timeout, never throws", async () => {
+    const adapter = fakeAdapter({
+      requestOutcomeConfirmation: () => new Promise<OutcomeConfirmDecision>(() => {}),
+    });
+    const controller = new AbortController();
+
+    const pending = awaitOutcomeConfirmDecision(adapter, outcomeConfirmRequest(), controller.signal);
+    controller.abort();
+    const decision = await pending;
+
+    expect(decision).toEqual({ decision: "reject", reason: "timeout" });
+  });
+
+  it("ADAPTER ERROR: a rejecting adapter resolves reject/timeout, never a confirm, never throws", async () => {
+    const adapter = fakeAdapter({
+      requestOutcomeConfirmation: () => Promise.reject(new Error("adapter blew up")),
+    });
+    const controller = new AbortController();
+
+    const decision = await awaitOutcomeConfirmDecision(adapter, outcomeConfirmRequest(), controller.signal);
+
+    expect(decision).toEqual({ decision: "reject", reason: "timeout" });
+  });
+
+  it("ALREADY ABORTED: an already-aborted signal rejects without awaiting a real timer", async () => {
+    const adapter = fakeAdapter({
+      requestOutcomeConfirmation: () => new Promise<OutcomeConfirmDecision>(() => {}),
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const decision = await awaitOutcomeConfirmDecision(adapter, outcomeConfirmRequest(), controller.signal);
+
+    expect(decision).toEqual({ decision: "reject", reason: "timeout" });
   });
 });

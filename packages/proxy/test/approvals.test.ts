@@ -66,6 +66,9 @@ function neverResolvingAdapter(): HostAdapter {
     requestApproval() {
       return new Promise<HostApprovalDecision>(() => undefined);
     },
+    requestOutcomeConfirmation() {
+      return Promise.reject(new Error("n/a"));
+    },
     notify() {
       return Promise.resolve();
     },
@@ -80,6 +83,9 @@ function throwingAdapter(): HostAdapter {
     },
     requestApproval() {
       return Promise.reject(new Error("adapter blew up"));
+    },
+    requestOutcomeConfirmation() {
+      return Promise.reject(new Error("n/a"));
     },
     notify() {
       return Promise.resolve();
@@ -142,6 +148,9 @@ describe("createApprovalDispatcher: armed timeout", () => {
           }, timeoutSeconds * 1000 + 40);
         });
       },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
+      },
       notify() {
         return Promise.resolve();
       },
@@ -172,6 +181,9 @@ describe("createApprovalDispatcher: deny-by-default", () => {
       requestApproval(request) {
         capturedRequest = request;
         return Promise.resolve({ decision: "approve" });
+      },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
       },
       notify() {
         return Promise.resolve();
@@ -308,6 +320,9 @@ function approvingAdapter(): HostAdapter {
     requestApproval() {
       return Promise.resolve({ decision: "approve" });
     },
+    requestOutcomeConfirmation() {
+      return Promise.reject(new Error("n/a"));
+    },
     notify() {
       return Promise.resolve();
     },
@@ -382,6 +397,9 @@ describe("PRXY-05 approval integration: drift denies the reused approval", () =>
         };
         return Promise.resolve({ decision: "approve" });
       },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
+      },
       notify() {
         return Promise.resolve();
       },
@@ -436,6 +454,9 @@ describe("PRXY-05 approval integration: drift denies the reused approval", () =>
         await leaseStore.save({ ...initialLease, version: initialLease.version + 1 });
         return { decision: "approve" };
       },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
+      },
       notify() {
         return Promise.resolve();
       },
@@ -481,6 +502,9 @@ describe("PRXY-05 approval integration: timeout denies at the boundary", () => {
       requestApproval() {
         return new Promise<HostApprovalDecision>(() => undefined);
       },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
+      },
       notify() {
         return Promise.resolve();
       },
@@ -514,6 +538,9 @@ describe("PRXY-05 approval integration: pay always requires approval", () => {
       requestApproval() {
         requestApprovalCalled = true;
         return Promise.resolve({ decision: "deny", reason: "user_denied" });
+      },
+      requestOutcomeConfirmation() {
+        return Promise.reject(new Error("n/a"));
       },
       notify() {
         return Promise.resolve();

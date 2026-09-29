@@ -54,6 +54,26 @@ export type ApprovalDecision =
   | { readonly decision: "deny"; readonly reason: "user_denied" | "timeout" };
 
 /**
+ * A single `user_confirm` outcome-verification request (D-05, LIFE-06):
+ * asks a human, out of band, whether the job's stated outcome actually
+ * happened. `prompt` is the manifest's `job.verifier.prompt` text verbatim —
+ * there is deliberately no field that could carry raw resource data.
+ */
+export interface OutcomeConfirmRequest {
+  readonly leaseId: string;
+  readonly prompt: string;
+}
+
+/**
+ * `confirm` accepts (drives `outcome_verified`, actor `verifier`); `reject`
+ * carries why — `user_rejected` (explicit) or `timeout` (core-decided,
+ * D-17) — and NEVER completes the lease (deny-by-default, D-05).
+ */
+export type OutcomeConfirmDecision =
+  | { readonly decision: "confirm" }
+  | { readonly decision: "reject"; readonly reason: "user_rejected" | "timeout" };
+
+/**
  * Lifecycle notifications a host renders (toast, log line, dashboard row,
  * etc.). Tagged by a literal `type` field so new lifecycle events extend
  * this union rather than growing `HostAdapter`'s method set (D-15). One
@@ -83,6 +103,17 @@ export type LifecycleEvent =
 export interface HostAdapter {
   requestConsent(request: ConsentRequest, signal: AbortSignal): Promise<ConsentDecision>;
   requestApproval(request: ApprovalRequest, signal: AbortSignal): Promise<ApprovalDecision>;
+  /**
+   * The `user_confirm` outcome-verification method (D-05, LIFE-06): asks a
+   * human, out of band, whether the job's stated outcome happened. Mirrors
+   * `requestConsent`/`requestApproval` exactly (async, `AbortSignal`,
+   * core-owned deny-by-default via `awaitOutcomeConfirmDecision` below) —
+   * never satisfied by MCP elicitation through the agent's own client.
+   */
+  requestOutcomeConfirmation(
+    request: OutcomeConfirmRequest,
+    signal: AbortSignal,
+  ): Promise<OutcomeConfirmDecision>;
   notify(event: LifecycleEvent): Promise<void>;
 }
 
@@ -173,6 +204,53 @@ export function awaitConsentDecision(
         settled = true;
         signal.removeEventListener("abort", onAbort);
         resolve(decline);
+      },
+    );
+  });
+}
+
+/**
+ * Races `adapter.requestOutcomeConfirmation` against `signal`, copying
+ * `awaitConsentDecision`'s exact settled-flag/abort-listener/then-resolve
+ * structure verbatim (D-05): if `signal` is already aborted, aborts before
+ * the adapter resolves, or the adapter's `requestOutcomeConfirmation`
+ * rejects or throws, this resolves `{ decision: 'reject', reason: 'timeout'
+ * }` — a slow, buggy, or hostile adapter can never turn into a confirm.
+ * This is the ONLY sanctioned way to call `adapter.requestOutcomeConfirmation`.
+ */
+export function awaitOutcomeConfirmDecision(
+  adapter: HostAdapter,
+  request: OutcomeConfirmRequest,
+  signal: AbortSignal,
+): Promise<OutcomeConfirmDecision> {
+  const reject: OutcomeConfirmDecision = { decision: "reject", reason: "timeout" };
+
+  if (signal.aborted) {
+    return Promise.resolve(reject);
+  }
+
+  return new Promise<OutcomeConfirmDecision>((resolve) => {
+    let settled = false;
+
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve(reject);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    adapter.requestOutcomeConfirmation(request, signal).then(
+      (decision) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(decision);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve(reject);
       },
     );
   });

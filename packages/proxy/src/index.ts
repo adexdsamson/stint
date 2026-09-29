@@ -153,6 +153,17 @@ export {
 } from "./verification/resource-query.js";
 export type { ResourceQueryDeps, ResourceQueryOutcome, VerifierCompletionDeps } from "./verification/resource-query.js";
 
+// Outcome verification -- user_confirm (05-07, LIFE-06, D-05, D-07).
+// `runUserConfirmVerification` drives the out-of-band
+// `HostAdapter.requestOutcomeConfirmation` method via `awaitOutcomeConfirmDecision`;
+// a `confirm` outcome funnels through the SAME shared `completeViaVerifier`
+// completion path `resource-query.ts` uses (D-18), and every attempt appends
+// exactly one verification receipt via the SAME `appendVerificationReceipt`
+// helper (D-07). A `reject` (no/timeout) never completes the lease
+// (deny-by-default, D-05).
+export { runUserConfirmVerification } from "./verification/user-confirm.js";
+export type { UserConfirmDeps, UserConfirmOutcome } from "./verification/user-confirm.js";
+
 // `@stint/proxy/testing` (mock `ExecuteStage`s, contract-test factories for
 // proxy-owned stores) is deliberately NOT re-exported here -- production
 // code must never accidentally depend on a test double.
