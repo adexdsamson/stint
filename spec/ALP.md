@@ -478,7 +478,7 @@ Teardown starts the moment a lease enters `tearing_down` (Section 7.4). It runs 
 
 1. "Revoke" every OAuth grant the lease holds (RFC 7009).
 2. "Invalidate" the publisher license: call the publisher's revocation endpoint and stop any refresh loop.
-3. Run the publisher's "cleanup hook", authenticated by a single-use cleanup token scoped exactly `cleanup:<lease_id>`. Reuse of this token MUST be rejected. The token format is `[OPEN: Phase 5]`.
+3. Run the publisher's "cleanup hook", authenticated by a single-use cleanup token scoped exactly `cleanup:<lease_id>`. Reuse of this token MUST be rejected. The cleanup token is a compact JWS (RFC 7515) signed with the runtime's Ed25519 key, algorithm `EdDSA`, carrying the registered claims `iat`, `exp` and `jti`, plus a custom `scope` claim whose value is exactly `cleanup:<lease_id>`. `exp` MUST be a short, runtime-configured TTL (order of minutes) after `iat`; the TTL is runtime configuration, never carried in the manifest. Single-use is enforced by minting: the runtime MUST mint a fresh token, with a fresh `jti`, for every cleanup-hook attempt and MUST NOT re-present a previously minted token, including on retry; a publisher's cleanup hook MUST reject any token whose `jti` it has already seen. The token is delivered as an HTTP bearer credential on the request to `cleanup.hook.url`; it is never carried in a receipt.
 4. "Delete" cached lease data held by the runtime.
 5. Write the "final signed receipt".
 
