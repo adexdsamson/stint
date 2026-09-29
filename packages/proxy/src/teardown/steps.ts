@@ -8,12 +8,13 @@
  * The 5 default step implementations below were happy-path placeholders
  * hardened by later plans -- `revoke_oauth` (05-04, D-20/D-22/D-23/D-33/
  * TEAR-02), `invalidate_license` (05-05, D-21/D-33/LIC-04), `cleanup_hook`
- * (this plan, 05-06, D-08 to D-13/TEAR-03), and `final_receipt` (05-03,
- * D-19/D-31) are now real, permanent implementations. `receiptStore`/
- * `signingKey`/`vault`/`license`/`cleanup` are always caller-injected (never
- * read from disk/env); an unverifiable chain or a signing failure is caught
- * by `runStepOnce` and recorded as `"failed"` -- just another step failure,
- * landing `cleanup_incomplete` (D-15, D-19).
+ * (05-06, D-08 to D-13/TEAR-03), `delete_cached_data` (this plan, 05-08,
+ * D-17), and `final_receipt` (05-03, D-19/D-31) are now real, permanent
+ * implementations. `receiptStore`/`signingKey`/`vault`/`license`/`cleanup`
+ * are always caller-injected (never read from disk/env); an unverifiable
+ * chain or a signing failure is caught by `runStepOnce` and recorded as
+ * `"failed"` -- just another step failure, landing `cleanup_incomplete`
+ * (D-15, D-19).
  */
 
 import { randomUUID } from "node:crypto";
@@ -229,6 +230,37 @@ function createCleanupHookStep(config: CleanupHookConfig, signingKey: CryptoKey)
 }
 
 /**
+ * The real `delete_cached_data` (step 4) implementation (D-17): a
+ * belt-and-suspenders sweep that deletes any REMAINING sensitive cached
+ * material for this lease. Calls `vault.discardLeaseCredentials` -- a pure
+ * delete, no revoke attempt (step 1 already made revoke_oauth's one
+ * terminal attempt per credential, D-23; idempotent no-op if step 1 already
+ * discarded everything or a hosted-only lease never had a credential).
+ * When a `custody` collaborator is supplied, also confirms the held-license
+ * custody is discarded (idempotent no-op if step 2 already discarded it, or
+ * a delegated-only lease never held one). This step NEVER touches the
+ * `ReceiptStore` or the `Lease`/`teardownProgress` record -- receipts
+ * outlive the lease (RCPT-07) and the progress record must survive so a
+ * `cleanup_incomplete` retry can resume (D-17's delete/retain split; a full
+ * lease-record drop, if ever, happens only after `cleaned_up`, and is not
+ * this step's concern). Always resolves `"ok"` -- deleting an
+ * already-discarded lease's credentials/license is idempotent, never a
+ * failure.
+ */
+function createDeleteCachedDataStep(vault: CredentialVault, custody?: LicenseCustody): TeardownStep {
+  return {
+    name: "delete_cached_data",
+    run(lease: Lease): Promise<TeardownStepOutcome> {
+      vault.discardLeaseCredentials(lease.id);
+      if (custody !== undefined && custody.hasLicense(lease.id)) {
+        custody.discard(lease.id);
+      }
+      return Promise.resolve("ok");
+    },
+  };
+}
+
+/**
  * The real `final_receipt` (step 5) implementation (D-19, D-31): loads the
  * currently-persisted verified chain, verifies it, and -- only if it
  * verifies -- signs a checkpoint over its `headHash`/`count` and writes it.
@@ -258,25 +290,30 @@ function createFinalReceiptStep(receiptStore: ReceiptStore, signingKey: CryptoKe
 
 /**
  * The 5 fixed-order default `TeardownStep`s (D-33), in `TEARDOWN_STEP_ORDER`
- * -- the production defaults a `TeardownDeps.steps` should be built from
- * until 05-05/05-06 supply the real license/cleanup-hook implementations.
- * `revoke_oauth` (05-04) and `final_receipt` (05-03) are real, permanent
- * behavior this and a prior plan ship, not placeholders.
+ * -- the production defaults a `TeardownDeps.steps` should be built from.
+ * `revoke_oauth` (05-04), `cleanup_hook` (05-06), `delete_cached_data` (this
+ * plan, 05-08), and `final_receipt` (05-03) are real, permanent behavior;
+ * `invalidate_license` is real whenever `license` is supplied (05-05).
  *
  * `vault`, `license`, and `cleanup` are each OPTIONAL (Rule 3 seam widening,
  * mirrors `ProxyDeps.teardownSteps` being optional in 05-03): when supplied,
  * `vault` swaps in the real structural-RFC-7009 `revoke_oauth`
- * (`createRevokeOauthStep`, 05-04), `license` (an `{ issuer, custody }`
- * pair, so the two collaborators are always supplied together or not at
- * all) swaps in the real `invalidate_license` (`createInvalidateLicenseStep`,
- * 05-05), and `cleanup` swaps in the real single-use cleanup-token
- * `cleanup_hook` (`createCleanupHookStep`, this plan, 05-06). Omitting any
- * of the three keeps that step's prior happy-path placeholder
- * unconditionally, so every pre-05-06 caller that constructs
- * `createDefaultTeardownSteps(receiptStore, signingKey)` with no `vault`/
- * `license`/`cleanup` keeps compiling AND behaving exactly as before -- only
- * a caller that opts in by passing one exercises that step's honest
- * implementation.
+ * (`createRevokeOauthStep`, 05-04) AND the real `delete_cached_data`
+ * (`createDeleteCachedDataStep`, this plan, 05-08 -- reusing the SAME
+ * `vault` collaborator step 1 uses, plus `license.custody` when also
+ * supplied, D-17), `license` (an `{ issuer, custody }` pair, so the two
+ * collaborators are always supplied together or not at all) swaps in the
+ * real `invalidate_license` (`createInvalidateLicenseStep`, 05-05), and
+ * `cleanup` swaps in the real single-use cleanup-token `cleanup_hook`
+ * (`createCleanupHookStep`, 05-06). Omitting `vault`/`license`/`cleanup`
+ * keeps that step's prior happy-path placeholder unconditionally, so every
+ * pre-05-08 caller that constructs `createDefaultTeardownSteps(receiptStore,
+ * signingKey)` with no `vault`/`license`/`cleanup` keeps compiling AND
+ * behaving exactly as before -- only a caller that opts in by passing one
+ * exercises that step's honest implementation. No new parameter is added
+ * for `delete_cached_data`: it reuses `vault`/`license` verbatim, since D-17
+ * is a belt-and-suspenders sweep over the SAME collaborators steps 1/2
+ * already hold, never a distinct credential/license seam.
  */
 export function createDefaultTeardownSteps(
   receiptStore: ReceiptStore,
@@ -291,7 +328,9 @@ export function createDefaultTeardownSteps(
       ? happyPathStep("invalidate_license", "ok")
       : createInvalidateLicenseStep(license.issuer, license.custody),
     cleanup === undefined ? happyPathStep("cleanup_hook", "attested_ok") : createCleanupHookStep(cleanup, signingKey),
-    happyPathStep("delete_cached_data", "ok"),
+    vault === undefined
+      ? happyPathStep("delete_cached_data", "ok")
+      : createDeleteCachedDataStep(vault, license?.custody),
     createFinalReceiptStep(receiptStore, signingKey),
   ];
 }

@@ -20,9 +20,33 @@
  * remaining-steps walk from persisted progress -- `revoke_oauth`, once
  * attempted, is never re-run (D-23). Neither function arms a timer or
  * self-schedules; one pass per call (D-15).
+ *
+ * `runTeardown` OPTIONALLY signs a SECOND checkpoint bracketing the
+ * terminal-transition boundary (D-31, this plan, 05-08): when
+ * `deps.signingKey` is supplied, right before any of the 5 fixed steps run
+ * -- covering BOTH call shapes production end-transition call sites use
+ * (`revocation.ts`'s `applyProviderRevocation`/`applyEntitlementRevocation`
+ * and `verification/resource-query.ts`'s `completeViaVerifier`, which chain
+ * the terminal transition + `begin_teardown` themselves and pass an
+ * already-`tearing_down` lease into `runTeardown`) AND the simpler shape
+ * where `runTeardown` performs that auto-chain itself (a lease constructed
+ * directly in a terminal end state, e.g. this plan's own
+ * `teardown-all-entries.test.ts`). Either way, by the moment this checkpoint
+ * signs, the terminal-transition + `begin_teardown` receipts are already
+ * appended to the verified chain, so the checkpoint's `headHash`/`count`
+ * genuinely anchors "the lease has ended" independently of whichever step
+ * outcome follows. Together with `final_receipt`'s (step 5's) own
+ * checkpoint, both "lease ended" and "teardown done" become non-repudiable
+ * even if teardown never completes -- a crash between the two checkpoints
+ * still leaves the earlier one standing (`ReceiptStore.writeCheckpoint`
+ * replaces the prior stored checkpoint, but each signed `Checkpoint` value
+ * remains independently verifiable via `verifyCheckpoint` regardless of
+ * whether it is still the CURRENTLY stored one, D-04/D-09). Omitting
+ * `signingKey` (Rule 3 seam widening) keeps every pre-05-08 caller
+ * compiling and behaving exactly as before.
  */
 
-import { appendEntry, reduce, runtimeEvents, userEvents } from "@stint/core";
+import { appendEntry, reduce, runtimeEvents, signCheckpoint, userEvents, verifyChain } from "@stint/core";
 import type {
   Lease,
   LeaseStore,
@@ -33,6 +57,7 @@ import type {
   TeardownStepOutcome,
   TransitionRecord,
 } from "@stint/core";
+import type { CryptoKey } from "jose";
 
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
 import { chainTeardownIfEnded } from "./auto-chain.js";
@@ -54,6 +79,15 @@ export interface TeardownDeps {
   readonly leaseId: string;
   readonly steps: readonly TeardownStep[];
   readonly notify?: (event: LifecycleEvent) => Promise<void>;
+  /**
+   * OPTIONAL (Rule 3 seam widening, D-31, this plan 05-08): when supplied,
+   * `runTeardown` signs and writes a checkpoint bracketing the
+   * terminal-transition boundary, over the verified chain's head at that
+   * point -- see this module's own docstring for the full rationale.
+   * Omitting it keeps every pre-05-08 caller compiling and behaving exactly
+   * as before; only a caller that opts in gets the bracketing checkpoint.
+   */
+  readonly signingKey?: CryptoKey;
 }
 
 const TERMINAL_END_STATES: ReadonlySet<Lease["state"]> = new Set(["completed", "expired", "revoked", "failed"]);
@@ -76,6 +110,34 @@ async function appendReceipt(receiptStore: ReceiptStore, input: ReceiptEntryInpu
 /** A read-only "peek" at the current lease, routed through `runInLeaseTransaction` (identity mutator) so this file never calls `leaseStore.load` directly (D-30). */
 function peekLease(deps: TeardownDeps): Promise<Lease> {
   return runInLeaseTransaction(deps.leaseStore, deps.leaseId, (lease) => lease);
+}
+
+/**
+ * Signs and writes a checkpoint bracketing the terminal-transition boundary
+ * (D-31, 05-08): loads the currently-persisted verified chain, verifies it,
+ * and -- only if it verifies -- signs a checkpoint over its `headHash`/
+ * `count` and writes it. Mirrors `steps.ts`'s `createFinalReceiptStep`
+ * discipline exactly (same `verifyChain` + `signCheckpoint` shape), except
+ * this is not a fixed teardown step: a chain that fails to verify here is an
+ * invariant violation (this function only ever runs immediately after this
+ * module's own `appendTransitionReceipt` call, so the chain it loads is
+ * necessarily self-consistent), so it throws rather than silently recording
+ * a step outcome.
+ */
+async function signBracketingCheckpoint(
+  receiptStore: ReceiptStore,
+  signingKey: CryptoKey,
+  now: number,
+): Promise<void> {
+  const chain = await receiptStore.load("verified");
+  const verified = await verifyChain(chain);
+  if (!verified.ok) {
+    throw new Error(
+      "@stint/proxy: verified chain failed to verify before signing the terminal-transition checkpoint (D-31).",
+    );
+  }
+  const checkpoint = await signCheckpoint("verified", verified.value.count, verified.value.headHash, now, signingKey);
+  await receiptStore.writeCheckpoint(checkpoint);
 }
 
 /**
@@ -186,6 +248,14 @@ export async function runTeardown(deps: TeardownDeps, now: number): Promise<Leas
 
   if (TERMINAL_END_STATES.has(lease.state)) {
     await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
+  }
+
+  // D-31 bracketing checkpoint: by this point the terminal-transition +
+  // begin_teardown receipts are already appended, whether this call just
+  // auto-chained them above or the caller chained them itself before
+  // invoking runTeardown (see this module's docstring).
+  if (deps.signingKey !== undefined) {
+    await signBracketingCheckpoint(deps.receiptStore, deps.signingKey, now);
   }
 
   return landTeardown(deps, now);
