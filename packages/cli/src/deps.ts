@@ -7,6 +7,7 @@
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { HostAdapter, LeaseStore, ReceiptStore } from "@stint/core";
+import type { TeardownStep } from "@stint/proxy";
 
 import type { Style } from "./render/style.js";
 import type { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
@@ -39,6 +40,18 @@ export interface RunSeams {
   readonly createTransport?: () => Transport;
 }
 
+/**
+ * Optional seams for `revoke`/`cleanup` only. Production leaves them unset.
+ * Tests wrap the default five teardown steps to inject a fault into any one of
+ * them (or to count how often a step ran), and may allow a plain-http loopback
+ * authorization server so RFC 7009 revocation can be exercised end to end.
+ */
+export interface TeardownSeams {
+  readonly decorateSteps?: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
+  /** Loopback test authorization servers only; the HTTPS-only guard stays on when this is unset. */
+  readonly allowInsecureRequests?: boolean;
+}
+
 export interface CliDeps {
   readonly io: CliIo;
   /** Epoch SECONDS (matches lease timestamps). */
@@ -60,6 +73,14 @@ export interface CliDeps {
     readonly seedVault: typeof seedVaultFromCredentials;
   };
   readonly run?: RunSeams;
+  readonly teardown?: TeardownSeams;
+  /**
+   * Asks a `[y/N]` question on the user's terminal. Resolves `true` only for
+   * an explicit yes, `false` for any other answer, and `undefined` when there
+   * is no interactive terminal (or the input ended) so the caller can refuse
+   * a destructive action rather than assume consent. Absent means no terminal.
+   */
+  readonly confirm?: (question: string) => Promise<boolean | undefined>;
 }
 
 /** Options every subcommand can read through `cmd.optsWithGlobals()`. */

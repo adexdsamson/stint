@@ -3,6 +3,7 @@
  * streams, the real clock. Used only by `bin.ts`; tests build their own deps.
  */
 
+import { askLine } from "./adapter/prompt.js";
 import { createTerminalHostAdapter } from "./adapter/terminal-host-adapter.js";
 import type { CliDeps } from "./deps.js";
 import { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
@@ -13,6 +14,19 @@ import { createJsonReceiptStore } from "./store/json-receipt-store.js";
 import { loadTrustStore } from "./trust/trust-store.js";
 
 const DEFAULT_APPROVAL_TIMEOUT_SECONDS = 60;
+
+/** `[y/N]` on the real terminal; the question goes to stderr so `--json` stdout stays clean. */
+async function confirmOnTerminal(question: string): Promise<boolean | undefined> {
+  if (!process.stdin.isTTY) return undefined;
+  const answer = await askLine(
+    process.stdin,
+    process.stderr,
+    question,
+    new AbortController().signal,
+  );
+  if (answer === undefined) return undefined;
+  return ["y", "yes"].includes(answer.trim().toLowerCase());
+}
 
 export function createRealDeps(): CliDeps {
   const clock = (): number => Math.floor(Date.now() / 1000);
@@ -43,5 +57,6 @@ export function createRealDeps(): CliDeps {
     keys: { loadOrCreate: loadOrCreateRuntimeKey, loadPublic: loadCheckpointPublicKey },
     loadTrustStore,
     credentials: { load: loadCredentials, seedVault: seedVaultFromCredentials },
+    confirm: confirmOnTerminal,
   };
 }

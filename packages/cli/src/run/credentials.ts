@@ -5,7 +5,11 @@
  * store or receipts, and never echoed in an error. No OAuth acquisition flow
  * lives here (D-02).
  *
- * File shape: `{ "<resource>": { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator } }`.
+ * File shape: `{ "<resource>": { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator,
+ * clientId?, revocationEndpoint? } }`. `clientId` and `revocationEndpoint` are the non-secret
+ * authorization-server details `revoke`/`cleanup` need to attempt RFC 7009 revocation (they have
+ * no run profile): `revocationEndpoint` requires `clientId`, and without it revocation is
+ * honestly receipted as `discarded_revocation_unsupported`.
  */
 
 import { readFile } from "node:fs/promises";
@@ -26,9 +30,16 @@ function isUrl(v: string): boolean {
   return URL.canParse(v);
 }
 
-function parseSeeded(raw: unknown): SeededCredential | undefined {
+/** A seeded credential plus the optional non-secret AS details used only to attempt revocation. */
+export interface LoadedCredential extends SeededCredential {
+  readonly clientId?: string;
+  readonly revocationEndpoint?: string;
+}
+
+function parseSeeded(raw: unknown): LoadedCredential | undefined {
   if (!isRecord(raw)) return undefined;
   const { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator } = raw;
+  const { clientId, revocationEndpoint } = raw;
   if (
     !isNonEmptyString(accessToken) ||
     !isNonEmptyString(refreshToken) ||
@@ -40,11 +51,26 @@ function parseSeeded(raw: unknown): SeededCredential | undefined {
   ) {
     return undefined;
   }
-  return { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator };
+  if (clientId !== undefined && !isNonEmptyString(clientId)) return undefined;
+  if (
+    revocationEndpoint !== undefined &&
+    (!isNonEmptyString(revocationEndpoint) || !isUrl(revocationEndpoint) || clientId === undefined)
+  ) {
+    return undefined;
+  }
+  return {
+    accessToken,
+    refreshToken,
+    expiry,
+    tokenEndpoint,
+    resourceIndicator,
+    ...(clientId === undefined ? {} : { clientId }),
+    ...(revocationEndpoint === undefined ? {} : { revocationEndpoint }),
+  };
 }
 
 /** Parses the credentials file. Throws `CliError(usage)` with a fixed message on any malformed shape. */
-export async function loadCredentials(file: string): Promise<Record<string, SeededCredential>> {
+export async function loadCredentials(file: string): Promise<Record<string, LoadedCredential>> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
@@ -62,7 +88,7 @@ export async function loadCredentials(file: string): Promise<Record<string, Seed
     throw new CliError(EXIT_CODES.usage, "The credentials file has an unexpected shape.");
   }
 
-  const entries: Array<[string, SeededCredential]> = [];
+  const entries: Array<[string, LoadedCredential]> = [];
   for (const [resource, value] of Object.entries(parsed)) {
     const seeded = parseSeeded(value);
     if (seeded === undefined) {
@@ -77,9 +103,17 @@ export async function loadCredentials(file: string): Promise<Record<string, Seed
 export function seedVaultFromCredentials(
   vault: CredentialVault,
   leaseId: string,
-  creds: Readonly<Record<string, SeededCredential>>,
+  creds: Readonly<Record<string, LoadedCredential>>,
 ): void {
-  for (const [resource, seeded] of Object.entries(creds)) {
-    vault.seedCredential(leaseId, resource, seeded);
+  for (const [resource, loaded] of Object.entries(creds)) {
+    // Only the vault's own shape goes in; the AS details are used to build the revocation client.
+    const { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator } = loaded;
+    vault.seedCredential(leaseId, resource, {
+      accessToken,
+      refreshToken,
+      expiry,
+      tokenEndpoint,
+      resourceIndicator,
+    });
   }
 }
