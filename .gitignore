@@ -3,3 +3,4 @@ dist
 .tsc
 coverage
 *.tsbuildinfo
+brag-output/
