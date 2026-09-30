@@ -1,9 +1,10 @@
 ---
 phase: 06-cli-reference-adapters
 verified: 2026-09-30T09:30:00Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verified
 covered_files:
+
   - ".planning/phases/06-cli-reference-adapters/06-01-PLAN.md"
   - ".planning/phases/06-cli-reference-adapters/06-01-SUMMARY.md"
   - ".planning/phases/06-cli-reference-adapters/06-02-PLAN.md"
@@ -24,10 +25,12 @@ covered_files:
   - "packages/cli/src/program.ts"
   - "packages/cli/src/store/atomic-file.ts"
   - "packages/cli/src/store/json-lease-store.ts"
+
 covered_digest: "v1:sha256:1efa77508b1ca3b521641aeceb33b06bd77651ac2a5b1bc90bef334bf7795781"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "On a real Windows console (and ideally a POSIX tty), run `stint create <signed manifest>` and answer y, n, and no answer; then run `stint run <id> --profile ... --credentials ...` from an MCP host and trigger an approval-gated call, answering y, n, and leaving it unanswered."
     expected: "Consent summary renders readably; countdown redraws; y grants/approves, n/blank declines/denies, and an unanswered approval is denied after approvals.timeout_seconds. The MCP stdout stream is not corrupted by prompt output."
     why_human: "openControllingTerminal (CONIN$/CONOUT$ or /dev/tty) and the live readline countdown were only exercised through injected seams / fake streams (assumption A1 in terminal.ts); a real console cannot be driven by automated tests."
@@ -108,6 +111,7 @@ All four IDs appear in the PLAN frontmatter and are marked Complete in REQUIREME
 None. No TBD/FIXME/XXX/TODO/HACK markers in `packages/cli/src`; no stubs, empty handlers, or hardcoded-empty render data.
 
 Informational (not blocking, documented in code comments):
+
 - `runLease` deliberately omits `teardownSteps`. A mid-run revocation leaves the lease `tearing_down` and `stint cleanup` finishes it (covered by the cleanup test for `tearing_down`).
 - `create` refuses hosted/hybrid manifests until license issuance exists (Phase 7); this is an explicit, tested refusal before consent.
 - Consent timeout of 120s is an assumed default (A3), since the manifest has no field for it.
