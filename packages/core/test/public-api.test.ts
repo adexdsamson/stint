@@ -117,6 +117,21 @@ describe("@stint/core public API surface (HOST-01)", () => {
     expect(barrel.createMockLicenseIssuer).toBeUndefined();
   });
 
+  it("pins the @stint/core/license-issuer subpath and keeps it off the main entry (D-07, D-14)", async () => {
+    const barrel = (await import("../src/index.js")) as Record<string, unknown>;
+    expect(barrel.mintHeldLicense).toBeUndefined();
+    expect(barrel.createLicenseIssuerClient).toBeUndefined();
+    expect(barrel.createReferenceLicenseIssuer).toBeUndefined();
+
+    const subpath = (await import("../src/license-issuer.js")) as Record<string, unknown>;
+    expect(typeof subpath.createLicenseIssuerClient).toBe("function");
+    expect(typeof subpath.createReferenceLicenseIssuer).toBe("function");
+    // The subpath must not widen into signing/minting primitives.
+    expect(subpath.issueLicense).toBeUndefined();
+    expect(subpath.mintHeldLicense).toBeUndefined();
+    expect(subpath.createMockLicenseIssuer).toBeUndefined();
+  });
+
   it("compiles type-only imports of the license contract shapes", () => {
     // Compile-time-only check: if any of these types were removed from the
     // barrel, this file would fail to type-check.

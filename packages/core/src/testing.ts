@@ -19,20 +19,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PublicProtocol } from "paseto";
-import { GenerateKeyPairFactory } from "paseto/v4/public";
 import type { PublicKey } from "paseto/v4/public";
 
 import type { Checkpoint, ReceiptChain, ReceiptEntry } from "@stint/spec";
 
 import type { Lease } from "./lease.js";
 import type { LeaseMutator, LeaseStore } from "./lease-store.js";
-import { issueLicense } from "./license/issue.js";
-import type { LicenseClaims } from "./license/issue.js";
-import { mintHeldLicense } from "./license/held-license.js";
-import type { HeldLicense } from "./license/held-license.js";
-import { clampedLicenseExpiry, DEFAULT_LICENSE_TTL_SECONDS } from "./license/refresh.js";
 import type { LicenseIssuer } from "./license/license-issuer.js";
+import { createReferenceLicenseIssuer } from "./license/reference-issuer.js";
 import { appendEntry, verifyChain } from "./receipts/chain.js";
 import type { ReceiptStore } from "./receipts/receipt-store.js";
 
@@ -377,8 +371,6 @@ export function createReceiptStoreContractTests(makeStore: () => ReceiptStore): 
 /** The fixed `kid` the mock `LicenseIssuer` signs under (D-11). */
 export const MOCK_LICENSE_ISSUER_KID = "mock-publisher-test-key";
 
-const keyPairProtocol = new PublicProtocol(GenerateKeyPairFactory);
-
 /** A `LicenseIssuer` plus its public key, exposed so a test can independently `verifyLicense` what it issued. */
 export interface MockLicenseIssuer extends LicenseIssuer {
   readonly publicKey: PublicKey;
@@ -396,42 +388,8 @@ export interface MockLicenseIssuer extends LicenseIssuer {
  * publisher reuses this shape.
  */
 export async function createMockLicenseIssuer(): Promise<MockLicenseIssuer> {
-  const { secretKey, publicKey } = await keyPairProtocol.GenerateKeyPair({ extractable: true });
-  const kid = MOCK_LICENSE_ISSUER_KID;
-  // LIC-04/D-21: leases the runtime has told this issuer to stop issuing
-  // for -- `reissue` refuses (returns null) for any lease id in this set.
-  // No background loop anywhere here: this is a plain custody flag flipped
-  // once by `invalidate` and checked once per `reissue` call.
-  const invalidatedLeaseIds = new Set<string>();
-
-  async function issue(
-    claims: LicenseClaims,
-    specVersion: string,
-    now: number,
-    expEpochSeconds: number,
-    jti?: string,
-  ): Promise<HeldLicense> {
-    const token = await issueLicense(secretKey, claims, kid, specVersion, now, expEpochSeconds, jti);
-    return mintHeldLicense(token);
-  }
-
-  async function reissue(
-    claims: LicenseClaims,
-    specVersion: string,
-    now: number,
-    leaseExpiresAt: number,
-    jti?: string,
-  ): Promise<HeldLicense | null> {
-    if (invalidatedLeaseIds.has(claims.lease_id)) return null;
-    const expEpochSeconds = clampedLicenseExpiry(now, DEFAULT_LICENSE_TTL_SECONDS, leaseExpiresAt);
-    if (expEpochSeconds === null) return null;
-    return issue(claims, specVersion, now, expEpochSeconds, jti);
-  }
-
-  async function invalidate(leaseId: string): Promise<void> {
-    invalidatedLeaseIds.add(leaseId);
-    return Promise.resolve();
-  }
-
-  return { kid, publicKey, issue, reissue, invalidate };
+  // Delegates to the vitest-free reference issuer (`@stint/core/license-issuer`)
+  // so the test double and the runtime-importable issuer can never drift.
+  const { issuer, publicKey } = await createReferenceLicenseIssuer({ kid: MOCK_LICENSE_ISSUER_KID });
+  return { ...issuer, publicKey };
 }
