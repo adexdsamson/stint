@@ -21,6 +21,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { startMockPublisher } from "../src/mocks/publisher.js";
 import type { MockPublisher } from "../src/mocks/publisher.js";
+import {
+  assertNoLicenseLeak,
+  startOrdersSheetMock,
+  startPaystackMock,
+} from "../src/mocks/services.js";
+import type { ServiceMock } from "../src/mocks/services.js";
 import { acquireCredentialsFile, acquireGrant, writeCredentialsFile } from "../src/oauth/acquire.js";
 
 const PAYSTACK = "paystack.transactions";
@@ -222,3 +228,69 @@ describe("mock publisher (D-07, D-10)", () => {
   });
 });
 
+describe("loopback customer services (D-06, LIC-05)", () => {
+  async function callTool(mock: ServiceMock, body: unknown, bearer = "at-secret-1"): Promise<Response> {
+    return postJson(mock.url, body, { authorization: `Bearer ${bearer}` });
+  }
+
+  it("the paystack mock lists settled transactions and records the bearer", async () => {
+    const paystack = track(await startPaystackMock());
+    const response = await callTool(paystack, {});
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { transactions: Array<{ id: string }> };
+    expect(json.transactions.length).toBeGreaterThan(0);
+
+    expect(paystack.requests).toHaveLength(1);
+    expect(paystack.requests[0]?.method).toBe("POST");
+    expect(paystack.requests[0]?.authorization).toBe("Bearer at-secret-1");
+    expect(paystack.hits).toBe(1);
+  });
+
+  it("the sheets mock tells a read ({}) from a write ({order_id,status}) by body shape", async () => {
+    const sheets = track(await startOrdersSheetMock());
+
+    const read = (await (await callTool(sheets, {})).json()) as {
+      rows: Array<{ order_id: string; status: string }>;
+    };
+    expect(read.rows.length).toBeGreaterThan(0);
+    expect(read.rows.every((row) => row.status !== "reconciled")).toBe(true);
+    const target = read.rows[0]?.order_id ?? "";
+
+    const write = await callTool(sheets, { order_id: target, status: "reconciled" });
+    expect(write.status).toBe(200);
+    expect(sheets.rows.find((row) => row.order_id === target)?.status).toBe("reconciled");
+
+    // The synthetic verifier read sees the write.
+    const after = (await (await callTool(sheets, {})).json()) as {
+      rows: Array<{ order_id: string; status: string }>;
+    };
+    expect(after.rows.find((row) => row.order_id === target)?.status).toBe("reconciled");
+
+    expect(sheets.requests.map((r) => r.kind)).toEqual(["read", "write", "read"]);
+    expect(sheets.readHits).toBe(2);
+    expect(sheets.writeHits).toBe(1);
+    expect(sheets.requests.every((r) => r.authorization === "Bearer at-secret-1")).toBe(true);
+
+    // An unknown order is refused without mutating the sheet.
+    expect((await callTool(sheets, { order_id: "nope", status: "reconciled" })).status).toBe(404);
+  });
+
+  it("assertNoLicenseLeak passes for a bearer access token and detects a v4.public. string", async () => {
+    const sheets = track(await startOrdersSheetMock());
+    await callTool(sheets, {});
+    expect(() => {
+      assertNoLicenseLeak(sheets);
+    }).not.toThrow();
+
+    await callTool(sheets, { order_id: "nope", status: "x" }, "v4.public.leakedlicense");
+    expect(() => {
+      assertNoLicenseLeak(sheets);
+    }).toThrow(/license/i);
+
+    const paystack = track(await startPaystackMock());
+    await postJson(paystack.url, { note: "v4.public.inbody" }, { authorization: "Bearer ok" });
+    expect(() => {
+      assertNoLicenseLeak(paystack);
+    }).toThrow(/license/i);
+  });
+});
