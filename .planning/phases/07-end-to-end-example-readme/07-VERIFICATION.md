@@ -1,18 +1,9 @@
 ---
 phase: 07-end-to-end-example-readme
 verified: 2026-09-30T18:40:00Z
-status: human_needed
+status: passed
 score: 8/8 must-haves verified
-covered_files:
-  - README.md
-  - examples/payment-reconciler/src/launcher.ts
-  - examples/payment-reconciler/src/scenario.ts
-  - examples/payment-reconciler/test/e2e.happy.test.ts
-  - examples/payment-reconciler/test/readme.test.ts
-  - packages/cli/src/run/loopback.ts
-  - packages/cli/src/run/run-lease.ts
-  - packages/core/src/license-issuer.ts
-covered_digest: "v1:sha256:3b2367e2ae4d2e813bc49d54bb954891bed420c96837ad79b020bb69163580fe"
+human_verification_result: passed (Windows 11 console, 2026-09-30 — see 07-UAT.md)
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
@@ -25,7 +16,7 @@ human_verification:
 
 **Phase Goal:** The payment-reconciler example proves the whole runtime end to end in hybrid mode, and a newcomer can understand Stint and run the quickstart from the README as written.
 **Verified:** 2026-09-30
-**Status:** human_needed (all automated truths verified; the real-console approval prompt is an inherent human check)
+**Status:** passed (all automated truths verified; the real-console approval prompt was confirmed by human UAT on a Windows 11 console 2026-09-30 — see 07-UAT.md)
 **Re-verification:** No, initial verification
 
 ## Goal Achievement

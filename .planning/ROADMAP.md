@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`) (completed 2026-09-28)
 - [x] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording (completed 2026-09-29)
 - [x] **Phase 6: CLI & Reference Adapters** - `@stint/cli` commands, terminal reference HostAdapter, and the Windows-safe JSON-file LeaseStore (completed 2026-09-30)
-- [ ] **Phase 7: End-to-End Example & README** - `examples/payment-reconciler` hybrid-mode e2e test and a README whose quickstart works as written
+- [x] **Phase 7: End-to-End Example & README** - `examples/payment-reconciler` hybrid-mode e2e test and a README whose quickstart works as written (completed 2026-09-30)
 
 ## Phase Details
 
@@ -254,7 +254,7 @@ Plans:
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
 
-**Plans:** 9/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 **Wave 1**
@@ -300,4 +300,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
 | 6. CLI & Reference Adapters | 7/7 | Complete    | 2026-09-30 |
-| 7. End-to-End Example & README | 9/9 | In Progress|  |
+| 7. End-to-End Example & README | 9/9 | Complete    | 2026-09-30 |
