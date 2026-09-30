@@ -7,5 +7,5 @@
     "emitDeclarationOnly": true
   },
   "include": ["src", "test"],
-  "references": [{ "path": "../core" }, { "path": "../proxy" }]
+  "references": [{ "path": "../core" }, { "path": "../proxy" }, { "path": "../spec" }]
 }
