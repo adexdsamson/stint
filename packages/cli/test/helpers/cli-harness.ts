@@ -17,6 +17,7 @@ import type { Manifest } from "@stint/spec";
 import { signManifestForTest } from "@stint/spec/testing";
 
 import type { CliDeps } from "../../src/deps.js";
+import { createStyle } from "../../src/render/style.js";
 import { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "../../src/keys/runtime-key.js";
 import { loadCredentials, seedVaultFromCredentials } from "../../src/run/credentials.js";
 import { createJsonLeaseStore } from "../../src/store/json-lease-store.js";
@@ -66,6 +67,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       err: (t) => stderr.push(t),
     },
     clock: () => NOW,
+    style: () => createStyle(false),
     storeFactory: (r) => createJsonLeaseStore({ root: r }),
     receiptStoreFactory: (r, leaseId) => createJsonReceiptStore({ root: r, leaseId }),
     adapterFactory: () => scriptedAdapter(options),

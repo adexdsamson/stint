@@ -7,6 +7,7 @@
 
 import type { HostAdapter, LeaseStore, ReceiptStore } from "@stint/core";
 
+import type { Style } from "./render/style.js";
 import type { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
 import type { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
 import type { loadTrustStore } from "./trust/trust-store.js";
@@ -29,6 +30,8 @@ export interface CliDeps {
   readonly io: CliIo;
   /** Epoch SECONDS (matches lease timestamps). */
   readonly clock: () => number;
+  /** Colour helpers; the decision (`--json`, `NO_COLOR`, TTY) is made once by the factory. */
+  readonly style: (json: boolean) => Style;
   readonly storeFactory: (root: string) => LeaseStore;
   readonly receiptStoreFactory: (root: string, leaseId: string) => ReceiptStore;
   readonly adapterFactory: (io: CliIo, ctx: AdapterContext) => HostAdapter;

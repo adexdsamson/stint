@@ -26,6 +26,7 @@ export function createRealDeps(): CliDeps {
       },
     },
     clock,
+    style: (json) => createStyle(colorDecision({ json, env: process.env, output: process.stdout })),
     storeFactory: (root) => createJsonLeaseStore({ root }),
     receiptStoreFactory: (root, leaseId) => createJsonReceiptStore({ root, leaseId }),
     adapterFactory: (_io, ctx) => {
