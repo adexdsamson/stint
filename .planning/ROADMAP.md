@@ -219,7 +219,7 @@ Plans:
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
 
-**Plans:** 3/7 plans executed
+**Plans:** 4/7 plans executed
 
 Plans:
 **Wave 1**
@@ -233,7 +233,7 @@ Plans:
 
 **Wave 3** *(blocked on 06-01, 06-03)*
 
-- [ ] 06-04-PLAN.md — CLI foundation: runtime Ed25519 key + trust store + credentials parser, commander program factory + bin (all commands registered), stint create + inspect (CLI-01, HOST-02)
+- [x] 06-04-PLAN.md — CLI foundation: runtime Ed25519 key + trust store + credentials parser, commander program factory + bin (all commands registered), stint create + inspect (CLI-01, HOST-02)
 
 **Wave 4** *(blocked on 06-04; 06-05/06-06/06-07 parallel)*
 
@@ -268,5 +268,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
-| 6. CLI & Reference Adapters | 3/7 | In Progress|  |
+| 6. CLI & Reference Adapters | 4/7 | In Progress|  |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |

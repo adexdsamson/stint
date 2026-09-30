@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 06
 current_phase_name: CLI & Reference Adapters
 status: executing
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-09-30T06:43:16.178Z"
+stopped_at: Completed 06-04-PLAN.md
+last_updated: "2026-09-30T07:07:57.220Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: 296110ea2a1d04d638a748ae10e6187cdda229cb
+state_head: e6a406e3b71c5044b01da2cd2856e0e16cefb3ef
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 39
-  completed_plans: 35
+  completed_plans: 36
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 06 (CLI & Reference Adapters) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -92,6 +92,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 06 P01 | 30min | 3 tasks | 14 files |
 | Phase 06 P02 | 8min | 2 tasks | 5 files |
 | Phase 06 P03 | 25min | 2 tasks | 9 files |
+| Phase 06 P04 | 45min | 3 tasks | 22 files |
 
 ## Accumulated Context
 
@@ -168,6 +169,8 @@ Recent decisions affecting current work:
 - [Phase 06]: Phase 06-01: dir-per-lease on-disk store layout (leases/<id>/lease.json, lock per lease.json, lease-then-receipts order) confirmed by user
 - [Phase 06]: 06-02: receipt files locked per chain file; store validates container shape only, verifyChain owns hash integrity
 - [Phase 06]: 06-03: terminal HostAdapter non-answers (abort/EOF/no-TTY) reject so core's await*Decision folds them; adapter owns no deny timer (D-05)
+- [Phase 06]: 06-04: exit code via injected ExitSink (not process.exitCode in actions) so in-process tests cannot poison the runner
+- [Phase 06]: 06-04: hosted/hybrid manifests refused before consent until Phase 7 license issuance (A8)
 
 ### Pending Todos
 
@@ -190,6 +193,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T06:43:15.704Z
-Stopped at: Completed 06-03-PLAN.md
+Last session: 2026-09-30T07:07:56.738Z
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None
