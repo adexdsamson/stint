@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 06
-current_phase_name: cli-reference-adapters
+current_phase_name: CLI & Reference Adapters
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-09-29T19:28:14.933Z"
-last_activity: 2026-09-29
-last_activity_desc: Phase 05 complete, transitioned to Phase 6
-state_head: 57639f29cf256770635b63c4d9eebd1f9237154f
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-09-30T06:13:22.450Z"
+last_activity: 2026-09-30
+last_activity_desc: Phase 06 execution started
+state_head: ff3fcef86098ad925c043667f7169d3c5a649f19
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 39
-  completed_plans: 32
+  completed_plans: 33
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-27)
 
 **Core value:** A prompt-injected or misbehaving agent can never act outside the lease the user granted, and when the lease ends, for any reason, every credential is revoked and the teardown is honestly receipted.
-**Current focus:** Phase 05 — Lease Endings & Teardown
+**Current focus:** Phase 06 — CLI & Reference Adapters
 
 ## Current Position
 
-Phase: 06 (cli-reference-adapters) — READY TO EXECUTE
-Plan: Not started
+Phase: 06 (CLI & Reference Adapters) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-09-29 — Phase 05 complete, transitioned to Phase 6
+Last activity: 2026-09-30 — Phase 06 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 14%
 
 ## Performance Metrics
 
@@ -89,6 +89,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-lease-endings-teardown P06 | 35min | 3 tasks | 6 files |
 | Phase 05-lease-endings-teardown P07 | ~55min | 3 tasks | 9 files |
 | Phase 05 P08 | 30min | 2 tasks | 4 files |
+| Phase 06 P01 | 30min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -162,6 +163,7 @@ Recent decisions affecting current work:
 - [Phase 05-lease-endings-teardown]: 05-07: resource_query/user_confirm true/confirm outcomes funnel through the SAME shared completeViaVerifier -> chainTeardownIfEnded -> runTeardown path (D-18); a query/read error records toward LIFE-07's denialErrorTimestamps counter without dispatching checkErrorThreshold -- that dispatch wiring is a pre-existing Phase 6 gap, not invented here
 - [Phase 05]: [Phase 05-lease-endings-teardown]: 05-08: D-31 terminal-transition checkpoint lives in orchestrate.ts's runTeardown (gated by an optional signingKey), not scattered across each end-transition call site -- one call site covers both the already-tearing_down production call shape and runTeardown's own auto-chain-from-terminal-state shape
 - [Phase 05]: [Phase 05-lease-endings-teardown]: 05-08: delete_cached_data (step 4) reuses createDefaultTeardownSteps's existing vault/license optional parameters rather than adding a new one -- D-17 is a belt-and-suspenders sweep over the same collaborators steps 1/2 already hold
+- [Phase 06]: Phase 06-01: dir-per-lease on-disk store layout (leases/<id>/lease.json, lock per lease.json, lease-then-receipts order) confirmed by user
 
 ### Pending Todos
 
@@ -184,6 +186,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T11:47:08.806Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-cli-reference-adapters/06-CONTEXT.md
+Last session: 2026-09-30T06:13:09.079Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None

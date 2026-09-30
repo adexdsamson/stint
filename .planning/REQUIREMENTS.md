@@ -71,7 +71,7 @@
 
 - [x] **HOST-01**: Platform builder can implement one `HostAdapter` interface covering consent, per-call approval and lifecycle notifications
 - [ ] **HOST-02**: CLI reference HostAdapter renders consent from the manifest and prompts approvals in the terminal, defaulting to deny on timeout
-- [ ] **HOST-03**: Platform builder can implement a `LeaseStore` interface; JSON-file default uses atomic writes and locking that pass a concurrent read/write test on Windows
+- [x] **HOST-03**: Platform builder can implement a `LeaseStore` interface; JSON-file default uses atomic writes and locking that pass a concurrent read/write test on Windows
 
 ### CLI
 
@@ -162,7 +162,7 @@
 | TEAR-05 | Phase 5 | Complete |
 | HOST-01 | Phase 2 | Complete |
 | HOST-02 | Phase 6 | Pending |
-| HOST-03 | Phase 6 | Pending |
+| HOST-03 | Phase 6 | Complete |
 | CLI-01 | Phase 6 | Pending |
 | CLI-02 | Phase 6 | Pending |
 | E2E-01 | Phase 7 | Pending |

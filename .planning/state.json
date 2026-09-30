@@ -31,7 +31,7 @@
     {
       "number": "6",
       "name": "CLI & Reference Adapters",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "7",
@@ -41,8 +41,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 6)",
-    "reason": "Phase 6 of 7 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 06 of 7 · executing"
   },
-  "updated_at": "2026-09-29T07:04:05.658Z"
+  "updated_at": "2026-09-30T06:13:22.692Z"
 }

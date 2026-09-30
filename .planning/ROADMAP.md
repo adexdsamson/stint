@@ -219,12 +219,12 @@ Plans:
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
 
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — Tracer: Windows-safe atomic JSON LeaseStore + atomic-file helper passing the shared contract suite; package scaffold, exit-code map, path safety, picocolors CLAUDE.md row [checkpoint: on-disk layout one-way] (HOST-03)
+- [x] 06-01-PLAN.md — Tracer: Windows-safe atomic JSON LeaseStore + atomic-file helper passing the shared contract suite; package scaffold, exit-code map, path safety, picocolors CLAUDE.md row [checkpoint: on-disk layout one-way] (HOST-03)
 
 **Wave 2** *(blocked on 06-01)*
 
@@ -268,5 +268,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
-| 6. CLI & Reference Adapters | 0/7 | Planned | - |
+| 6. CLI & Reference Adapters | 1/7 | In Progress|  |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
