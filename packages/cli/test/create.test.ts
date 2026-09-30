@@ -16,6 +16,8 @@ import {
   writeSignedManifest,
 } from "./helpers/cli-harness.js";
 import type { Harness, HarnessOptions } from "./helpers/cli-harness.js";
+import { startPublisherStub } from "./helpers/publisher-stub.js";
+import type { PublisherStub, StubBehavior } from "./helpers/publisher-stub.js";
 
 let h: Harness | undefined;
 afterEach(async () => {
@@ -185,26 +187,155 @@ describe("stint create", () => {
     expect(await create(harness, fixture.manifestPath, "--trust", trustFile)).toBe(0);
   });
 
-  it.each<[string, Manifest["auth"]]>([
-    ["hosted", { mode: "hosted", hosted: { license_issuer: "pub.example", kid: "k1" } }],
-    [
-      "hybrid (mode omitted)",
-      {
-        delegated: [{ provider: "google", resources: ["sheets.orders"] }],
-        hosted: { license_issuer: "pub.example", kid: "k1" },
-      },
-    ],
-  ])("a %s manifest is refused before consent (A8, Phase 7)", async (_name, auth) => {
-    const consent = vi.fn(grant);
-    const harness = await createHarness({ consent });
-    h = harness;
-    const fixture = await writeSignedManifest(harness.root, delegatedManifest({ auth }));
-    await writeFile(path.join(harness.root, "trust.json"), fixture.trustJson);
+  describe("hosted and hybrid manifests need a publisher (closes A8)", () => {
+    let stub: PublisherStub | undefined;
+    afterEach(async () => {
+      await stub?.stop();
+      stub = undefined;
+    });
 
-    expect(await create(harness, fixture.manifestPath)).toBe(EXIT_CODES.manifestInvalid);
-    expect(consent).not.toHaveBeenCalled();
-    expect(harness.stderr.join("")).toContain("not available in this phase");
-    expect(await leases(harness)).toHaveLength(0);
+    const hostedAuth: Manifest["auth"] = {
+      mode: "hosted",
+      hosted: { license_issuer: "pub.example", kid: "k1" },
+    };
+    const hybridAuth: Manifest["auth"] = {
+      delegated: [{ provider: "google", resources: ["sheets.orders"] }],
+      hosted: { license_issuer: "pub.example", kid: "k1" },
+    };
+    const authModes: Array<[string, Manifest["auth"]]> = [
+      ["hosted", hostedAuth],
+      ["hybrid (mode omitted)", hybridAuth],
+    ];
+
+    async function setupHosted(auth: Manifest["auth"], consent = vi.fn(grant)) {
+      const harness = await createHarness({ consent });
+      h = harness;
+      const fixture = await writeSignedManifest(harness.root, delegatedManifest({ auth }));
+      await writeFile(path.join(harness.root, "trust.json"), fixture.trustJson);
+      stub = await startPublisherStub();
+      return { harness, fixture, consent, stub };
+    }
+
+    it.each(authModes)(
+      "%s: --publisher issues the license once, activates, and persists publisher.json",
+      async (_name, auth) => {
+        const { harness, fixture, stub: pub } = await setupHosted(auth);
+        const file = await pub.writeBindingFile(harness.root);
+
+        expect(await create(harness, fixture.manifestPath, "--publisher", file)).toBe(
+          EXIT_CODES.ok,
+        );
+        const id = harness.stdout.join("").trim();
+        const stored = await leases(harness);
+        expect(stored).toHaveLength(1);
+        expect(stored[0]?.state).toBe("active");
+        expect(pub.hits.issue).toBe(1);
+
+        const persisted = JSON.parse(
+          await readFile(path.join(harness.root, "leases", id, "publisher.json"), "utf8"),
+        ) as unknown;
+        expect(persisted).toEqual(pub.binding);
+
+        // The license is verified and dropped: it reaches neither output nor the store.
+        const token = pub.issuedTokens[0] ?? "";
+        expect(token).toMatch(/^v4\.public\./);
+        expect(harness.allOutput()).not.toContain(token);
+        for (const f of ["lease.json", "envelope.json", "publisher.json"]) {
+          expect(await readFile(path.join(harness.root, "leases", id, f), "utf8")).not.toContain(
+            token,
+          );
+        }
+      },
+    );
+
+    it.each(authModes)(
+      "%s: without --publisher it exits usage BEFORE consent with a fixed message",
+      async (_name, auth) => {
+        const { harness, fixture, consent } = await setupHosted(auth);
+
+        expect(await create(harness, fixture.manifestPath)).toBe(EXIT_CODES.usage);
+        expect(consent).not.toHaveBeenCalled();
+        expect(harness.stderr.join("")).toBe(
+          "stint: A lease with hosted or hybrid auth requires --publisher <file>.\n",
+        );
+        expect(await leases(harness)).toHaveLength(0);
+        expect(harness.stderr.join("")).not.toContain("not available in this phase");
+      },
+    );
+
+    it("a malformed or unsafe --publisher file is a fixed usage error before consent", async () => {
+      const { harness, fixture, consent, stub: pub } = await setupHosted(hostedAuth);
+      const bad: Array<[string, unknown]> = [
+        ["non-loopback http URL", { ...pub.binding, issue_url: "http://publisher.example.test/i" }],
+        ["missing invalidate_url", { ...pub.binding, invalidate_url: undefined }],
+        ["not a PASERK", { ...pub.binding, license_public_key: "abc" }],
+        ["junk PASERK", { ...pub.binding, license_public_key: "k4.public.@@@" }],
+        ["not an object", ["x"]],
+      ];
+      for (const [name, value] of bad) {
+        const file = path.join(harness.root, `bad-${name.replace(/\W/g, "-")}.json`);
+        await writeFile(file, JSON.stringify(value));
+        expect(await create(harness, fixture.manifestPath, "--publisher", file), name).toBe(
+          EXIT_CODES.usage,
+        );
+      }
+      const junk = path.join(harness.root, "junk-publisher.json");
+      await writeFile(junk, "{ not json");
+      expect(await create(harness, fixture.manifestPath, "--publisher", junk)).toBe(
+        EXIT_CODES.usage,
+      );
+      expect(
+        await create(harness, fixture.manifestPath, "--publisher", path.join(harness.root, "no")),
+      ).toBe(EXIT_CODES.usage);
+
+      expect(consent).not.toHaveBeenCalled();
+      expect(await leases(harness)).toHaveLength(0);
+      const err = harness.stderr.join("");
+      expect(err).not.toContain("publisher.example.test");
+      expect(err).not.toContain("k4.public.");
+      expect(pub.hits.issue).toBe(0);
+    });
+
+    it.each<[StubBehavior]>([["garbage"], ["wrong-lease"], ["refuse"]])(
+      "a publisher that returns %s fails activation with a fixed message and leaks nothing",
+      async (behavior) => {
+        const { harness, fixture, stub: pub } = await setupHosted(hybridAuth);
+        pub.behavior = behavior;
+        const file = await pub.writeBindingFile(harness.root);
+
+        expect(await create(harness, fixture.manifestPath, "--publisher", file)).toBe(
+          EXIT_CODES.wrongState,
+        );
+        expect(harness.stdout.join("")).toBe("");
+        expect(harness.stderr.join("")).toBe(
+          "stint: The publisher did not issue a verifiable license; no lease was activated.\n",
+        );
+        const out = harness.allOutput();
+        for (const leaked of [
+          ...pub.issuedTokens,
+          "v4.public.",
+          "boom",
+          "internal publisher detail",
+        ]) {
+          expect(out).not.toContain(leaked);
+        }
+        const stored = await leases(harness);
+        expect(stored).toHaveLength(1);
+        expect(stored[0]?.state).toBe("failed");
+        await expect(
+          stat(path.join(harness.root, "leases", stored[0]?.id ?? "x", "publisher.json")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      },
+    );
+  });
+
+  it("a delegated manifest needs no --publisher and persists no publisher.json", async () => {
+    const { harness, fixture } = await setup({ consent: grant });
+    expect(await create(harness, fixture.manifestPath)).toBe(EXIT_CODES.ok);
+    const id = harness.stdout.join("").trim();
+    await expect(
+      stat(path.join(harness.root, "leases", id, "publisher.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("a missing manifest file is a usage error (exit 2)", async () => {

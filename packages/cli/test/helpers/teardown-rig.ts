@@ -152,8 +152,7 @@ export async function startRevocable(rig: TeardownRig): Promise<Revocable> {
   return {
     creds,
     requests,
-    deps: (extra = {}, overrides = {}) =>
-      rig.withDeps({ ...overrides, teardown: { ...extra } }),
+    deps: (extra = {}, overrides = {}) => rig.withDeps({ ...overrides, teardown: { ...extra } }),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => {

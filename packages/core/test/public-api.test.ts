@@ -122,10 +122,14 @@ describe("@stint/core public API surface (HOST-01)", () => {
     expect(barrel.mintHeldLicense).toBeUndefined();
     expect(barrel.createLicenseIssuerClient).toBeUndefined();
     expect(barrel.createReferenceLicenseIssuer).toBeUndefined();
+    expect(barrel.importLicensePublicKey).toBeUndefined();
+    expect(barrel.exportLicensePublicKey).toBeUndefined();
 
     const subpath = (await import("../src/license-issuer.js")) as Record<string, unknown>;
     expect(typeof subpath.createLicenseIssuerClient).toBe("function");
     expect(typeof subpath.createReferenceLicenseIssuer).toBe("function");
+    expect(typeof subpath.importLicensePublicKey).toBe("function");
+    expect(typeof subpath.exportLicensePublicKey).toBe("function");
     // The subpath must not widen into signing/minting primitives.
     expect(subpath.issueLicense).toBeUndefined();
     expect(subpath.mintHeldLicense).toBeUndefined();

@@ -62,6 +62,10 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .description("Verify a signed manifest, ask for consent, and activate a lease")
     .argument("<manifest-path>", "path to a signed manifest envelope (JSON)")
     .option("--trust <file>", "publisher trust file (default: <store>/trust.json)")
+    .option(
+      "--publisher <file>",
+      "publisher binding file (issue/reissue/invalidate URLs + license public key) for hosted/hybrid leases",
+    )
     .action(async (manifestPath: string, _opts: unknown, cmd: Command) => {
       sink.code = await createCommand(deps, manifestPath, cmd.optsWithGlobals<CreateOpts>());
     });

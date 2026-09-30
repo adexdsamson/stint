@@ -121,7 +121,8 @@ export async function buildTeardownDeps(
     hasOAuthGrants && credentialsFile !== undefined
       ? await deps.credentials.load(credentialsFile)
       : undefined;
-  const oauthClient = credentials === undefined ? NO_CREDENTIAL_CLIENT : oauthClientFor(credentials);
+  const oauthClient =
+    credentials === undefined ? NO_CREDENTIAL_CLIENT : oauthClientFor(credentials);
   const vault = createCredentialVault(
     oauthClient,
     deps.clock,
