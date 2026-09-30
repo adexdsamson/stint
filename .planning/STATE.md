@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 07
 current_phase_name: End-to-End Example & README
 status: executing
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-09-30T15:36:06.305Z"
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-09-30T17:25:31.367Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 07 execution started
-state_head: 0154464dc7638a0fac6cb6e2b97a46d2ced87046
+state_head: e0fcbb6d12f36c2108cbd754d5168b5156f2a967
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 48
-  completed_plans: 43
+  completed_plans: 44
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 07 (End-to-End Example & README) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 07 execution started
 
@@ -101,6 +101,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 07 P02 | 8min | 3 tasks | 11 files |
 | Phase 07 P03 | 20min | 3 tasks | 17 files |
 | Phase 07 P04 | 25min | 3 tasks | 9 files |
+| Phase 07 P05 | ~1h40m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -187,6 +188,8 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-03: TeardownSeams.allowInsecureRequests removed; insecure transport derived from loopback-only rule (isLoopbackHttp)
 - [Phase 07]: 07-03: Publisher wire protocol (POST JSON, {license} replies) defined in cli license-http.ts; PASERK import/export added to @stint/core/license-issuer
 - [Phase 07]: 07-04: verifyOutcome() is host-side only and uses only a read binding with rowAdapter; license custody is in-memory, best-effort, clamped to lease expiry
+- [Phase 07]: 07-05: Mock publisher speaks the real CLI wire protocol ({license} JSON) and binds cleanup bearers to leases it issued (scope cleanup:<lease_id>), failing closed without a pinned runtime key
+- [Phase 07]: 07-05: @stint/cli barrel additively exports loadRunProfile, parseRunProfile, httpIssuerTransport, createPublisherClient for the example
 
 ### Pending Todos
 
@@ -209,6 +212,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T15:36:05.850Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-09-30T17:25:30.061Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
