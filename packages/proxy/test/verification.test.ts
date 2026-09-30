@@ -162,6 +162,24 @@ describe("runResourceQueryVerification (LIFE-06, D-02, D-03, D-06, D-07)", () =>
       expect(verificationEntry.payload.redactedSummary).toContain("outcome=true");
       expect(verificationEntry.payload.redactedSummary).toContain("actor=verifier");
     }
+
+    // The verifier's own completion is receipted (actor `verifier`), separately from the runtime's
+    // chained begin_teardown, and the trail reads in order and ends in the terminal state.
+    const transitions = chain.flatMap((entry) => (entry.type === "transition" ? [entry.payload] : []));
+    expect(transitions.map((t) => `${t.actor}:${t.event}:${t.from}>${t.to}`)).toEqual([
+      "verifier:outcome_verified:active>completed",
+      "runtime:begin_teardown:completed>tearing_down",
+      "runtime:teardown_succeeded:tearing_down>cleaned_up",
+    ]);
+    const verificationIndex = chain.findIndex(
+      (entry) => entry.type === "call" && entry.payload.resource === VERIFIER_BINDING.resource,
+    );
+    const completedIndex = chain.findIndex(
+      (entry) => entry.type === "transition" && entry.payload.to === "completed",
+    );
+    expect(verificationIndex).toBeLessThan(completedIndex);
+    const last = chain.at(-1);
+    expect(last?.type === "transition" ? last.payload.to : undefined).toBe("cleaned_up");
   });
 
   it("TRUE: reuses the vault + connector exactly once (D-02) -- the same path a real call uses", async () => {

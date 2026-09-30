@@ -68,11 +68,12 @@ export async function runUserConfirmVerification(
   const outcome: UserConfirmOutcome = decision.decision === "confirm" ? "true" : "false";
   const reason = decision.decision === "confirm" ? "user_confirmed" : decision.reason;
 
+  // Receipted before the completion it triggers, so the trail reads in order and ends in the terminal state.
+  await appendVerificationReceipt(deps.receiptStore, "user_confirm", USER_CONFIRM_RESOURCE, outcome, reason, now);
+
   if (outcome === "true") {
     await completeViaVerifier(deps, now);
   }
-
-  await appendVerificationReceipt(deps.receiptStore, "user_confirm", USER_CONFIRM_RESOURCE, outcome, reason, now);
 
   return outcome;
 }

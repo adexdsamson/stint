@@ -194,11 +194,16 @@ async function recordVerificationErrorTowardThreshold(
 
 /** Drives a `true`/`confirm`-outcome verification to `completed` -> auto-chained `begin_teardown`, then (if configured) the full teardown orchestrator. Shared by `resource-query.ts` and `user-confirm.ts` (D-18). */
 export async function completeViaVerifier(deps: VerifierCompletionDeps, now: number): Promise<void> {
-  await applyVerifiedTransition(deps.leaseStore, deps.receiptStore, deps.leaseId, now, (lease) => {
-    const verified = reduce(lease, verifierEvents.outcomeVerified(), now);
-    if (!verified.ok) return verified;
-    return chainTeardownIfEnded(verified.value.lease, now);
-  });
+  // Two distinct transitions, each receipted on its own (RCPT-01): the verifier's completion
+  // (`outcome_verified`, actor `verifier`) and then the runtime's chained `begin_teardown`. Folding
+  // them into one mutator receipts only the last one and leaves the verifier's own act (the thing
+  // that completed the lease) out of the signed trail.
+  await applyVerifiedTransition(deps.leaseStore, deps.receiptStore, deps.leaseId, now, (lease) =>
+    reduce(lease, verifierEvents.outcomeVerified(), now),
+  );
+  await applyVerifiedTransition(deps.leaseStore, deps.receiptStore, deps.leaseId, now, (lease) =>
+    chainTeardownIfEnded(lease, now),
+  );
 
   if (deps.teardownSteps !== undefined) {
     await runTeardown(
@@ -261,13 +266,17 @@ export async function runResourceQueryVerification(
     reason = "verification_read_error";
   }
 
-  if (outcome === "true") {
-    await completeViaVerifier(deps, now);
-  } else if (outcome === "error") {
+  if (outcome === "error") {
     await recordVerificationErrorTowardThreshold(deps.leaseStore, deps.leaseId, now);
   }
 
+  // The attempt is receipted BEFORE the completion it triggers, so the trail reads in order
+  // (verification -> completed -> teardown -> cleaned_up) and ends in the terminal state.
   await appendVerificationReceipt(deps.receiptStore, "resource_query", deps.binding.resource, outcome, reason, now);
+
+  if (outcome === "true") {
+    await completeViaVerifier(deps, now);
+  }
 
   return outcome;
 }
