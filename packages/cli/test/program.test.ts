@@ -52,15 +52,19 @@ describe("buildProgram / main", () => {
     expect(seen).toMatchObject({ store: "S", json: true });
   });
 
-  it("an unimplemented stub surfaces a fixed CliError message and exit 1", async () => {
+  it("a CliError surfaces its fixed message on stderr and its exit code", async () => {
     h = await createHarness();
-    expect(await main(["run", "abc"], h.deps)).toBe(EXIT_CODES.internal);
-    expect(h.stderr.join("")).toBe("stint: Not implemented.\n");
+    expect(await main(["--store", h.root, "inspect", "abc"], h.deps)).toBe(
+      EXIT_CODES.leaseNotFound,
+    );
+    expect(h.stderr.join("")).toBe("stint: Lease not found.\n");
   });
 
   it("under --json a CliError is emitted as {error,code} on stdout", async () => {
     h = await createHarness();
-    expect(await main(["run", "abc", "--json"], h.deps)).toBe(EXIT_CODES.internal);
-    expect(JSON.parse(h.stdout.join(""))).toEqual({ error: "Not implemented.", code: 1 });
+    expect(await main(["--store", h.root, "inspect", "abc", "--json"], h.deps)).toBe(
+      EXIT_CODES.leaseNotFound,
+    );
+    expect(JSON.parse(h.stdout.join(""))).toEqual({ error: "Lease not found.", code: 4 });
   });
 });
