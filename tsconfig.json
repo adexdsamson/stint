@@ -4,6 +4,7 @@
     { "path": "packages/spec" },
     { "path": "packages/core" },
     { "path": "packages/proxy" },
-    { "path": "packages/cli" }
+    { "path": "packages/cli" },
+    { "path": "examples/payment-reconciler" }
   ]
 }
