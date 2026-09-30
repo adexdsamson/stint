@@ -80,9 +80,9 @@
 
 ### Example & Docs
 
-- [ ] **E2E-01**: `examples/payment-reconciler` runs in hybrid mode: licensed by a mock publisher, reads mocked Paystack transactions via OAuth, writes to a mocked orders sheet
-- [ ] **E2E-02**: E2E test covers happy path to `cleaned_up`, a denied out-of-scope call, an approval, user revoke mid-run, and a partial teardown failure
-- [ ] **DOC-01**: README explains the problem, the three auth modes, hosted-mode trust limits and a quickstart using the example agent that works as written
+- [x] **E2E-01**: `examples/payment-reconciler` runs in hybrid mode: licensed by a mock publisher, reads mocked Paystack transactions via OAuth, writes to a mocked orders sheet
+- [x] **E2E-02**: E2E test covers happy path to `cleaned_up`, a denied out-of-scope call, an approval, user revoke mid-run, and a partial teardown failure
+- [x] **DOC-01**: README explains the problem, the three auth modes, hosted-mode trust limits and a quickstart using the example agent that works as written
 
 ## v2 Requirements
 
@@ -165,9 +165,9 @@
 | HOST-03 | Phase 6 | Complete |
 | CLI-01 | Phase 6 | Complete |
 | CLI-02 | Phase 6 | Complete |
-| E2E-01 | Phase 7 | Pending |
-| E2E-02 | Phase 7 | Pending |
-| DOC-01 | Phase 7 | Pending |
+| E2E-01 | Phase 7 | Complete |
+| E2E-02 | Phase 7 | Complete |
+| DOC-01 | Phase 7 | Complete |
 
 **Coverage:**
 

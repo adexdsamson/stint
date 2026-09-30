@@ -254,12 +254,12 @@ Plans:
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
 
-**Plans:** 9 plans
+**Plans:** 1/9 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — Example workspace skeleton (`@stint/example-payment-reconciler`) + workspace/lockfile/tsconfig/eslint/root-scripts + dedicated `pnpm test:e2e` CI step (D-04)
+- [x] 07-01-PLAN.md — Example workspace skeleton (`@stint/example-payment-reconciler`) + workspace/lockfile/tsconfig/eslint/root-scripts + dedicated `pnpm test:e2e` CI step (D-04)
 - [ ] 07-02-PLAN.md — Additive shared seams: vitest-free `@stint/core/license-issuer` subpath (`createLicenseIssuerClient`/`createReferenceLicenseIssuer`) + `@stint/proxy/testing` `forceNextExpiresIn` [checkpoint: D-14 additive published-surface]
 
 **Wave 2** *(blocked on 07-02)*
@@ -300,4 +300,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
 | 6. CLI & Reference Adapters | 7/7 | Complete    | 2026-09-30 |
-| 7. End-to-End Example & README | 0/9 | Not started | - |
+| 7. End-to-End Example & README | 1/9 | In Progress|  |
