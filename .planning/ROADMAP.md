@@ -254,7 +254,7 @@ Plans:
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
 
-**Plans:** 3/9 plans executed
+**Plans:** 4/9 plans executed
 
 Plans:
 **Wave 1**
@@ -268,7 +268,7 @@ Plans:
 
 **Wave 3** *(blocked on 07-03)*
 
-- [ ] 07-04-PLAN.md — `runLease` composition: identifier->endpoint fetch map, loopback vault, real teardownSteps, in-memory license custody + best-effort refresh, host-side `RunningLease.verifyOutcome()`, barrel exports [checkpoint: D-15 run-surface]
+- [x] 07-04-PLAN.md — `runLease` composition: identifier->endpoint fetch map, loopback vault, real teardownSteps, in-memory license custody + best-effort refresh, host-side `RunningLease.verifyOutcome()`, barrel exports [checkpoint: D-15 run-surface]
 
 **Wave 4** *(blocked on 07-01, 07-02, 07-03, 07-04)*
 
@@ -300,4 +300,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
 | 6. CLI & Reference Adapters | 7/7 | Complete    | 2026-09-30 |
-| 7. End-to-End Example & README | 3/9 | In Progress|  |
+| 7. End-to-End Example & README | 4/9 | In Progress|  |
