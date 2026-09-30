@@ -50,7 +50,9 @@ class ChildStdioTransport {
   async close() {
     try {
       this.child.stdin.end();
-    } catch {}
+    } catch {
+      // stdin may already be closed
+    }
     this.child.kill();
   }
 }
