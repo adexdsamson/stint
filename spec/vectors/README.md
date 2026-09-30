@@ -21,6 +21,23 @@ Each file is `{ description, manifest, expected_errors }`. `manifest` MUST fail 
 
   Reordering a manifest's keys or changing its whitespace MUST NOT change this hash; reordering an array, for example the two grants in `auth.delegated`, MUST change it, since RFC 8785 preserves array order.
 
+## `receipts/`
+
+- `chain-input.json`: a fixed, three-entry receipt chain (`transition`, then `call`, then `teardown_step`) on the `verified` chain, exercising the genesis link, an intermediate link and a `prevHash`-recompute walk. Each entry's `prevHash` is `jcs-sha256:` followed by the SHA-256 hex digest of the canonical serialization of the entry before it; the first entry's `prevHash` is the fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters.
+- `chain-canonical.txt` / `chain-expected-hash.txt`: the canonical serialization and resulting content hash of `chain-input.json`'s last entry. As with the `jcs/` vectors, the hash was computed independently of Stint's own code, by running `sha256sum` over the committed canonical bytes and prefixing the result with `jcs-sha256:`:
+
+  ```
+  jcs-sha256:$(sha256sum spec/vectors/receipts/chain-canonical.txt | cut -d' ' -f1)
+  ```
+
+  A conforming implementation's `verifyChain` (or equivalent) MUST walk `chain-input.json` from the genesis constant and report the same head hash and entry count; altering any entry's `prevHash` MUST cause verification to report the exact broken sequence number, not a generic failure.
+- `checkpoint-input.json`: a fixed checkpoint summary (`{ chain, count, headHash, ts }`, no `sig`) anchoring the `chain-input.json` golden chain — `count` equals the chain's length and `headHash` equals `chain-expected-hash.txt`'s value.
+- `checkpoint-signing-input.txt`: the canonical (RFC 8785 JCS) serialization of `checkpoint-input.json`, the exact UTF-8 bytes an EdDSA signature is computed over.
+- `checkpoint-key.jwk.json`: a fixed test Ed25519 keypair, committed for reproducibility only (see the warning below).
+- `checkpoint-expected-sig.txt`: the base64url detached EdDSA signature over `checkpoint-signing-input.txt`'s bytes using `checkpoint-key.jwk.json`'s private key. Ed25519 (EdDSA) signing is deterministic (RFC 8032) — a conforming implementation's `signCheckpoint` (or equivalent) MUST reproduce this exact signature given the same key and input, and `verifyCheckpoint` MUST accept it against the matching public key while rejecting it against any other key or any mutated summary field.
+- `attested-input.json`: a fixed, two-entry `attested_claim` chain on the `attested` chain, independent of `chain-input.json`'s `verified` chain (separate hash links, never interleaved). Each entry's `payload` carries `publisherId`, `kid`, `claimType`, `claimHash` and `sig`, where `sig` is the publisher's detached EdDSA signature (the same signing pattern as `envelope/`'s manifest signatures) over the canonical serialization of `{ publisherId, kid, claimType, claimHash }`.
+- `attested-trust-store.json`: the publisher public key (`reconciler-labs.example` / `attested-kid-1`) that verifies `attested-input.json`'s signatures, shaped identically to `envelope/trust-store.json`. A conforming implementation's attested-chain verification MUST accept `attested-input.json` against this trust store and MUST reject it against an unknown `publisherId`, an unknown `kid`, a wrong key, or a tampered `claimHash` — independently of any `verified`-chain verification outcome.
+
 ## `envelope/`
 
 - `test-key.jwk.json`: the published RFC 8037 Appendix A.1 Ed25519 test key (byte-identical to RFC 8032 Section 7.1 TEST 1, which RFC 8037's own appendix states it reuses verbatim), under `kid` `rfc8037-a1`.
@@ -30,3 +47,13 @@ Each file is `{ description, manifest, expected_errors }`. `manifest` MUST fail 
 - The documented signing input (ALP.md Section 5) can be verified independently of any JOSE library: `ASCII("eyJhbGciOiJFZERTQSJ9") + "." + BASE64URL(JCS(manifest))`, checked with Ed25519 verification over that exact byte string using the public key named above.
 
 **Warning:** every private key in this directory (`test-key.jwk.json`'s `d` member) is a published test vector from RFC 8032 and RFC 8037. It is public, reused across countless other test suites, and MUST NEVER be trusted, registered, or treated as a real signing key outside these conformance vectors.
+
+## `license/`
+
+- `claims.json`: the fixed input for the hosted-license golden case, `{ lease_id, spec_version, job, limits, now, exp_epoch_seconds, kid, jti }`. `job` and `limits` are the custom claims (ALP.md Section 8); `now` and `exp_epoch_seconds` are epoch-seconds inputs to `issueLicense`/`verifyLicense`, not token fields themselves.
+- `public-key.jwk.json`: `{ kid, kty: "OKP", crv: "Ed25519", x }`, the publisher's public key for the golden case, generated for this conformance vector only (not reused from RFC 8032/8037).
+- `implicit-assertion-input.txt`: the JSON text `{ lease_id, spec_version }` (using `claims.json`'s values) whose `@stint/spec` canonical (RFC 8785 JCS) UTF-8 bytes are the PASETO v4.public implicit assertion both `issueLicense` and `verifyLicense` derive via the one shared `deriveImplicitAssertion` function.
+- `valid-token.txt`: the PASETO v4.public token `issueLicense` produces from `claims.json`'s inputs and `public-key.jwk.json`'s matching secret key, with a fixed `jti` (`claims.json`'s `jti` field) so the token is byte-for-byte reproducible. Ed25519 signing is deterministic (RFC 8032), so a conforming implementation given the same claims, keys, clock and footer MUST reproduce this exact token. `verifyLicense(publicKey, token, claims_json.lease_id, claims_json.spec_version, claims_json.now)` MUST accept it and return `claims_json`'s `job`, `limits` and `kid`, with the decoded `exp` equal to `exp_epoch_seconds`.
+- `invalid-wrong-lease.txt`: a token issued with the identical claims, key and clock as `valid-token.txt` except `lease_id` is a different value. Verifying it against `claims.json`'s `lease_id` MUST be rejected: the implicit assertion derived from the wrong `lease_id` no longer matches the one the token was signed under, so signature authentication fails. As ALP.md Section 15 states, matching the accept/reject outcome is normative; matching this project's own fixed reason code (`license_invalid_signature`) is a Stint implementation detail.
+
+**Warning:** `public-key.jwk.json`'s matching secret key is not committed (unlike `envelope/`'s RFC 8032/8037 test keys, this keypair is freshly generated for this vector set, not a published test vector). Only the resulting tokens are pinned; regenerating this vector set requires generating a new keypair and re-signing both tokens with it.

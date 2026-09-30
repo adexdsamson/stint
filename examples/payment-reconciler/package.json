@@ -1,0 +1,29 @@
+{
+  "name": "@stint/example-payment-reconciler",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:e2e": "vitest run",
+    "start": "node dist/quickstart.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "@stint/cli": "workspace:*",
+    "@stint/core": "workspace:*",
+    "@stint/proxy": "workspace:*",
+    "@stint/spec": "workspace:*",
+    "jose": "6.2.12",
+    "oauth4webapi": "3.8.8",
+    "paseto": "4.0.1"
+  },
+  "devDependencies": {
+    "oauth2-mock-server": "9.2.0"
+  }
+}

@@ -3,7 +3,12 @@ export const SPEC_VERSION = "alp/0.1";
 export { SPEC_ERROR_CODES } from "./errors.js";
 export type { SpecErrorCode, SpecError, Result } from "./errors.js";
 
-export { SUPPORTED_SPEC_VERSIONS, validateManifest, validateEnvelopeShape, resolveAuthMode } from "./validate.js";
+export {
+  SUPPORTED_SPEC_VERSIONS,
+  validateManifest,
+  validateEnvelopeShape,
+  resolveAuthMode,
+} from "./validate.js";
 
 export {
   CONTENT_HASH_PREFIX,
@@ -18,6 +23,13 @@ export type { ContentHash } from "./canonical.js";
 
 export { MAX_ENVELOPE_BYTES, parseEnvelope, verifyEnvelope } from "./envelope.js";
 export type { TrustStore, Ed25519PublicJwk, VerifiedManifest } from "./envelope.js";
+
+export { verifyDetached } from "./jws.js";
+
+export { parsePredicate } from "./predicate/parse.js";
+export { evaluatePredicate } from "./predicate/evaluate.js";
+export type { Aggregate, CompareOp, PredicateAst, PredicateFilter } from "./predicate/ast.js";
+export type { PredicateRow } from "./predicate/evaluate.js";
 
 export type {
   Manifest,
@@ -46,3 +58,18 @@ export type {
 } from "./generated/manifest.js";
 
 export type { SignedEnvelope, EnvelopeSignature } from "./generated/envelope.js";
+
+export type {
+  ReceiptEntry,
+  ReceiptChain,
+  CallEntry,
+  CallPayload,
+  TransitionEntry,
+  TransitionPayload,
+  TeardownStepEntry,
+  TeardownStepPayload,
+  AttestedClaimEntry,
+  AttestedClaimPayload,
+} from "./generated/receipt.js";
+
+export type { Checkpoint } from "./generated/checkpoint.js";

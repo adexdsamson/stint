@@ -14,12 +14,12 @@ Stint v0.1 goes from a normative spec to a working lease runtime proven by an en
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & ALP Spec** - Cross-platform monorepo with CI, normative `spec/ALP.md`, and the validated, typed, hashed and signed manifest (`@stint/spec`) (completed 2026-09-27)
-- [ ] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core`
-- [ ] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh
-- [ ] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`)
-- [ ] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording
-- [ ] **Phase 6: CLI & Reference Adapters** - `@stint/cli` commands, terminal reference HostAdapter, and the Windows-safe JSON-file LeaseStore
-- [ ] **Phase 7: End-to-End Example & README** - `examples/payment-reconciler` hybrid-mode e2e test and a README whose quickstart works as written
+- [x] **Phase 2: Lease State Machine & Policy Engine** - Pure table-driven lease reducer with actor attribution plus the pure policy decision function, HostAdapter and LeaseStore interfaces in `@stint/core` (completed 2026-09-27)
+- [x] **Phase 3: Receipts & Licensing** - Hash-chained receipts with Ed25519 checkpoints and independent verified/attested chains, plus PASETO v4.public license issue, verify and bounded refresh (completed 2026-09-28)
+- [x] **Phase 4: MCP Proxy & Credential Vault** - Agent-facing MCP proxy enforcing the lease per call, with limits, out-of-band approvals, secretless OAuth injection and per-call receipts (`@stint/proxy`) (completed 2026-09-28)
+- [x] **Phase 5: Lease Endings & Teardown** - Verified completion and every termination path drive a fixed-order, idempotent, fully receipted teardown with partial-failure recording (completed 2026-09-29)
+- [x] **Phase 6: CLI & Reference Adapters** - `@stint/cli` commands, terminal reference HostAdapter, and the Windows-safe JSON-file LeaseStore (completed 2026-09-30)
+- [x] **Phase 7: End-to-End Example & README** - `examples/payment-reconciler` hybrid-mode e2e test and a README whose quickstart works as written (completed 2026-09-30)
 
 ## Phase Details
 
@@ -59,7 +59,27 @@ Plans:
   4. N denied calls or upstream errors within the configured window move the lease to `failed` with actor `policy`, while N-1 do not.
   5. A platform builder can implement the single `HostAdapter` contract (consent, per-call approval, lifecycle notifications) exported by `@stint/core`; a lease extension succeeds only after fresh consent through it, and no license-refresh event can move lease expiry.
 
-**Plans**: TBD
+**Plans:** 6/6 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 02-01-PLAN.md — Tracer: Lease model + table-driven reduce() end-to-end (one legal + one illegal transition) with Result/rejection, version, TransitionRecord, actor-namespaced events (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 02-02-PLAN.md — Reducer completion: full ALP.md §7.4 table + spec cross-check, all actor constructors, extend/expire, agent-never-actor guarantee (wave 2)
+- [x] 02-03-PLAN.md — Policy engine + runtime-owned connector bindings: evaluatePolicy (deny-by-default, binding-only classification, per-call expiry) + checkErrorThreshold (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 02-04-PLAN.md — Manifest-hash binding: verifyBoundHash shared guard + activateLease/resumeLease with distinct activation_failed/runtime_failure events (wave 3)
+- [x] 02-05-PLAN.md — HostAdapter contract: three async methods + LifecycleEvent union + core-owned timeout-as-deny/decline wrappers (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 02-06-PLAN.md — LeaseStore contract + in-memory double + reusable contract-test suite (@stint/core/testing) + public API barrel wiring (wave 4)
+
 **Enabling work**: This phase also defines the `LeaseStore` contract in `@stint/core` with an in-memory test double and a shared contract test suite, because the proxy (Phase 4) and teardown (Phase 5) depend on it. HOST-03 (JSON-file store, Windows atomicity) is delivered and mapped in Phase 6.
 
 ### Phase 3: Receipts & Licensing
@@ -75,7 +95,27 @@ Plans:
   4. A mock publisher issues a PASETO v4.public license (lease id, job, expiry, limits, 5-minute default TTL) that its server verifies offline with the public key, using one shared implicit-assertion derivation and an explicit, tested clock-skew tolerance; a license bound to a different lease or outside the skew window is rejected.
   5. Under an injectable clock, the runtime refreshes the license before TTL expiry, stops at lease expiry so no refreshed token ever outlives the lease, and holds the license itself with no path that hands it to the agent.
 
-**Plans**: TBD
+**Plans:** 6/6 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 03-01-PLAN.md - Receipts tracer: receipt/checkpoint draft-07 schemas + codegen + generated types, chain.ts appendEntry/verifyChain over the single canonical serializer, golden-hash vector, and spec/ALP.md section 11 resolution (RCPT-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 03-02-PLAN.md - Ed25519 signed checkpoints (jose, injectable keypair) + verifyChain exact break-locus anchored to the last checkpoint: hash_mismatch, reordered, truncated, checkpoint_sig_invalid (RCPT-03, RCPT-06)
+- [x] 03-05-PLAN.md - Licensing tracer: PASETO v4.public issue/verify, one shared implicit-assertion derivation, explicit clock-skew tolerance, spec/ALP.md section 8 resolution + license vector; paseto legitimacy gate (LIC-01, LIC-02)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 03-03-PLAN.md - Attested chain independent verification via the reused @stint/spec trust model + display-only merged timeline (RCPT-04, RCPT-05)
+- [x] 03-06-PLAN.md - Bounded license refresh (clamped, never outlives the lease) + opaque HeldLicense custody + LicenseIssuer port + mock issuer + license barrel (LIC-03)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 03-04-PLAN.md - ReceiptStore contract + in-memory double + reusable contract-test factory (@stint/core/testing) + receipts public API barrel (RCPT-02, RCPT-03 persistence)
+
 **Research flag**: yes - `paseto@4.0.1` uses panva's new factory-composition API (weeks old at research time). Pin exactly, wrap thinly, and confirm implicit-assertion handling and clock-skew options before planning.
 
 ### Phase 4: MCP Proxy & Credential Vault
@@ -91,7 +131,35 @@ Plans:
   4. Adversarial tests show OAuth access tokens (with RFC 8707 resource indicators) are injected only on outbound calls and never appear in any agent-facing response or error, and the publisher license is never forwarded to a customer resource.
   5. When the mock authorization server revokes the customer's grant, the next call's `invalid_grant`/401 moves the lease to `revoked` with actor `provider`.
 
-**Plans**: TBD
+**Plans**: 7/7 plans executed
+**Wave 1**
+
+- [x] 04-01-PLAN.md — scaffold `@stint/proxy` + install 3 pinned deps (behind legitimacy checkpoint) + additive `LeaseCounters.actionTimestamps` + engines fix
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 04-02-PLAN.md — tracer: `tools/list` filtering + `tools/call` allow/deny routing + one verified-chain receipt per call (PRXY-01, RCPT-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 04-03-PLAN.md — caps: sliding-window `actions_per_hour` + action/spend cap + pay-amount extraction, concurrency-safe (PRXY-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 04-04-PLAN.md — approvals held out-of-band, commitment-hash bound, drift/timeout deny (PRXY-05)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 04-05-PLAN.md — credential vault: seed seam + RFC 8707 refresh + per-credential single-flight (PRXY-08)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [x] 04-06-PLAN.md — vault-backed ExecuteStage: token injection + secretless boundary + license never forwarded (PRXY-06, LIC-05)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [x] 04-07-PLAN.md — customer-side OAuth revocation detection via `invalid_grant` → `revoked` (actor provider) (PRXY-07)
+
 **Research flag**: yes - Validate `oauth4webapi@3.8.8` token revocation (RFC 7009) and resource indicators (RFC 8707) hands-on against `oauth2-mock-server`; pin the current MCP Authorization spec text; confirm the `@modelcontextprotocol/sdk@1.30.1` dual server/client topology. The RFC 7009 findings also feed Phase 5 teardown.
 
 ### Phase 5: Lease Endings & Teardown
@@ -107,7 +175,37 @@ Plans:
   4. Any single step failing lands the lease in `cleanup_incomplete` with every step's result recorded, retrying resumes idempotently, the lease can never return to `active`, and tests cover every teardown path including each single-step failure.
   5. After cleanup, both receipt chains, including the final signed receipt, remain readable and verify.
 
-**Plans**: TBD
+**Plans:** 8/8 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 05-01-PLAN.md — Teardown shape foundation: widen TeardownStepPayload.outcome enum (+regen) and add optional Lease.teardownProgress + fixtures (TEAR-01, TEAR-04, RCPT-07 groundwork)
+- [x] 05-02-PLAN.md — Predicate DSL: closed-AST parser + pure evaluator in @stint/spec, manifest-time invalid_predicate gate, close spec §7.6/§4 markers (LIFE-06) [checkpoint: grammar one-way]
+
+**Wave 2** *(blocked on 05-01)*
+
+- [x] 05-03-PLAN.md — Teardown orchestrator tracer (auto-chain begin_teardown, fixed 5-step saga, cleaned_up + signed final receipt) + one-pass fault handling & idempotent retry_teardown resume (TEAR-01, TEAR-04, TEAR-05)
+
+**Wave 3** *(blocked on 05-03)*
+
+- [x] 05-04-PLAN.md — Step 1 OAuth revoke honesty: structural RFC 7009 revokeCredential, vault revoke+discard, always-discard-our-copy, Pitfall-5 matrix (TEAR-02, TEAR-05)
+
+**Wave 4** *(blocked on 05-03, 05-04)*
+
+- [x] 05-05-PLAN.md — Step 2 publisher entitlement revocation + LicenseIssuer.invalidate port + license custody discard (LIC-04)
+
+**Wave 5** *(blocked on 05-05)*
+
+- [x] 05-06-PLAN.md — Step 3 cleanup token: jose SignJWT single-use cleanup:<lease_id>, runtime HTTPS hook client, close spec §10 marker (TEAR-03, TEAR-05) [checkpoint: token format one-way]
+
+**Wave 6** *(blocked on 05-02, 05-03, 05-06)*
+
+- [x] 05-07-PLAN.md — Outcome verification runtime: resource_query synthetic verifier read + rowAdapter, user_confirm HostAdapter method, agent-claim-never-completes (LIFE-06)
+
+**Wave 7** *(blocked on 05-06, 05-07)*
+
+- [x] 05-08-PLAN.md — Phase gate: step 4 delete/retain split, RCPT-07 receipts-survive + checkpoint bracketing, every-terminal-entry teardown, zero OPEN-Phase-5 markers (RCPT-07, TEAR-05)
 
 ### Phase 6: CLI & Reference Adapters
 
@@ -121,7 +219,28 @@ Plans:
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
 
-**Plans**: TBD
+**Plans:** 7/7 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 06-01-PLAN.md — Tracer: Windows-safe atomic JSON LeaseStore + atomic-file helper passing the shared contract suite; package scaffold, exit-code map, path safety, picocolors CLAUDE.md row [checkpoint: on-disk layout one-way] (HOST-03)
+
+**Wave 2** *(blocked on 06-01)*
+
+- [x] 06-02-PLAN.md — JSON ReceiptStore (per-lease, append-only) + in-process & cross-process concurrency hammer on Windows CI (HOST-03)
+- [x] 06-03-PLAN.md — Reference terminal HostAdapter (four methods, deny-by-default core-owned) + sanitize/style/prompt/consent-view (HOST-02)
+
+**Wave 3** *(blocked on 06-01, 06-03)*
+
+- [x] 06-04-PLAN.md — CLI foundation: runtime Ed25519 key + trust store + credentials parser, commander program factory + bin (all commands registered), stint create + inspect (CLI-01, HOST-02)
+
+**Wave 4** *(blocked on 06-04; 06-05/06-06/06-07 parallel)*
+
+- [x] 06-05-PLAN.md — stint receipts (merged timeline, --json) + stint verify (checkpoint-anchored break locus, 5-reason table) (CLI-02)
+- [x] 06-06-PLAN.md — Live stint run over MCP stdio (SC#2 proof: approval + user_confirm + timeout-deny under a real in-process client) [checkpoint: run transport topology one-way] (HOST-02, CLI-01)
+- [x] 06-07-PLAN.md — stint revoke + cleanup (user-actor revoke, idempotent teardown resume, honest revoke_oauth) + full public barrel (CLI-01, HOST-02)
+
 **Research flag**: yes - Windows file atomicity: `write-file-atomic@^7` and `proper-lockfile@4.1.2` behavior under EPERM/EBUSY on rename with concurrent readers; the concurrency test must run on Windows CI.
 
 ### Phase 7: End-to-End Example & README
@@ -135,7 +254,38 @@ Plans:
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
 
-**Plans**: TBD
+**Plans:** 9/9 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 07-01-PLAN.md — Example workspace skeleton (`@stint/example-payment-reconciler`) + workspace/lockfile/tsconfig/eslint/root-scripts + dedicated `pnpm test:e2e` CI step (D-04)
+- [x] 07-02-PLAN.md — Additive shared seams: vitest-free `@stint/core/license-issuer` subpath (`createLicenseIssuerClient`/`createReferenceLicenseIssuer`) + `@stint/proxy/testing` `forceNextExpiresIn` [checkpoint: D-14 additive published-surface]
+
+**Wave 2** *(blocked on 07-02)*
+
+- [x] 07-03-PLAN.md — CLI hybrid-aware commands: loopback-derived `allowInsecureRequests` (+D-16 negative test), hybrid predicates, `stint create --publisher` + persistence (D-18), real teardown license collaborator (D-14, closes A8)
+
+**Wave 3** *(blocked on 07-03)*
+
+- [x] 07-04-PLAN.md — `runLease` composition: identifier->endpoint fetch map, loopback vault, real teardownSteps, in-memory license custody + best-effort refresh, host-side `RunningLease.verifyOutcome()`, barrel exports [checkpoint: D-15 run-surface]
+
+**Wave 4** *(blocked on 07-01, 07-02, 07-03, 07-04)*
+
+- [x] 07-05-PLAN.md — Backend fixtures: OAuth acquisition (D-05), mock publisher (issue/reissue/invalidate/cleanup + failure toggle + jti, D-07/D-10), `127.0.0.1` service mocks (D-06), signed hybrid manifest + run-profile builders
+
+**Wave 5** *(blocked on 07-04, 07-05)*
+
+- [x] 07-06-PLAN.md — Happy-path tracer e2e: agent stub + scripted adapter + `runScenario` harness -> `cleaned_up`, with secret/license prohibitions + LIC-01/02/03/05 + verifier-only completion (E2E-01, D-01/D-02/D-15)
+
+**Wave 6** *(blocked on 07-06; 07-08 also on 07-05)*
+
+- [x] 07-07-PLAN.md — Remaining E2E-02 scenarios: denied out-of-scope, approve+deny, revoke mid-run, partial teardown -> `cleanup_incomplete` -> idempotent retry (TEAR-04)
+- [x] 07-08-PLAN.md — Spawned built-bin smoke (D-03) + visible-console launcher & `windowsHide:false` guard (D-08/D-09) + quickstart wrapper with merged-timeline success signal (D-11/D-12/D-19)
+
+**Wave 7** *(blocked on 07-08)*
+
+- [x] 07-09-PLAN.md — README (problem / three auth modes / hosted trust limits / quickstart) + drift test pinning sections and quickstart commands (DOC-01, D-13)
 
 ## Progress
 
@@ -145,9 +295,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & ALP Spec | 5/5 | Complete    | 2026-09-27 |
-| 2. Lease State Machine & Policy Engine | 0/TBD | Not started | - |
-| 3. Receipts & Licensing | 0/TBD | Not started | - |
-| 4. MCP Proxy & Credential Vault | 0/TBD | Not started | - |
-| 5. Lease Endings & Teardown | 0/TBD | Not started | - |
-| 6. CLI & Reference Adapters | 0/TBD | Not started | - |
-| 7. End-to-End Example & README | 0/TBD | Not started | - |
+| 2. Lease State Machine & Policy Engine | 6/6 | Complete    | 2026-09-27 |
+| 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
+| 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
+| 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
+| 6. CLI & Reference Adapters | 7/7 | Complete    | 2026-09-30 |
+| 7. End-to-End Example & README | 9/9 | Complete    | 2026-09-30 |

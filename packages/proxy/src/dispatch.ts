@@ -1,0 +1,395 @@
+/**
+ * `handleCall` -- the single `tools/call` dispatch point every call flows
+ * through, allowed, denied, or naming a hidden/unbound tool directly
+ * (PRXY-01, T-04-02-DN). It never contains policy logic itself (PEP/PDP
+ * split): it resolves the runtime-owned binding, decides via the pure
+ * `evaluatePolicy`, then runs the ENTIRE authorize -> execute -> receipt
+ * flow inside one per-lease transaction (`runInLeaseTransaction`, D-13) so
+ * the receipt append lands in the same serialized step as the counters it
+ * mutates, and chain order matches call order.
+ *
+ * `ExecuteStage`, `ApprovalStage`, and `CapEnforcer` are the three injected
+ * seams plan 04-06 (vault-backed execute) and 04-04 (real out-of-band
+ * approvals) implement against without editing this file's dispatch flow.
+ * Plans 04-03 (sliding-window `actions_per_hour`, PRXY-04) and 04-06
+ * (vault-backed execute, PRXY-06/LIC-05) each required a minimal, additive
+ * seam signature extension -- 04-03's `CapEnforcer.authorize` gains
+ * `limits`, `commit` takes the whole `lease`+`call` and returns the next
+ * `Lease`; 04-06's `ExecuteStage.execute` gains an explicit `now` parameter
+ * so the vault-backed implementation resolves tokens against the injected
+ * clock, never `Date.now()` -- the dispatch ORDER (evaluate -> approve ->
+ * authorize caps -> execute -> commit, receipt in a `finally`) is unchanged
+ * by either. `handleCall` also extracts a pay call's `spendMinor`
+ * pre-authorization from the runtime-owned catalog (D-07) via
+ * `extractSpendMinor`, before `evaluatePolicy` runs.
+ *
+ * 04-07 (PRXY-07, D-09): `execute()` can reject with the 04-05 vault's
+ * `CredentialRefreshError` (`kind: "provider_revoked" | "transient_error"`).
+ * The catch block below classifies it BEFORE falling through to the
+ * generic `execute_failed` path -- `provider_revoked` applies
+ * `revocation.ts`'s `applyProviderRevocation` to the transaction-loaded
+ * `lease` (saving `tearing_down` -- `grant_revoked` actor `provider`
+ * auto-chained into `begin_teardown` actor `runtime`, D-18, TEAR-01) and
+ * denies the triggering call; `transient_error` denies the call and returns
+ * `lease` UNCHANGED, so a single upstream blip never revokes.
+ *
+ * 05-03 (TEAR-01, D-18, D-30): once `applyProviderRevocation`'s two
+ * transition receipts and the triggering call's `denied` receipt are all
+ * appended inside the SAME per-lease transaction as before, `handleCall`
+ * checks -- AFTER that transaction resolves -- whether the lease is now in
+ * a teardown state and, if `deps.teardownSteps` is configured, runs
+ * `teardown/orchestrate.ts`'s `runTeardown` in its OWN, separate per-lease
+ * transaction. This is never nested on the same lease id: the outer
+ * transaction has already committed and released the per-id serializer
+ * queue slot by the time `runTeardown` opens its own.
+ */
+
+import { evaluatePolicy, resolveBinding } from "@stint/core";
+import type {
+  ApprovalRequirement,
+  BindingSet,
+  ConnectorBinding,
+  Lease,
+  PolicyCall,
+} from "@stint/core";
+import type { Access, ContentHash, Limits } from "@stint/spec";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
+import { computeApprovalHash } from "./approvals/approval-dispatcher.js";
+import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
+import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
+import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
+import { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+import { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
+import { CredentialRefreshError } from "./vault/credential-vault.js";
+import type { ProxyDeps } from "./server.js";
+
+/** Lease states reachable at the end of `handleCall`'s transaction that mean "teardown should run now" (05-03, TEAR-01). */
+const TEARDOWN_TRIGGER_STATES: ReadonlySet<Lease["state"]> = new Set(["tearing_down", "cleanup_incomplete"]);
+
+/**
+ * One resolved call's context, handed to the three injected seams below.
+ * Only ever constructed once a `binding` is known to exist --
+ * `evaluatePolicy`'s Step 1 already denies `no_binding` otherwise, so a
+ * `CallContext` never carries an absent binding.
+ */
+export interface CallContext {
+  readonly leaseId: string;
+  readonly tool: string;
+  readonly resolvedArgs: Readonly<Record<string, unknown>>;
+  readonly binding: ConnectorBinding;
+  /** The lease's `version` at the moment this `CallContext` was built (D-11) -- part of the approval commitment tuple `createApprovalDispatcher` hashes against. */
+  readonly leaseVersion: number;
+}
+
+/**
+ * The outbound execution seam (D-01/D-02) -- plan 04-06 supplies the real
+ * vault-backed implementation (`vault/execute-stage.ts`'s
+ * `createVaultExecuteStage`). `now` is threaded through explicitly (widened
+ * from the 04-02 zero-arg signature, mirroring 04-03's `CapEnforcer` and
+ * 04-04's `ApprovalStage` widening precedent) because the vault-backed
+ * implementation resolves a token against the injected clock, never
+ * `Date.now()` -- no internal timers, no implicit "now" source, matching
+ * the credential vault's own per-call-expiry discipline (D-04). Existing
+ * implementations that ignore `now` (`DEFAULT_EXECUTE_STAGE`,
+ * `testing.ts`'s `createEchoExecuteStage`) remain valid without
+ * modification -- a function with fewer declared parameters than an
+ * interface method still satisfies it.
+ */
+export interface ExecuteStage {
+  execute(ctx: CallContext, now: number): Promise<{ readonly status: number; readonly body: unknown }>;
+}
+
+/**
+ * The out-of-band approval decision for `send`/`pay`/`irreversible` calls
+ * (D-11, PRXY-05). Deny-by-default. `approvalId` is present only on
+ * `approve` -- the opaque handle `handleCall` passes to
+ * `ApprovalStage.verifyCommitment` to recompute-and-match the commitment
+ * hash against the CURRENT args/binding/lease-version before the call is
+ * allowed to proceed.
+ */
+export interface ApprovalDecision {
+  readonly decision: "approve" | "deny";
+  readonly reason?: string;
+  readonly approvalId?: string;
+}
+
+/**
+ * Requests an out-of-band approval for a call `evaluatePolicy` flagged
+ * `require_approval` -- `createApprovalDispatcher`
+ * (`approvals/approval-dispatcher.ts`, plan 04-04) supplies the real
+ * HostAdapter-backed implementation (`awaitApprovalDecision` + a real
+ * `AbortSignal` timeout). `verifyCommitment` is the ONLY way `handleCall`
+ * checks a held approval's commitment hash for an exact match against the
+ * CURRENT args + binding + lease version at execution time (D-11) -- any
+ * drift denies the reused approval as a new request.
+ */
+export interface ApprovalStage {
+  requestApproval(ctx: CallContext, requirement: ApprovalRequirement, now: number): Promise<ApprovalDecision>;
+  verifyCommitment(approvalId: string, currentHash: ContentHash): boolean;
+}
+
+/** The result of an additional lease-limit check beyond `evaluatePolicy`'s own (e.g. the actions_per_hour sliding window, PRXY-04). */
+export interface CapCheck {
+  readonly ok: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * An additional lease-limit check plus the counters commit for an allowed
+ * call (D-06, PRXY-04). `authorize` receives `limits` directly (the
+ * `actions_per_hour` gate it alone enforces, `evaluatePolicy` already owns
+ * `max_actions`/`spend`/`expiry`/`no_binding`); `commit` receives the whole
+ * `lease` and returns the next one -- the real `createCapEnforcer`
+ * (`caps/cap-enforcer.ts`, plan 04-03) is the sliding-window implementation
+ * of this seam.
+ */
+export interface CapEnforcer {
+  authorize(lease: Lease, call: PolicyCall, limits: Limits, now: number): CapCheck;
+  commit(lease: Lease, call: PolicyCall, now: number): Lease;
+}
+
+/** Production-safe default `ExecuteStage`: no `OutboundConnector` is configured until plan 04-06 wires the vault-backed implementation. */
+export const DEFAULT_EXECUTE_STAGE: ExecuteStage = {
+  execute() {
+    return Promise.reject(new Error("@stint/proxy: no OutboundConnector configured."));
+  },
+};
+
+/** Production-safe default `ApprovalStage`: deny-by-default -- never approves, so `verifyCommitment` is never meaningfully called, but the interface requires an implementation (always `false`, matching the deny-by-default discipline). */
+export const DEFAULT_APPROVAL_STAGE: ApprovalStage = {
+  requestApproval() {
+    return Promise.resolve({ decision: "deny", reason: "no ApprovalStage configured" });
+  },
+  verifyCommitment() {
+    return false;
+  },
+};
+
+/** Production-safe default `CapEnforcer`: authorizes every call (no additional limit beyond `evaluatePolicy`'s own checks) and commits the actionCount/actionTimestamps bump (D-06) -- plan 04-03's `createCapEnforcer` (`caps/cap-enforcer.ts`) is the real sliding-window `authorize` a production `ProxyDeps` should use instead. */
+export const DEFAULT_CAP_ENFORCER: CapEnforcer = {
+  authorize() {
+    return { ok: true };
+  },
+  commit(lease, call, now) {
+    return {
+      ...lease,
+      counters: {
+        ...lease.counters,
+        actionCount: lease.counters.actionCount + 1,
+        actionTimestamps: [...lease.counters.actionTimestamps, now],
+      },
+    };
+  },
+};
+
+/**
+ * Resolves `tool`'s runtime-owned binding, collapsing to `undefined` --
+ * which drives `evaluatePolicy`'s deny-by-default `no_binding` reason --
+ * whenever the tool has no binding at all OR its binding exists but is out
+ * of this lease's granted scope/resource. This is the ONLY binding
+ * resolution path both `tools/list`'s visibility filter (`server.ts`) and
+ * `tools/call`'s authorization (`handleCall` below) use, so a tool hidden
+ * from `tools/list` can never be reached by naming it directly
+ * (T-04-02-DN) -- there is exactly one place this "unbound-or-out-of-scope"
+ * collapse happens, not two that could silently drift apart.
+ */
+export function resolveEffectiveBinding(
+  bindings: BindingSet,
+  grantedScopes: readonly Access[],
+  grantedResources: readonly string[],
+  tool: string,
+): ConnectorBinding | undefined {
+  const binding = resolveBinding(bindings, tool);
+  if (binding === undefined) return undefined;
+  if (!grantedScopes.includes(binding.access)) return undefined;
+  if (!grantedResources.includes(binding.resource)) return undefined;
+  return binding;
+}
+
+function textResult(text: string, isError: boolean): CallToolResult {
+  return { content: [{ type: "text", text }], isError };
+}
+
+function denyResult(reason: string): CallToolResult {
+  return textResult(`denied: ${reason}`, true);
+}
+
+function allowResult(execResult: { readonly status: number; readonly body: unknown }): CallToolResult {
+  return textResult(JSON.stringify(execResult.body), false);
+}
+
+function errorResult(): CallToolResult {
+  // Deliberately generic -- never echoes the underlying error's message,
+  // which could carry args/credential material from a connector (D-13).
+  return textResult("call failed", true);
+}
+
+/**
+ * The one dispatch point every `tools/call` (allowed, denied, or naming a
+ * hidden/unbound tool directly) flows through. Resolves args
+ * (`params.arguments ?? {}`), resolves the effective binding, then runs
+ * authorize -> execute -> receipt entirely inside one per-lease
+ * transaction so the receipt append happens in the same serialized step as
+ * the counters it mutates (D-13). The receipt is appended in a `finally`
+ * block so a thrown `execute` never skips it.
+ */
+export async function handleCall(
+  deps: ProxyDeps,
+  params: { readonly name: string; readonly arguments?: Readonly<Record<string, unknown>> },
+  now: number,
+): Promise<CallToolResult> {
+  const resolvedArgs: Record<string, unknown> = { ...(params.arguments ?? {}) };
+  const binding = resolveEffectiveBinding(deps.bindings, deps.grantedScopes, deps.grantedResources, params.name);
+  // Pre-authorization spend extraction (D-07): a pay tool's runtime-owned
+  // catalog descriptor is the ONLY amount source -- never the manifest, never
+  // anything the agent supplies beyond the arg value itself. A read/write/send
+  // tool (no `payAmount` descriptor) always yields `undefined` here.
+  const catalogEntry = resolveCatalogEntry(deps.catalog, params.name);
+  const spendMinor = catalogEntry !== undefined ? extractSpendMinor(catalogEntry, resolvedArgs) : undefined;
+
+  let result: CallToolResult | undefined;
+
+  const finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+    let nextLease = lease;
+    let outcome: "allowed" | "denied" = "denied";
+    let detail: string | undefined;
+
+    try {
+      const call: PolicyCall = { tool: params.name, spendMinor };
+      const decision = evaluatePolicy(lease, call, binding, deps.limits, deps.approvals, now);
+
+      if (decision.decision === "deny") {
+        detail = decision.reason;
+        result = denyResult(detail);
+        return nextLease;
+      }
+
+      // Invariant: `evaluatePolicy` only reaches `require_approval`/`allow`
+      // when its own Step 1 resolved a real binding.
+      if (binding === undefined) {
+        throw new Error(
+          "@stint/proxy: invariant violated -- evaluatePolicy returned a non-deny decision with no binding.",
+        );
+      }
+      const ctx: CallContext = {
+        leaseId: deps.leaseId,
+        tool: params.name,
+        resolvedArgs,
+        binding,
+        leaseVersion: lease.version,
+      };
+
+      if (decision.decision === "require_approval") {
+        const approval = await deps.approve.requestApproval(ctx, decision.requirement, now);
+        if (approval.decision === "deny") {
+          detail = approval.reason ?? "approval_denied";
+          result = denyResult(detail);
+          return nextLease;
+        }
+
+        // Recompute-and-match (D-11, PRXY-05): a held approval's commitment
+        // is only valid for the EXACT args + binding identity + lease
+        // version it was minted against. Re-derive the binding and lease
+        // fresh here -- never trust the pre-hold `binding`/`lease` closures
+        // alone -- so a hot-swapped binding or a lease-version bump that
+        // happened during the out-of-band hold is caught, not silently
+        // reused. All three D-11 drift vectors (arg change, binding
+        // hot-swap, lease-version advance) collapse to the same
+        // `approval_drifted` denial; the reused approval is a new request.
+        const currentBinding = resolveEffectiveBinding(
+          deps.bindings,
+          deps.grantedScopes,
+          deps.grantedResources,
+          params.name,
+        );
+        const currentLease = (await deps.leaseStore.load(deps.leaseId)) ?? lease;
+        const currentHash =
+          currentBinding !== undefined
+            ? computeApprovalHash(resolvedArgs, currentBinding, currentLease.version)
+            : undefined;
+        const isCommitmentValid =
+          approval.approvalId !== undefined &&
+          currentHash !== undefined &&
+          deps.approve.verifyCommitment(approval.approvalId, currentHash);
+
+        if (!isCommitmentValid) {
+          detail = "approval_drifted";
+          result = denyResult(detail);
+          return nextLease;
+        }
+      }
+
+      const capCheck = deps.enforceCaps.authorize(lease, call, deps.limits, now);
+      if (!capCheck.ok) {
+        detail = capCheck.reason ?? "cap_exceeded";
+        result = denyResult(detail);
+        return nextLease;
+      }
+
+      const execResult = await deps.execute.execute(ctx, now);
+      outcome = "allowed";
+      result = allowResult(execResult);
+      nextLease = deps.enforceCaps.commit(lease, call, now);
+      return nextLease;
+    } catch (err) {
+      // D-09/PRXY-07: a failed outbound refresh classifies as
+      // provider_revoked or transient_error (04-05's vault). Only the
+      // former ever advances lease state -- a single transient blip never
+      // revokes (module docstring above).
+      if (err instanceof CredentialRefreshError) {
+        outcome = "denied";
+        if (isProviderRevocation(err.kind)) {
+          detail = "provider_revoked";
+          result = denyResult(detail);
+          const revocation = applyProviderRevocation(lease, now);
+          if (revocation.ok) {
+            nextLease = revocation.value.lease;
+            // grant_revoked then begin_teardown, in order (D-18) -- appended
+            // inside this SAME per-lease transaction so the ending is
+            // receipted atomically with the triggering call's denial.
+            for (const transition of revocation.value.transitions) {
+              await appendTransitionReceipt(deps.receiptStore, transition, now);
+            }
+          }
+          return nextLease;
+        }
+        detail = "transient_error";
+        result = denyResult(detail);
+        return nextLease;
+      }
+      outcome = "denied";
+      detail = "execute_failed";
+      result = errorResult();
+      return nextLease;
+    } finally {
+      const chain = await deps.receiptStore.load("verified");
+      const payload = buildCallPayload(binding, resolvedArgs, outcome, detail);
+      await appendCallReceipt(deps.receiptStore, chain, payload, now);
+    }
+  });
+
+  if (result === undefined) {
+    // unreachable: every path above sets `result` before returning from the mutator.
+    throw new Error("@stint/proxy: handleCall produced no result.");
+  }
+
+  // 05-03 (TEAR-01, D-18, D-30): the triggering call's own transaction has
+  // fully committed above -- this opens a SEPARATE, later per-lease
+  // transaction, never a nested one. Opt-in via `deps.teardownSteps` so
+  // callers that don't wire it (every pre-05-03 `ProxyDeps`) keep working
+  // unchanged.
+  if (deps.teardownSteps !== undefined && TEARDOWN_TRIGGER_STATES.has(finalLease.state)) {
+    await runTeardown(
+      {
+        leaseStore: deps.leaseStore,
+        receiptStore: deps.receiptStore,
+        leaseId: deps.leaseId,
+        steps: deps.teardownSteps,
+      },
+      now,
+    );
+  }
+
+  return result;
+}

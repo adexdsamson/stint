@@ -16,7 +16,13 @@ export default defineConfig([
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["vitest.config.ts", "packages/*/tsdown.config.ts"],
+          allowDefaultProject: [
+            "vitest.config.ts",
+            "packages/*/tsdown.config.ts",
+            "packages/*/vitest.config.ts",
+            "examples/*/tsdown.config.ts",
+            "examples/*/vitest.config.ts",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -32,7 +38,13 @@ export default defineConfig([
     // program does not enable strictNullChecks — type-aware rules that
     // depend on it error out on these files, so disable type-checking here.
     ...tseslint.configs.disableTypeChecked,
-    files: ["vitest.config.ts", "packages/*/tsdown.config.ts"],
+    files: [
+      "vitest.config.ts",
+      "packages/*/tsdown.config.ts",
+      "packages/*/vitest.config.ts",
+      "examples/*/tsdown.config.ts",
+      "examples/*/vitest.config.ts",
+    ],
   },
   {
     files: ["**/*.{js,mjs}"],
@@ -43,6 +55,12 @@ export default defineConfig([
         URL: "readonly",
         TextEncoder: "readonly",
         TextDecoder: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
       },
     },
   },

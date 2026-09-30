@@ -6,6 +6,7 @@ import { manifestSchema, envelopeSchema } from "./generated/schemas.js";
 import type { Manifest, Auth, AuthMode } from "./generated/manifest.js";
 import type { SignedEnvelope } from "./generated/envelope.js";
 import type { SpecError, Result } from "./errors.js";
+import { parsePredicate } from "./predicate/parse.js";
 
 /**
  * The generated `Manifest`/`SignedEnvelope` types (packages/spec/src/generated)
@@ -242,6 +243,26 @@ function collectSemanticErrors(manifest: Manifest): SpecError[] {
       }
     });
   });
+
+  // D-04: a resource_query verifier's predicate is unconstrained-string per
+  // the JSON Schema (spec/manifest.schema.json: minLength 1, maxLength
+  // 1000), so grammar checking is necessarily a semantic (post-schema) rule,
+  // exactly like the unknown_resource_reference check above. A manifest
+  // whose predicate is unparseable or out-of-grammar is rejected before
+  // consent, the same gate as an unknown scope. The message never echoes
+  // raw predicate internals beyond this fixed, non-interpolated summary
+  // (T-05-02-I).
+  if (manifest.job.verifier.type === "resource_query") {
+    const parsed = parsePredicate(manifest.job.verifier.predicate);
+    if (!parsed.ok) {
+      const path = "/job/verifier/predicate";
+      errors.push({
+        path,
+        code: "invalid_predicate",
+        message: `Predicate at "${path}" is not valid resource_query grammar.`,
+      });
+    }
+  }
 
   return errors;
 }

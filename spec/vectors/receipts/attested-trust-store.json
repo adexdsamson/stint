@@ -1,0 +1,9 @@
+{
+  "reconciler-labs.example": {
+    "attested-kid-1": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "wbQAORHHa5rH5_e7ThXsVkwionIU5lbdsbiJ18wTSGg"
+    }
+  }
+}

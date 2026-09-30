@@ -1,0 +1,15 @@
+{
+  "lease_id": "lease-01hqzz1test0000000000000001",
+  "spec_version": "alp/0.1",
+  "job": {
+    "description": "Reconcile invoices against bank statements."
+  },
+  "limits": {
+    "max_actions": 50,
+    "actions_per_hour": 10
+  },
+  "now": 1700000000,
+  "exp_epoch_seconds": 1700000300,
+  "kid": "publisher-key-1",
+  "jti": "01hqzz1jti00000000000000000001"
+}

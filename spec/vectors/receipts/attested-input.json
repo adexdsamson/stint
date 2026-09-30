@@ -1,0 +1,30 @@
+[
+  {
+    "seq": 0,
+    "ts": 1700000000,
+    "chain": "attested",
+    "type": "attested_claim",
+    "prevHash": "jcs-sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "payload": {
+      "publisherId": "reconciler-labs.example",
+      "kid": "attested-kid-1",
+      "claimType": "data_retention",
+      "claimHash": "jcs-sha256:2bb70073073d892915f7b4e00883c6e130de4a7c94d60c597ab716f8a26b6ec2",
+      "sig": "uPtLXB9L568iWEtL9jx_g4bgNN2szYlY31Bzl6f3IEay0DN_hsAW-Op4cEsaR1V9mJPUR8l1yvSYfhmcbyTsAg"
+    }
+  },
+  {
+    "seq": 1,
+    "ts": 1700000100,
+    "chain": "attested",
+    "type": "attested_claim",
+    "prevHash": "jcs-sha256:083fc3e2cb76a46c496849451c989d9929c3020414a89370b83cc1079ec82f6c",
+    "payload": {
+      "publisherId": "reconciler-labs.example",
+      "kid": "attested-kid-1",
+      "claimType": "uptime_sla",
+      "claimHash": "jcs-sha256:24333318b6d9efd6f9bda850c39d4ef7f63ba4c6f6a31919933bd59c1fa6f9c2",
+      "sig": "rZN1MooDGEW0KYmwWwYCm94wXjPdbrRkjfRM2KWbxh_9oYyy-wVPT17Q9wyzpR700oNSNINBA7akWOt76vl7CA"
+    }
+  }
+]

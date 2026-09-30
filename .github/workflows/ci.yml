@@ -42,3 +42,5 @@ jobs:
       - run: pnpm codegen:check
 
       - run: pnpm test
+
+      - run: pnpm test:e2e

@@ -16,6 +16,8 @@
     "codegen": "pnpm -r --if-present run codegen",
     "codegen:check": "pnpm -r --if-present run codegen:check",
     "check:alp": "node scripts/check-alp-sections.mjs",
+    "test:e2e": "pnpm --filter @stint/example-payment-reconciler run test:e2e",
+    "example:payment-reconciler": "pnpm --filter @stint/example-payment-reconciler run start",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

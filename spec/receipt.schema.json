@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReceiptEntry",
+  "definitions": {
+    "ContentHash": {
+      "title": "ContentHash",
+      "type": "string",
+      "pattern": "^jcs-sha256:[0-9a-f]{64}$"
+    },
+    "ReceiptChain": {
+      "title": "ReceiptChain",
+      "type": "string",
+      "enum": ["verified", "attested"]
+    },
+    "CallPayload": {
+      "title": "CallPayload",
+      "type": "object",
+      "properties": {
+        "resource": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "argsHash": { "$ref": "#/definitions/ContentHash" },
+        "redactedSummary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "outcome": { "type": "string", "enum": ["allowed", "denied"] }
+      },
+      "required": ["resource", "argsHash", "redactedSummary", "outcome"],
+      "additionalProperties": false
+    },
+    "TransitionPayload": {
+      "title": "TransitionPayload",
+      "type": "object",
+      "properties": {
+        "from": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "event": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "actor": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "to": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "required": ["from", "event", "actor", "to"],
+      "additionalProperties": false
+    },
+    "TeardownStepPayload": {
+      "title": "TeardownStepPayload",
+      "type": "object",
+      "properties": {
+        "step": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "revoked",
+            "discarded_revocation_unsupported",
+            "failed",
+            "cleanup_incomplete",
+            "ok",
+            "not_applicable",
+            "attested_ok"
+          ]
+        }
+      },
+      "required": ["step", "outcome"],
+      "additionalProperties": false
+    },
+    "AttestedClaimPayload": {
+      "title": "AttestedClaimPayload",
+      "type": "object",
+      "properties": {
+        "publisherId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kid": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+        "claimType": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "claimHash": { "$ref": "#/definitions/ContentHash" },
+        "sig": { "type": "string", "minLength": 1, "maxLength": 512 }
+      },
+      "required": ["publisherId", "kid", "claimType", "claimHash", "sig"],
+      "additionalProperties": false
+    },
+    "CallEntry": {
+      "title": "CallEntry",
+      "type": "object",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "chain": { "$ref": "#/definitions/ReceiptChain" },
+        "type": { "const": "call" },
+        "prevHash": { "$ref": "#/definitions/ContentHash" },
+        "payload": { "$ref": "#/definitions/CallPayload" }
+      },
+      "required": ["seq", "ts", "chain", "type", "prevHash", "payload"],
+      "additionalProperties": false
+    },
+    "TransitionEntry": {
+      "title": "TransitionEntry",
+      "type": "object",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "chain": { "$ref": "#/definitions/ReceiptChain" },
+        "type": { "const": "transition" },
+        "prevHash": { "$ref": "#/definitions/ContentHash" },
+        "payload": { "$ref": "#/definitions/TransitionPayload" }
+      },
+      "required": ["seq", "ts", "chain", "type", "prevHash", "payload"],
+      "additionalProperties": false
+    },
+    "TeardownStepEntry": {
+      "title": "TeardownStepEntry",
+      "type": "object",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "chain": { "$ref": "#/definitions/ReceiptChain" },
+        "type": { "const": "teardown_step" },
+        "prevHash": { "$ref": "#/definitions/ContentHash" },
+        "payload": { "$ref": "#/definitions/TeardownStepPayload" }
+      },
+      "required": ["seq", "ts", "chain", "type", "prevHash", "payload"],
+      "additionalProperties": false
+    },
+    "AttestedClaimEntry": {
+      "title": "AttestedClaimEntry",
+      "type": "object",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "chain": { "$ref": "#/definitions/ReceiptChain" },
+        "type": { "const": "attested_claim" },
+        "prevHash": { "$ref": "#/definitions/ContentHash" },
+        "payload": { "$ref": "#/definitions/AttestedClaimPayload" }
+      },
+      "required": ["seq", "ts", "chain", "type", "prevHash", "payload"],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/CallEntry" },
+    { "$ref": "#/definitions/TransitionEntry" },
+    { "$ref": "#/definitions/TeardownStepEntry" },
+    { "$ref": "#/definitions/AttestedClaimEntry" }
+  ]
+}

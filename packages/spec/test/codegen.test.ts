@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,8 +28,12 @@ describe("codegen", () => {
   it("codegen check detects stale types", () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "stint-codegen-drift-"));
     try {
-      cpSync(path.join(specDir, "manifest.schema.json"), path.join(tempDir, "manifest.schema.json"));
-      cpSync(path.join(specDir, "envelope.schema.json"), path.join(tempDir, "envelope.schema.json"));
+      // Copy every committed schema so codegen (which reads all spec/*.schema.json
+      // targets) resolves each one; mutating the manifest below is what triggers the
+      // stale-type detection this test asserts on.
+      for (const schemaFile of readdirSync(specDir).filter((f) => f.endsWith(".schema.json"))) {
+        cpSync(path.join(specDir, schemaFile), path.join(tempDir, schemaFile));
+      }
 
       const manifestSchemaPath = path.join(tempDir, "manifest.schema.json");
       const manifestSchema = JSON.parse(readFileSync(manifestSchemaPath, "utf8")) as {

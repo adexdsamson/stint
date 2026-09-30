@@ -1,0 +1,48 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v0.1",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Foundation & ALP Spec",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Lease State Machine & Policy Engine",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Receipts & Licensing",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "MCP Proxy & Credential Vault",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "Lease Endings & Teardown",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "CLI & Reference Adapters",
+      "status": "complete"
+    },
+    {
+      "number": "7",
+      "name": "End-to-End Example & README",
+      "status": "complete"
+    }
+  ],
+  "next": {
+    "command": "/gsd:new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
+  },
+  "updated_at": "2026-09-30T18:55:38.321Z"
+}

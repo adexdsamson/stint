@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Checkpoint",
+  "type": "object",
+  "properties": {
+    "chain": { "type": "string", "enum": ["verified", "attested"] },
+    "count": { "type": "integer", "minimum": 0 },
+    "headHash": { "type": "string", "pattern": "^jcs-sha256:[0-9a-f]{64}$" },
+    "ts": { "type": "integer", "minimum": 0 },
+    "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+  },
+  "required": ["chain", "count", "headHash", "ts", "sig"],
+  "additionalProperties": false
+}
