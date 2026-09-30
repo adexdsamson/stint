@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 06
 current_phase_name: CLI & Reference Adapters
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-09-30T06:23:30.702Z"
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-09-30T06:43:16.178Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: aa800f81a9d08abcc93ab9b38804358191de654f
+state_head: 296110ea2a1d04d638a748ae10e6187cdda229cb
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 39
-  completed_plans: 34
+  completed_plans: 35
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 06 (CLI & Reference Adapters) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -91,6 +91,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 05 P08 | 30min | 2 tasks | 4 files |
 | Phase 06 P01 | 30min | 3 tasks | 14 files |
 | Phase 06 P02 | 8min | 2 tasks | 5 files |
+| Phase 06 P03 | 25min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-lease-endings-teardown]: 05-08: delete_cached_data (step 4) reuses createDefaultTeardownSteps's existing vault/license optional parameters rather than adding a new one -- D-17 is a belt-and-suspenders sweep over the same collaborators steps 1/2 already hold
 - [Phase 06]: Phase 06-01: dir-per-lease on-disk store layout (leases/<id>/lease.json, lock per lease.json, lease-then-receipts order) confirmed by user
 - [Phase 06]: 06-02: receipt files locked per chain file; store validates container shape only, verifyChain owns hash integrity
+- [Phase 06]: 06-03: terminal HostAdapter non-answers (abort/EOF/no-TTY) reject so core's await*Decision folds them; adapter owns no deny timer (D-05)
 
 ### Pending Todos
 
@@ -188,6 +190,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T06:23:30.242Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-09-30T06:43:15.704Z
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None
