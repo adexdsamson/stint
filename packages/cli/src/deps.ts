@@ -5,11 +5,13 @@
  * and no command reaches for `process.*` directly.
  */
 
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { HostAdapter, LeaseStore, ReceiptStore } from "@stint/core";
 
 import type { Style } from "./render/style.js";
 import type { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
 import type { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
+import type { ControllingTerminal } from "./run/terminal.js";
 import type { loadTrustStore } from "./trust/trust-store.js";
 
 /** Output sinks. Each call receives already-terminated text (callers add the newline). */
@@ -24,6 +26,17 @@ export interface AdapterContext {
   readonly json: boolean;
   /** From `manifest.approvals.timeout_seconds` when a manifest is in hand (display-only countdown). */
   readonly approvalTimeoutSeconds?: number;
+}
+
+/**
+ * Optional seams for `stint run` only. Production leaves both unset (a
+ * controlling-terminal handle and `StdioServerTransport`); in-process tests
+ * inject a fake terminal and one half of an `InMemoryTransport` pair so no
+ * command ever touches the real stdin/stdout.
+ */
+export interface RunSeams {
+  readonly openTerminal?: () => ControllingTerminal | undefined;
+  readonly createTransport?: () => Transport;
 }
 
 export interface CliDeps {
@@ -46,6 +59,7 @@ export interface CliDeps {
     readonly load: typeof loadCredentials;
     readonly seedVault: typeof seedVaultFromCredentials;
   };
+  readonly run?: RunSeams;
 }
 
 /** Options every subcommand can read through `cmd.optsWithGlobals()`. */

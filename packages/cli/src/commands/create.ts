@@ -21,6 +21,7 @@ import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } fr
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { resolveStoreRoot } from "../paths.js";
+import { saveEnvelope } from "../store/envelope.js";
 
 /** ASSUMED (A3): the manifest carries no consent timeout field; matches the terminal adapter's default. */
 const DEFAULT_CONSENT_TIMEOUT_SECONDS = 120;
@@ -157,6 +158,9 @@ export async function createCommand(
   if (lease.state !== "active") {
     throw new CliError(EXIT_CODES.wrongState, "The lease could not be activated.");
   }
+  // The lease carries only the bound hash; keep the signed envelope beside it so
+  // `run`/`revoke`/`cleanup` can re-verify it and read scopes, limits and auth mode.
+  await saveEnvelope(root, lease.id, parsed.value);
 
   if (json) {
     deps.io.out(
