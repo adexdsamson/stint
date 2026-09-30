@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 07
 current_phase_name: End-to-End Example & README
 status: executing
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-09-30T14:42:38.488Z"
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-09-30T14:54:58.580Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 07 execution started
-state_head: 830837ccebb0f1064c68d473b0dee5118568dfc3
+state_head: 4c9cea5fe7ecf89dde6df354a6125673e0001b84
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 48
-  completed_plans: 40
+  completed_plans: 41
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 07 (End-to-End Example & README) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 07 execution started
 
@@ -98,6 +98,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 06 P06 | 50min | 3 tasks | 12 files |
 | Phase 06 P07 | 30min | 3 tasks | 11 files |
 | Phase 07 P01 | 8min | 2 tasks | 12 files |
+| Phase 07 P02 | 8min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,7 @@ Recent decisions affecting current work:
 - [Phase 06]: 06-07: revoke/cleanup derive the OAuth revocation client from optional clientId/revocationEndpoint in the --credentials file (program.ts frozen, no --profile)
 - [Phase 06]: 06-07: declined [y/N] exits 3, no terminal without --yes exits 2; consent never assumed
 - [Phase 07]: [Phase 07-01]: Root vitest projects stays packages/* only; example e2e runs as separate pnpm test:e2e step (D-04)
+- [Phase 07]: 07-02: D-14 approved; additive @stint/core/license-issuer subpath (verify-then-mint client, client-side LIC-03 clamp incl. exp>clamp rejection); createMockLicenseIssuer delegates to reference issuer
 
 ### Pending Todos
 
@@ -202,6 +204,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T14:42:28.455Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-09-30T14:54:58.314Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
