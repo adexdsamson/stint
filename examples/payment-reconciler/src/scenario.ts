@@ -69,9 +69,11 @@ export interface ScenarioContext {
   readonly paystack: ServiceMock;
   readonly sheets: OrdersSheetMock;
   readonly leaseId: string;
+  /** The signed manifest's content (e.g. `lease.max_duration_seconds` to place a clock step near expiry). */
+  readonly manifest: Manifest;
 }
 
-/** One agent tool call; `before` runs first with the live handles. */
+/** One agent tool call;`before` runs first with the live handles. */
 export interface ScenarioStep {
   readonly name: string;
   readonly arguments?: Readonly<Record<string, unknown>>;
@@ -286,7 +288,15 @@ export async function runScenario(config: ScenarioConfig = {}): Promise<Scenario
     const results: CallToolResult[] = [];
     let postEndResult: CallToolResult | undefined;
 
-    const context: ScenarioContext = { clock, as, publisher, paystack, sheets, leaseId };
+    const context: ScenarioContext = {
+      clock,
+      as,
+      publisher,
+      paystack,
+      sheets,
+      leaseId,
+      manifest: built.manifest,
+    };
     const toAgentStep = (step: ScenarioStep): AgentStep => ({
       name: step.name,
       ...(step.arguments === undefined ? {} : { arguments: step.arguments }),
