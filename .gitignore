@@ -4,3 +4,5 @@ dist
 coverage
 *.tsbuildinfo
 brag-output/
+.planning/
+.claude/
