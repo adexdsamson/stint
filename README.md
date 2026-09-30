@@ -3,12 +3,41 @@
 Stint is an open spec, the **Agent Lease Protocol (ALP)**, plus a TypeScript SDK for the human-facing lifecycle of specialist AI agents: install one, let it run a scoped job, and uninstall it cleanly. It sits on top of MCP and OAuth 2.1 and covers the part they deliberately leave out.
 
 - The normative spec lives in [`spec/ALP.md`](spec/ALP.md) (version `alp/0.1`).
-- The SDK is a pnpm monorepo: `@stint/spec` (schemas and generated types), `@stint/core` (lease state machine, receipts, licenses), `@stint/proxy` (the enforcement proxy and teardown) and `@stint/cli` (the `stint` command).
+- The SDK is a pnpm monorepo: `@stint/spec` (schemas and generated types), `@stint/core` (lease state machine, receipts, licenses), `@stint/proxy` (the enforcement proxy and teardown) and `@stint/cli` (the `stint-cli` command).
 - License: Apache-2.0.
+
+> **Status: experimental.** `alp/0.1` — the spec, the wire formats and the CLI may still change. Not for production use yet.
+
+## A manifest at a glance
+
+A lease is a signed manifest — the exact thing the user consents to before an agent does anything. Trimmed from the payment-reconciler example:
+
+```jsonc
+{
+  "spec_version": "alp/0.1",
+  "agent": { "id": "payment-reconciler", "name": "Payment Reconciler" },
+  "publisher": { "id": "reconciler-labs.example", "name": "Reconciler Labs" },
+  "job": {
+    "description": "Match settled Paystack transactions to open orders and mark them paid.",
+    "verifier": { "type": "resource_query" }
+  },
+  "scopes": [
+    { "resource": "paystack.transactions", "access": ["read"] },
+    { "resource": "sheets.orders", "access": ["read", "write"] }
+  ],
+  "lease": { "max_duration_seconds": 3600 },
+  "limits": { "max_actions": 500, "actions_per_hour": 300 },
+  "approvals": { "require_for": ["irreversible"], "timeout_seconds": 60 },
+  "auth": { "mode": "hybrid" },
+  "cleanup": { "hook": { "url": "https://reconciler-labs.example/alp/cleanup" } }
+}
+```
+
+The access vocabulary is fixed — `read`, `write`, `send`, `pay` — and approvals are required only for what the manifest marks irreversible. The user grants exactly this, and the lease can never exceed it.
 
 ## The problem
 
-MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and revoke a token. Neither says anything about the human in the middle:
+MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and revoke a token. Neither defines consent, revocation or uninstall for an agent's job:
 
 - **Consent.** Who decides that this agent may read these two systems, spend up to this much, and stop after this many actions, and how is that decision shown to the user before it takes effect?
 - **Revocation.** When the user changes their mind, or one of their accounts revokes access, what ends the agent's authority everywhere at once?
@@ -47,6 +76,10 @@ Some further limits follow from how the pieces work:
 - The publisher's signing-key custody is outside the runtime's control.
 
 In v0.1 the example's receipts timeline reflects this honestly: it shows `[verified]` entries for what the runtime saw, plus a teardown marker `cleanup_hook: attested_ok` for the publisher's cleanup step. That marker means the publisher's hook answered ok, and nothing more. There is no separate attested chain in v0.1 yet, so nothing in the timeline should be read as independently proving the publisher deleted anything.
+
+## How Stint relates to Auth0, Arcade, Composio
+
+Those manage connections and credentials for agents — they help an agent obtain, store and use tokens for third-party services. Stint is not a connection manager and not a hosted service. It is an open spec (with a reference runtime) for the part they leave out: a **job-scoped lease** that a user consents to, that enforcement code outside the model checks on every call, and that **ends** — every credential revoked, teardown run, and the result honestly receipted. You can run a Stint lease over grants any of those tools acquired; Stint governs what the agent may do with them and guarantees the cleanup when the job is over.
 
 ## Quickstart
 
