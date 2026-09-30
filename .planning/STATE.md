@@ -4,16 +4,16 @@ milestone: v0.1
 current_phase: 06
 current_phase_name: CLI & Reference Adapters
 status: executing
-stopped_at: Completed 06-05-PLAN.md
-last_updated: "2026-09-30T07:19:05.861Z"
+stopped_at: Completed 06-06-PLAN.md
+last_updated: "2026-09-30T07:55:14.870Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: 957b452487d7e1c2dcefeb00bea90b9e4e0f80d2
+state_head: b7aab3c15e7a5082d323829c31275e740b394917
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 39
-  completed_plans: 37
+  completed_plans: 38
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 ## Current Position
 
 Phase: 06 (CLI & Reference Adapters) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -94,6 +94,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 06 P03 | 25min | 2 tasks | 9 files |
 | Phase 06 P04 | 45min | 3 tasks | 22 files |
 | Phase 06 P05 | 12min | 2 tasks | 6 files |
+| Phase 06 P06 | 50min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase 06]: 06-03: terminal HostAdapter non-answers (abort/EOF/no-TTY) reject so core's await*Decision folds them; adapter owns no deny timer (D-05)
 - [Phase 06]: 06-04: exit code via injected ExitSink (not process.exitCode in actions) so in-process tests cannot poison the runner
 - [Phase 06]: 06-04: hosted/hybrid manifests refused before consent until Phase 7 license issuance (A8)
+- [Phase 06]: 06-06: stint run uses controlling-terminal topology (/dev/tty, CONIN$/CONOUT$); no terminal denies; create persists signed envelope for run re-verify
 
 ### Pending Todos
 
@@ -194,6 +196,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T07:19:05.434Z
-Stopped at: Completed 06-05-PLAN.md
+Last session: 2026-09-30T07:55:14.222Z
+Stopped at: Completed 06-06-PLAN.md
 Resume file: None

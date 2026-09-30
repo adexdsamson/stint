@@ -219,7 +219,7 @@ Plans:
   3. A user can print a lease's receipts as one merged plain-language timeline marking verified and attested entries, and verify chain integrity from the CLI, with a tampered receipt file reported at the exact break.
   4. The JSON-file LeaseStore passes the same contract suite as the in-memory store plus a concurrent read/write test on Windows CI (atomic writes and locking, no lost updates or torn files).
 
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -238,7 +238,7 @@ Plans:
 **Wave 4** *(blocked on 06-04; 06-05/06-06/06-07 parallel)*
 
 - [x] 06-05-PLAN.md — stint receipts (merged timeline, --json) + stint verify (checkpoint-anchored break locus, 5-reason table) (CLI-02)
-- [ ] 06-06-PLAN.md — Live stint run over MCP stdio (SC#2 proof: approval + user_confirm + timeout-deny under a real in-process client) [checkpoint: run transport topology one-way] (HOST-02, CLI-01)
+- [x] 06-06-PLAN.md — Live stint run over MCP stdio (SC#2 proof: approval + user_confirm + timeout-deny under a real in-process client) [checkpoint: run transport topology one-way] (HOST-02, CLI-01)
 - [ ] 06-07-PLAN.md — stint revoke + cleanup (user-actor revoke, idempotent teardown resume, honest revoke_oauth) + full public barrel (CLI-01, HOST-02)
 
 **Research flag**: yes - Windows file atomicity: `write-file-atomic@^7` and `proper-lockfile@4.1.2` behavior under EPERM/EBUSY on rename with concurrent readers; the concurrency test must run on Windows CI.
@@ -268,5 +268,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Receipts & Licensing | 6/6 | Complete    | 2026-09-28 |
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
-| 6. CLI & Reference Adapters | 5/7 | In Progress|  |
+| 6. CLI & Reference Adapters | 6/7 | In Progress|  |
 | 7. End-to-End Example & README | 0/TBD | Not started | - |
