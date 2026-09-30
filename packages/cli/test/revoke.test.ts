@@ -63,7 +63,7 @@ describe("stint revoke", () => {
       ]),
     );
     expect(rig.fx.harness.stdout.join("")).toContain("cleaned_up");
-    expect(rig.fx.harness.stderr.join("")).toContain(`stint receipts ${rig.leaseId}`);
+    expect(rig.fx.harness.stderr.join("")).toContain(`stint-cli receipts ${rig.leaseId}`);
 
     // The AS really was asked to revoke (RFC 7009), and the outcome is receipted as such.
     expect(as.requests).toHaveLength(1);
@@ -103,7 +103,7 @@ describe("stint revoke", () => {
     const lease = await rig.lease();
     expect(lease.state).toBe("cleanup_incomplete");
     expect(lease.teardownProgress?.revoke_oauth).toBe("failed");
-    expect(rig.fx.harness.stderr.join("")).toContain(`stint cleanup ${rig.leaseId}`);
+    expect(rig.fx.harness.stderr.join("")).toContain(`stint-cli cleanup ${rig.leaseId}`);
   });
 
   it("'y' at the prompt revokes", async () => {

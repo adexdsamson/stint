@@ -3,3 +3,6 @@ dist
 .tsc
 coverage
 *.tsbuildinfo
+brag-output/
+.planning/
+.claude/

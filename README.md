@@ -3,12 +3,41 @@
 Stint is an open spec, the **Agent Lease Protocol (ALP)**, plus a TypeScript SDK for the human-facing lifecycle of specialist AI agents: install one, let it run a scoped job, and uninstall it cleanly. It sits on top of MCP and OAuth 2.1 and covers the part they deliberately leave out.
 
 - The normative spec lives in [`spec/ALP.md`](spec/ALP.md) (version `alp/0.1`).
-- The SDK is a pnpm monorepo: `@stint/spec` (schemas and generated types), `@stint/core` (lease state machine, receipts, licenses), `@stint/proxy` (the enforcement proxy and teardown) and `@stint/cli` (the `stint` command).
+- The SDK is a pnpm monorepo: `@stint/spec` (schemas and generated types), `@stint/core` (lease state machine, receipts, licenses), `@stint/proxy` (the enforcement proxy and teardown) and `@stint/cli` (the `stint-cli` command).
 - License: Apache-2.0.
+
+> **Status: experimental.** `alp/0.1` — the spec, the wire formats and the CLI may still change. Not for production use yet.
+
+## A manifest at a glance
+
+A lease is a signed manifest — the exact thing the user consents to before an agent does anything. Trimmed from the payment-reconciler example:
+
+```jsonc
+{
+  "spec_version": "alp/0.1",
+  "agent": { "id": "payment-reconciler", "name": "Payment Reconciler" },
+  "publisher": { "id": "reconciler-labs.example", "name": "Reconciler Labs" },
+  "job": {
+    "description": "Match settled Paystack transactions to open orders and mark them paid.",
+    "verifier": { "type": "resource_query" }
+  },
+  "scopes": [
+    { "resource": "paystack.transactions", "access": ["read"] },
+    { "resource": "sheets.orders", "access": ["read", "write"] }
+  ],
+  "lease": { "max_duration_seconds": 3600 },
+  "limits": { "max_actions": 500, "actions_per_hour": 300 },
+  "approvals": { "require_for": ["irreversible"], "timeout_seconds": 60 },
+  "auth": { "mode": "hybrid" },
+  "cleanup": { "hook": { "url": "https://reconciler-labs.example/alp/cleanup" } }
+}
+```
+
+The access vocabulary is fixed — `read`, `write`, `send`, `pay` — and approvals are required only for what the manifest marks irreversible. The user grants exactly this, and the lease can never exceed it.
 
 ## The problem
 
-MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and revoke a token. Neither says anything about the human in the middle:
+MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and revoke a token. Neither defines consent, revocation or uninstall for an agent's job:
 
 - **Consent.** Who decides that this agent may read these two systems, spend up to this much, and stop after this many actions, and how is that decision shown to the user before it takes effect?
 - **Revocation.** When the user changes their mind, or one of their accounts revokes access, what ends the agent's authority everywhere at once?
@@ -48,6 +77,10 @@ Some further limits follow from how the pieces work:
 
 In v0.1 the example's receipts timeline reflects this honestly: it shows `[verified]` entries for what the runtime saw, plus a teardown marker `cleanup_hook: attested_ok` for the publisher's cleanup step. That marker means the publisher's hook answered ok, and nothing more. There is no separate attested chain in v0.1 yet, so nothing in the timeline should be read as independently proving the publisher deleted anything.
 
+## How Stint relates to Auth0, Arcade, Composio
+
+Those manage connections and credentials for agents — they help an agent obtain, store and use tokens for third-party services. Stint is not a connection manager and not a hosted service. It is an open spec (with a reference runtime) for the part they leave out: a **job-scoped lease** that a user consents to, that enforcement code outside the model checks on every call, and that **ends** — every credential revoked, teardown run, and the result honestly receipted. You can run a Stint lease over grants any of those tools acquired; Stint governs what the agent may do with them and guarantees the cleanup when the job is over.
+
 ## Quickstart
 
 You need Node 22.18 or newer and pnpm (enable it with `corepack enable`). Everything runs on loopback: a mock authorization server, a mock publisher, a mock payments provider and a mock orders sheet. No account and no network access are needed.
@@ -70,27 +103,27 @@ Then run the whole example with one command:
 pnpm example:payment-reconciler
 ```
 
-This runs the complete lifecycle of the payment-reconciler agent. It acquires the two customer grants, signs a manifest as the publisher, creates and activates a lease, serves it as an MCP proxy in a separate `stint run` process, and lets a small agent read transactions and orders. The agent then attempts an irreversible write, which needs approval. On a real terminal you are asked to consent and to approve the write. With no terminal, consent is granted automatically (a notice says so) and the write is denied when the approval window closes, which is the fail-safe outcome. The demo then revokes the lease while the agent is still connected.
+This runs the complete lifecycle of the payment-reconciler agent. It acquires the two customer grants, signs a manifest as the publisher, creates and activates a lease, serves it as an MCP proxy in a separate `stint-cli run` process, and lets a small agent read transactions and orders. The agent then attempts an irreversible write, which needs approval. On a real terminal you are asked to consent and to approve the write. With no terminal, consent is granted automatically (a notice says so) and the write is denied when the approval window closes, which is the fail-safe outcome. The demo then revokes the lease while the agent is still connected.
 
 The output ends with the merged receipts timeline and a one-line summary such as `Lease <id> finished: cleaned_up (publisher cleanup attested).` Read the timeline as the audit trail: each line is tagged `[verified]` for something the runtime itself observed, and the teardown lists every step with its outcome, including the `cleanup_hook: attested_ok` line that records the publisher's own claim. Secrets never appear in it: receipts hold hashes and redacted summaries, never tokens or the license.
 
 ### The lifecycle, one command at a time
 
-The wrapped command drives the same CLI you can use yourself. Each step below is a real `stint` subcommand, in the order a lease moves through them. `<manifest>` is a signed manifest envelope, and the publisher, profile and credentials files describe the publisher's endpoints, the runtime's connector bindings and the seeded grants.
+The wrapped command drives the same CLI you can use yourself. Each step below is a real `stint-cli` subcommand, in the order a lease moves through them. `<manifest>` is a signed manifest envelope, and the publisher, profile and credentials files describe the publisher's endpoints, the runtime's connector bindings and the seeded grants.
 
 ```sh
-stint create <manifest> --publisher <file>
-stint run <id> --profile <file> --credentials <file>
-stint revoke <id> --yes
-stint cleanup <id>
-stint receipts <id>
-stint verify <id>
+stint-cli create <manifest> --publisher <file>
+stint-cli run <id> --profile <file> --credentials <file>
+stint-cli revoke <id> --yes
+stint-cli cleanup <id>
+stint-cli receipts <id>
+stint-cli verify <id>
 ```
 
-- `stint create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
-- `stint run` serves the lease as an MCP proxy over stdio. Point an agent's MCP client at it. Every call is decided by the lease before anything reaches a provider.
-- `stint revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
-- `stint cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
-- `stint receipts` prints the merged timeline, and `stint verify` (or `stint receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
+- `stint-cli create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
+- `stint-cli run` serves the lease as an MCP proxy over stdio. Point an agent's MCP client at it. Every call is decided by the lease before anything reaches a provider.
+- `stint-cli revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
+- `stint-cli cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
+- `stint-cli receipts` prints the merged timeline, and `stint-cli verify` (or `stint-cli receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
 
 The happy path, where the agent's job finishes and the manifest's outcome check passes before teardown, the approved-write path, the partial-teardown retry and the mid-run revocation are all exercised end to end by the example's test suite (`pnpm test:e2e`).

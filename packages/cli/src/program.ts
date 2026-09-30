@@ -49,7 +49,7 @@ export function mapCommander(error: CommanderError): number {
 
 export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Command {
   const program = new Command()
-    .name("stint")
+    .name("stint-cli")
     .description("Install, run, and cleanly uninstall specialist AI agents under a lease.")
     .version(CLI_VERSION)
     .option("--store <dir>", "store root (default: $STINT_HOME or ~/.stint)")

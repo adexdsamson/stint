@@ -214,7 +214,7 @@ export async function createCommand(
   } else {
     deps.io.out(`${lease.id}\n`);
     deps.io.err(
-      `stint: lease active until ${new Date(lease.expiresAt * 1000).toISOString()}. Inspect it with: stint inspect ${lease.id}\n`,
+      `stint: lease active until ${new Date(lease.expiresAt * 1000).toISOString()}. Inspect it with: stint-cli inspect ${lease.id}\n`,
     );
   }
   return EXIT_CODES.ok;

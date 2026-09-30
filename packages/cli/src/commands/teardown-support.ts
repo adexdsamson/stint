@@ -261,11 +261,11 @@ export function reportTeardown(
     }
     if (incomplete) {
       deps.io.err(
-        `stint: Teardown did not finish. Run "stint cleanup ${lease.id}" to resume it.\n`,
+        `stint: Teardown did not finish. Run "stint-cli cleanup ${lease.id}" to resume it.\n`,
       );
     }
     deps.io.err(
-      `stint: See the signed per-step trail with "stint receipts ${lease.id}" and "stint verify ${lease.id}".\n`,
+      `stint: See the signed per-step trail with "stint-cli receipts ${lease.id}" and "stint-cli verify ${lease.id}".\n`,
     );
   }
   return done ? EXIT_CODES.ok : EXIT_CODES.cleanupIncomplete;

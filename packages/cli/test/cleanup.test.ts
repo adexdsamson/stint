@@ -45,7 +45,7 @@ describe("stint cleanup", () => {
         "teardown_succeeded",
       ]);
       expect(rig.fx.harness.stdout.join("")).toContain("cleaned_up");
-      expect(rig.fx.harness.stderr.join("")).toContain(`stint verify ${rig.leaseId}`);
+      expect(rig.fx.harness.stderr.join("")).toContain(`stint-cli verify ${rig.leaseId}`);
     },
   );
 
@@ -112,7 +112,7 @@ describe("stint cleanup", () => {
     expect(lease.teardownProgress?.cleanup_hook).toBe("failed");
     // A recorded failure for steps 2-5 re-runs; a recorded success does not.
     expect(spy.ran).toEqual(["cleanup_hook", "delete_cached_data", "final_receipt"]);
-    expect(rig.fx.harness.stderr.join("")).toContain(`stint cleanup ${rig.leaseId}`);
+    expect(rig.fx.harness.stderr.join("")).toContain(`stint-cli cleanup ${rig.leaseId}`);
   });
 
   it("a cleaned_up lease is an idempotent no-op success that touches nothing", async () => {

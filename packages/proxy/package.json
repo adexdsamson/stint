@@ -1,7 +1,6 @@
 {
   "name": "@stint/proxy",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
