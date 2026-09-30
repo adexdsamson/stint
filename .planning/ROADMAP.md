@@ -254,7 +254,7 @@ Plans:
   2. The e2e test passes on Linux and Windows CI and covers the happy path to `cleaned_up`, a denied out-of-scope call, an approved call, a user revoke mid-run, and a partial teardown failure landing in `cleanup_incomplete`.
   3. A newcomer reading the README understands the problem, the three auth modes and the trust limits of hosted mode, and following the quickstart verbatim on a fresh clone runs the example agent successfully.
 
-**Plans:** 5/9 plans executed
+**Plans:** 6/9 plans executed
 
 Plans:
 **Wave 1**
@@ -276,7 +276,7 @@ Plans:
 
 **Wave 5** *(blocked on 07-04, 07-05)*
 
-- [ ] 07-06-PLAN.md — Happy-path tracer e2e: agent stub + scripted adapter + `runScenario` harness -> `cleaned_up`, with secret/license prohibitions + LIC-01/02/03/05 + verifier-only completion (E2E-01, D-01/D-02/D-15)
+- [x] 07-06-PLAN.md — Happy-path tracer e2e: agent stub + scripted adapter + `runScenario` harness -> `cleaned_up`, with secret/license prohibitions + LIC-01/02/03/05 + verifier-only completion (E2E-01, D-01/D-02/D-15)
 
 **Wave 6** *(blocked on 07-06; 07-08 also on 07-05)*
 
@@ -300,4 +300,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. MCP Proxy & Credential Vault | 7/7 | Complete    | 2026-09-28 |
 | 5. Lease Endings & Teardown | 8/8 | Complete    | 2026-09-29 |
 | 6. CLI & Reference Adapters | 7/7 | Complete    | 2026-09-30 |
-| 7. End-to-End Example & README | 5/9 | In Progress|  |
+| 7. End-to-End Example & README | 6/9 | In Progress|  |
