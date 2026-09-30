@@ -13,15 +13,18 @@
  */
 
 import { resolveAuthMode } from "@stint/spec";
-import type { Lease } from "@stint/core";
+import type { AuthMode } from "@stint/spec";
+import type { Lease, LicenseIssuer } from "@stint/core";
 import { createCredentialVault, createDefaultTeardownSteps } from "@stint/proxy";
-import type { OAuthClient, TeardownDeps } from "@stint/proxy";
+import type { LicenseCustody, OAuthClient, TeardownDeps } from "@stint/proxy";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import type { LoadedCredential } from "../run/credentials.js";
+import { createPublisherClient } from "../run/license-http.js";
 import { isLoopbackHttp } from "../run/loopback.js";
 import { loadStoredManifest } from "../store/envelope.js";
+import { loadPublisherBinding } from "../store/publisher-binding.js";
 
 export interface TeardownCommandOpts extends GlobalOpts {
   readonly yes?: boolean | undefined;
@@ -75,6 +78,60 @@ function oauthClientFor(creds: Readonly<Record<string, LoadedCredential>>): OAut
   };
 }
 
+const NO_LICENSE_IN_TEARDOWN = "License issuance is not available during teardown.";
+
+/**
+ * The `invalidate_license` collaborator for one lease (D-14, Pitfall 4). Teardown
+ * runs in its own process (`revoke`/`cleanup`), so there is no in-memory
+ * `HeldLicense` to consult: the publisher holds the truth, and the step must
+ * ACTUALLY tell it.
+ *
+ *  - delegated: custody reports no license, so the step is honestly
+ *    `not_applicable` and never calls out (without a collaborator the step would
+ *    be a happy-path placeholder that receipts a false `ok`).
+ *  - hosted/hybrid with a persisted binding: `custody.hasLicense` is true, so the
+ *    step calls the publisher's `/license/invalidate` through the verify-then-mint
+ *    client; `discard` is a no-op (no license lives in this process).
+ *  - hosted/hybrid with NO binding: the publisher cannot be told, so invalidation
+ *    fails honestly (`failed` -> `cleanup_incomplete`) rather than receipting `ok`.
+ *
+ * Only `invalidate` is ever reachable; `issue`/`reissue` refuse.
+ */
+async function licenseCollaborator(
+  root: string,
+  leaseId: string,
+  mode: AuthMode,
+  specVersion: string,
+  kid: string,
+): Promise<{ readonly issuer: LicenseIssuer; readonly custody: LicenseCustody }> {
+  const refuse = (): Promise<never> => Promise.reject(new Error(NO_LICENSE_IN_TEARDOWN));
+  const base = { kid, issue: refuse, reissue: refuse };
+  const discard = (): void => undefined;
+
+  if (mode === "delegated") {
+    return {
+      issuer: { ...base, invalidate: () => Promise.resolve() },
+      custody: { hasLicense: () => false, discard },
+    };
+  }
+  const binding = await loadPublisherBinding(root, leaseId);
+  if (binding === undefined) {
+    return {
+      issuer: {
+        ...base,
+        invalidate: () =>
+          Promise.reject(new Error("No publisher binding is stored for the lease.")),
+      },
+      custody: { hasLicense: () => true, discard },
+    };
+  }
+  const client = await createPublisherClient(binding, specVersion);
+  return {
+    issuer: { ...base, invalidate: (id) => client.invalidate(id) },
+    custody: { hasLicense: () => true, discard },
+  };
+}
+
 /**
  * Whether the vault may speak plain http (D-16). Derived from the ONE
  * authorization server the credentials name, never a blanket switch: true only
@@ -106,7 +163,8 @@ export async function buildTeardownDeps(
 ): Promise<TeardownDeps> {
   const verified = await loadStoredManifest(deps, root, leaseId);
   // Hybrid carries `auth.delegated` grants too; only a purely hosted lease has none.
-  const hasOAuthGrants = resolveAuthMode(verified.manifest) !== "hosted";
+  const mode = resolveAuthMode(verified.manifest);
+  const hasOAuthGrants = mode !== "hosted";
   const credentialsFile =
     opts.credentials === undefined || opts.credentials === "" ? undefined : opts.credentials;
 
@@ -135,7 +193,14 @@ export async function buildTeardownDeps(
   const cleanup = {
     url: verified.manifest.cleanup === null ? null : verified.manifest.cleanup.hook.url,
   };
-  const defaults = createDefaultTeardownSteps(receiptStore, privateKey, vault, undefined, cleanup);
+  const license = await licenseCollaborator(
+    root,
+    leaseId,
+    mode,
+    verified.manifest.spec_version,
+    verified.manifest.auth.hosted?.kid ?? "publisher",
+  );
+  const defaults = createDefaultTeardownSteps(receiptStore, privateKey, vault, license, cleanup);
 
   return {
     leaseStore: deps.storeFactory(root),
