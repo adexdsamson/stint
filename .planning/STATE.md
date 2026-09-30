@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 07
 current_phase_name: End-to-End Example & README
-status: executing
-stopped_at: Completed 07-08-PLAN.md
-last_updated: "2026-09-30T18:10:58.479Z"
+status: verifying
+stopped_at: Completed 07-09-PLAN.md
+last_updated: "2026-09-30T18:17:29.047Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 07 execution started
-state_head: d2b1cb591fe1db4e0ea74b76f5668e7ad1141715
+state_head: 12dc9e7c349aa62ee3e067996d0302d72267195b
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 48
-  completed_plans: 47
+  completed_plans: 48
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 Phase: 07 (End-to-End Example & README) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-30 — Phase 07 execution started
 
 Progress: [█░░░░░░░░░] 14%
@@ -105,6 +105,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 07 P06 | 15min | 2 tasks | 7 files |
 | Phase 07 P07 | 10min | 3 tasks | 3 files |
 | Phase 07 P08 | 12min | 3 tasks | 6 files |
+| Phase 07 P09 | 15m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,7 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-05: @stint/cli barrel additively exports loadRunProfile, parseRunProfile, httpIssuerTransport, createPublisherClient for the example
 - [Phase 07]: [07-06] Shared mutable test clock drives license refresh and lease-expiry clamping via scenario step hooks (no sleeps)
 - [Phase 07]: [07-06] completeViaVerifier receipts outcome_verified (actor verifier) and begin_teardown separately, and the verification receipt precedes completion
+- [Phase 07]: [Phase 07-09]: README cites real spec sections (auth modes are section 8); drift test also pins stint subcommands to packages/cli/src/program.ts
 
 ### Pending Todos
 
@@ -217,6 +219,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T18:10:57.683Z
-Stopped at: Completed 07-08-PLAN.md
+Last session: 2026-09-30T18:17:28.237Z
+Stopped at: Completed 07-09-PLAN.md
 Resume file: None
