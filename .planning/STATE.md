@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.1
 current_phase: 06
 current_phase_name: CLI & Reference Adapters
-status: executing
-stopped_at: Completed 06-06-PLAN.md
-last_updated: "2026-09-30T07:55:14.870Z"
+status: verifying
+stopped_at: Completed 06-07-PLAN.md
+last_updated: "2026-09-30T08:11:36.024Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: b7aab3c15e7a5082d323829c31275e740b394917
+state_head: 87e6e5ec8d3d4ca55837a23b16fe3cbe5a604845
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 39
-  completed_plans: 38
+  completed_plans: 39
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-27)
 
 Phase: 06 (CLI & Reference Adapters) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-30 — Phase 06 execution started
 
 Progress: [█░░░░░░░░░] 14%
@@ -95,6 +95,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 06 P04 | 45min | 3 tasks | 22 files |
 | Phase 06 P05 | 12min | 2 tasks | 6 files |
 | Phase 06 P06 | 50min | 3 tasks | 12 files |
+| Phase 06 P07 | 30min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,8 @@ Recent decisions affecting current work:
 - [Phase 06]: 06-04: exit code via injected ExitSink (not process.exitCode in actions) so in-process tests cannot poison the runner
 - [Phase 06]: 06-04: hosted/hybrid manifests refused before consent until Phase 7 license issuance (A8)
 - [Phase 06]: 06-06: stint run uses controlling-terminal topology (/dev/tty, CONIN$/CONOUT$); no terminal denies; create persists signed envelope for run re-verify
+- [Phase 06]: 06-07: revoke/cleanup derive the OAuth revocation client from optional clientId/revocationEndpoint in the --credentials file (program.ts frozen, no --profile)
+- [Phase 06]: 06-07: declined [y/N] exits 3, no terminal without --yes exits 2; consent never assumed
 
 ### Pending Todos
 
@@ -196,6 +199,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T07:55:14.222Z
-Stopped at: Completed 06-06-PLAN.md
+Last session: 2026-09-30T08:11:35.343Z
+Stopped at: Completed 06-07-PLAN.md
 Resume file: None
