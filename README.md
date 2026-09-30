@@ -70,27 +70,27 @@ Then run the whole example with one command:
 pnpm example:payment-reconciler
 ```
 
-This runs the complete lifecycle of the payment-reconciler agent. It acquires the two customer grants, signs a manifest as the publisher, creates and activates a lease, serves it as an MCP proxy in a separate `stint run` process, and lets a small agent read transactions and orders. The agent then attempts an irreversible write, which needs approval. On a real terminal you are asked to consent and to approve the write. With no terminal, consent is granted automatically (a notice says so) and the write is denied when the approval window closes, which is the fail-safe outcome. The demo then revokes the lease while the agent is still connected.
+This runs the complete lifecycle of the payment-reconciler agent. It acquires the two customer grants, signs a manifest as the publisher, creates and activates a lease, serves it as an MCP proxy in a separate `stint-cli run` process, and lets a small agent read transactions and orders. The agent then attempts an irreversible write, which needs approval. On a real terminal you are asked to consent and to approve the write. With no terminal, consent is granted automatically (a notice says so) and the write is denied when the approval window closes, which is the fail-safe outcome. The demo then revokes the lease while the agent is still connected.
 
 The output ends with the merged receipts timeline and a one-line summary such as `Lease <id> finished: cleaned_up (publisher cleanup attested).` Read the timeline as the audit trail: each line is tagged `[verified]` for something the runtime itself observed, and the teardown lists every step with its outcome, including the `cleanup_hook: attested_ok` line that records the publisher's own claim. Secrets never appear in it: receipts hold hashes and redacted summaries, never tokens or the license.
 
 ### The lifecycle, one command at a time
 
-The wrapped command drives the same CLI you can use yourself. Each step below is a real `stint` subcommand, in the order a lease moves through them. `<manifest>` is a signed manifest envelope, and the publisher, profile and credentials files describe the publisher's endpoints, the runtime's connector bindings and the seeded grants.
+The wrapped command drives the same CLI you can use yourself. Each step below is a real `stint-cli` subcommand, in the order a lease moves through them. `<manifest>` is a signed manifest envelope, and the publisher, profile and credentials files describe the publisher's endpoints, the runtime's connector bindings and the seeded grants.
 
 ```sh
-stint create <manifest> --publisher <file>
-stint run <id> --profile <file> --credentials <file>
-stint revoke <id> --yes
-stint cleanup <id>
-stint receipts <id>
-stint verify <id>
+stint-cli create <manifest> --publisher <file>
+stint-cli run <id> --profile <file> --credentials <file>
+stint-cli revoke <id> --yes
+stint-cli cleanup <id>
+stint-cli receipts <id>
+stint-cli verify <id>
 ```
 
-- `stint create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
-- `stint run` serves the lease as an MCP proxy over stdio. Point an agent's MCP client at it. Every call is decided by the lease before anything reaches a provider.
-- `stint revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
-- `stint cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
-- `stint receipts` prints the merged timeline, and `stint verify` (or `stint receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
+- `stint-cli create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
+- `stint-cli run` serves the lease as an MCP proxy over stdio. Point an agent's MCP client at it. Every call is decided by the lease before anything reaches a provider.
+- `stint-cli revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
+- `stint-cli cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
+- `stint-cli receipts` prints the merged timeline, and `stint-cli verify` (or `stint-cli receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
 
 The happy path, where the agent's job finishes and the manifest's outcome check passes before teardown, the approved-write path, the partial-teardown retry and the mid-run revocation are all exercised end to end by the example's test suite (`pnpm test:e2e`).

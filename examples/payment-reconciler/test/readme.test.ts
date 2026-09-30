@@ -113,8 +113,8 @@ describe("README drift (DOC-01)", () => {
     expect(readme).not.toContain("npx --yes pnpm");
   });
 
-  it("documents the individual lifecycle using only real stint subcommands", () => {
-    const stintCommands = fencedCommands().filter((command) => command.startsWith("stint "));
+  it("documents the individual lifecycle using only real stint-cli subcommands", () => {
+    const stintCommands = fencedCommands().filter((command) => command.startsWith("stint-cli "));
     const documented = stintCommands.map((command) => command.split(/\s+/)[1] ?? "");
     const real = cliSubcommands();
 
