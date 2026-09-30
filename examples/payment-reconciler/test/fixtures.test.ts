@@ -11,14 +11,16 @@ import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 
 import { importLicensePublicKey, createLicenseIssuerClient } from "@stint/core/license-issuer";
-import { httpIssuerTransport } from "@stint/cli";
+import { httpIssuerTransport, loadRunProfile, parseRunProfile } from "@stint/cli";
 import type { LoadedCredential } from "@stint/cli";
 import { mintCleanupToken } from "@stint/proxy";
 import { startMockAuthServer } from "@stint/proxy/testing";
 import type { MockAuthHarness } from "@stint/proxy/testing";
+import { parseEnvelope, verifyEnvelope } from "@stint/spec";
 import { generateKeyPair } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { buildSignedManifest } from "../src/manifest.js";
 import { startMockPublisher } from "../src/mocks/publisher.js";
 import type { MockPublisher } from "../src/mocks/publisher.js";
 import {
@@ -28,6 +30,7 @@ import {
 } from "../src/mocks/services.js";
 import type { ServiceMock } from "../src/mocks/services.js";
 import { acquireCredentialsFile, acquireGrant, writeCredentialsFile } from "../src/oauth/acquire.js";
+import { buildRunProfile, writeJsonProfile } from "../src/profile.js";
 
 const PAYSTACK = "paystack.transactions";
 const SHEETS = "sheets.orders";
@@ -292,5 +295,91 @@ describe("loopback customer services (D-06, LIC-05)", () => {
     expect(() => {
       assertNoLicenseLeak(paystack);
     }).toThrow(/license/i);
+  });
+});
+
+describe("signed hybrid manifest and run profiles", () => {
+  it("signs the vector manifest, verifies against its trust entry, stays hybrid with the verifier", async () => {
+    const built = await buildSignedManifest({
+      cleanupUrl: "http://127.0.0.1:4321/alp/cleanup",
+      approvalTimeoutSeconds: 2,
+    });
+
+    const parsed = parseEnvelope(built.envelopeBytes);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const verified = await verifyEnvelope(parsed.value, built.trustEntry);
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+
+    const { manifest } = verified.value;
+    expect(manifest.auth.mode).toBe("hybrid");
+    expect(manifest.job.verifier.type).toBe("resource_query");
+    expect(manifest.cleanup?.hook.url).toBe("http://127.0.0.1:4321/alp/cleanup");
+    expect(manifest.approvals.timeout_seconds).toBe(2);
+    expect(built.publisherPrivateKey).toBeDefined();
+  });
+
+  it("builds an in-code profile with loopback endpoints and a verifier rowAdapter on sheets.orders", async () => {
+    const as = track(await startMockAuthServer());
+    const profile = buildRunProfile({
+      mockAs: as,
+      paystackUrl: "http://127.0.0.1:1111/",
+      sheetsUrl: "http://127.0.0.1:2222/",
+    });
+
+    expect(profile.endpoints).toEqual({
+      [PAYSTACK]: "http://127.0.0.1:1111/",
+      [SHEETS]: "http://127.0.0.1:2222/",
+    });
+    expect(Object.keys(profile.catalog).sort()).toEqual([
+      "list_transactions",
+      "mark_order_reconciled",
+      "read_orders",
+    ]);
+    expect(profile.bindings.list_transactions?.resource).toBe(PAYSTACK);
+    expect(profile.bindings.read_orders?.resource).toBe(SHEETS);
+    expect(profile.bindings.read_orders?.access).toBe("read");
+    expect(profile.bindings.mark_order_reconciled?.access).toBe("write");
+    expect(profile.bindings.mark_order_reconciled?.irreversible).toBe(true);
+    expect(profile.bindings.list_transactions?.irreversible).toBe(false);
+
+    const adapter = profile.bindings.read_orders?.rowAdapter;
+    expect(adapter).toBeTypeOf("function");
+    expect(
+      adapter?.({
+        status: 200,
+        body: { rows: [{ order_id: "o1", status: "reconciled", extra: 1 }] },
+      }),
+    ).toEqual({ rows: [{ order_id: "o1", status: "reconciled" }] });
+    expect(adapter?.({ status: 500, body: undefined })).toEqual({ rows: [] });
+  });
+
+  it("writes a JSON profile (no functions) that round-trips through the CLI's profile loader", async () => {
+    const as = track(await startMockAuthServer());
+    const profile = buildRunProfile({
+      mockAs: as,
+      paystackUrl: "http://127.0.0.1:1111/",
+      sheetsUrl: "http://127.0.0.1:2222/",
+    });
+    const dir = await tempDir();
+    const file = await writeJsonProfile(profile, path.join(dir, "profile.json"));
+
+    const text = await readFile(file, "utf8");
+    expect(text).not.toContain("rowAdapter");
+    // The agent-facing profile carries no secret.
+    expect(text).not.toMatch(/v4\.public\.|access_?token|refresh_?token|secret/i);
+
+    const loaded = await loadRunProfile(file);
+    expect(loaded.endpoints).toEqual(profile.endpoints);
+    expect(Object.keys(loaded.catalog).sort()).toEqual(Object.keys(profile.catalog).sort());
+    expect(loaded.bindings.mark_order_reconciled?.irreversible).toBe(true);
+    expect(loaded.bindings.read_orders?.rowAdapter).toBeUndefined();
+    expect(loaded.oauth.as.issuer).toBe(as.issuerUrl);
+    expect(loaded.oauth.as.token_endpoint).toBe(profile.oauth.as.token_endpoint);
+    expect(loaded.oauth.client.client_id).toBe(profile.oauth.client.client_id);
+
+    // parseRunProfile accepts the same JSON directly.
+    expect(() => parseRunProfile(JSON.parse(text))).not.toThrow();
   });
 });
