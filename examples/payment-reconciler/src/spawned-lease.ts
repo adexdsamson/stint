@@ -24,7 +24,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { createRealDeps, createStyle, main } from "@stint/cli";
+import { createJsonLeaseStore, createRealDeps, createStyle, main } from "@stint/cli";
 import type { CliDeps } from "@stint/cli";
 import { startMockAuthServer } from "@stint/proxy/testing";
 
@@ -33,7 +33,12 @@ import { startMockPublisher } from "./mocks/publisher.js";
 import type { MockPublisher } from "./mocks/publisher.js";
 import { startServices } from "./mocks/services.js";
 import { acquireCredentialsFile, writeCredentialsFile } from "./oauth/acquire.js";
-import { buildRunProfile, PAYSTACK_RESOURCE, SHEETS_RESOURCE, writeJsonProfile } from "./profile.js";
+import {
+  buildRunProfile,
+  PAYSTACK_RESOURCE,
+  SHEETS_RESOURCE,
+  writeJsonProfile,
+} from "./profile.js";
 import { createScriptedAdapter } from "./scripted-adapter.js";
 
 /** Options for {@link prepareSpawnedLease}. */
@@ -55,6 +60,8 @@ export interface SpawnedLease {
   readonly secrets: () => readonly string[];
   /** Runs a `stint` command against this store, capturing its stdout/stderr. */
   readonly cli: (argv: readonly string[]) => Promise<{ code: number; out: string; err: string }>;
+  /** The lease's persisted state (`active`, `cleaned_up`, ...), `undefined` if it is gone. */
+  readonly state: () => Promise<string | undefined>;
   /** Stops every server (idempotent). */
   readonly stop: () => Promise<void>;
   /** Stops every server and removes the temp directory. */
@@ -160,6 +167,7 @@ export async function prepareSpawnedLease(
         ...publisher.issuedTokens,
       ],
       cli,
+      state: async () => (await createJsonLeaseStore({ root }).load(leaseId))?.state,
       stop,
       dispose,
     };
