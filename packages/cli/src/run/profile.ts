@@ -10,7 +10,8 @@
  *   "catalog":  [{ "name", "description", "inputSchema": {"type":"object",...}, "payAmount"? }],
  *   "bindings": [{ "tool", "resource", "access", "irreversible", "provenance" }],
  *   "oauth":    { "as": { "issuer", "token_endpoint", "revocation_endpoint"? },
- *                 "client_id", "auth_method": "none" }
+ *                 "client_id", "auth_method": "none" },
+ *   "endpoints": { "<resource identifier>": "<https or loopback http URL>" }   // optional
  * }
  * ```
  * `bindings` carry no `rowAdapter` (a function is not JSON). Confidential-client
@@ -26,11 +27,19 @@ import type { OAuthClient, ToolCatalog, ToolCatalogEntry } from "@stint/proxy";
 import type { Access } from "@stint/spec";
 
 import { CliError, EXIT_CODES } from "../exit.js";
+import { isLoopbackHttp } from "./loopback.js";
 
 export interface RunProfile {
   readonly catalog: ToolCatalog;
   readonly bindings: BindingSet;
   readonly oauth: OAuthClient;
+  /**
+   * OPTIONAL map from a binding's resource IDENTIFIER (e.g. `paystack.transactions`) to the
+   * `https:`/loopback-`http:` URL the REST connector must actually call. The connector uses
+   * `binding.resource` as the request target, so without this an identifier is not a URL.
+   * Runtime-owned configuration: never from the manifest, never from the agent.
+   */
+  readonly endpoints?: Readonly<Record<string, string>>;
 }
 
 const ACCESS: readonly string[] = ["read", "write", "send", "pay"];
@@ -124,15 +133,31 @@ function parseOAuth(raw: unknown): OAuthClient {
   };
 }
 
+/** `endpoints`: identifier -> `https:` or loopback `http:` URL. Anything else is refused; content is never echoed. */
+function parseEndpoints(raw: unknown): Readonly<Record<string, string>> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) throw bad();
+  const endpoints: Record<string, string> = {};
+  for (const [identifier, value] of Object.entries(raw)) {
+    const url = str(value);
+    if (identifier === "" || !URL.canParse(url)) throw bad();
+    if (new URL(url).protocol !== "https:" && !isLoopbackHttp(url)) throw bad();
+    endpoints[identifier] = url;
+  }
+  return endpoints;
+}
+
 /** Parses already-decoded profile JSON. Throws `CliError(usage)` with a fixed message on any malformed shape. */
 export function parseRunProfile(parsed: unknown): RunProfile {
   if (!isRecord(parsed)) throw bad();
   if (!Array.isArray(parsed.catalog) || !Array.isArray(parsed.bindings)) throw bad();
   try {
+    const endpoints = parseEndpoints(parsed.endpoints);
     return {
       catalog: createToolCatalog((parsed.catalog as unknown[]).map(parseCatalogEntry)),
       bindings: createBindingSet((parsed.bindings as unknown[]).map(parseBinding)),
       oauth: parseOAuth(parsed.oauth),
+      ...(endpoints === undefined ? {} : { endpoints }),
     };
   } catch (e) {
     // Duplicate tool names surface as a plain Error from the builders; never echo its text.
