@@ -76,7 +76,7 @@
 ### CLI
 
 - [ ] **CLI-01**: User can create a lease from a manifest (with consent), inspect a lease, revoke it and run/retry cleanup
-- [ ] **CLI-02**: User can print a lease's receipts as a merged plain-language timeline and verify chain integrity
+- [x] **CLI-02**: User can print a lease's receipts as a merged plain-language timeline and verify chain integrity
 
 ### Example & Docs
 
@@ -164,7 +164,7 @@
 | HOST-02 | Phase 6 | Complete |
 | HOST-03 | Phase 6 | Complete |
 | CLI-01 | Phase 6 | Pending |
-| CLI-02 | Phase 6 | Pending |
+| CLI-02 | Phase 6 | Complete |
 | E2E-01 | Phase 7 | Pending |
 | E2E-02 | Phase 7 | Pending |
 | DOC-01 | Phase 7 | Pending |
