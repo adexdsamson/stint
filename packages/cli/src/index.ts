@@ -37,6 +37,8 @@ export type { LoadedCredential } from "./run/credentials.js";
 export { runLease } from "./run/run-lease.js";
 export type { RunLeaseOptions, RunningLease } from "./run/run-lease.js";
 export type { RunProfile } from "./run/profile.js";
+export { loadRunProfile, parseRunProfile } from "./run/profile.js";
+export { createPublisherClient, httpIssuerTransport } from "./run/license-http.js";
 export { createRealDeps } from "./real-deps.js";
 
 export const PACKAGE_NAME = "@stint/cli";
