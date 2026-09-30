@@ -20,6 +20,7 @@ import type { OAuthClient, TeardownDeps } from "@stint/proxy";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import type { LoadedCredential } from "../run/credentials.js";
+import { isLoopbackHttp } from "../run/loopback.js";
 import { loadStoredManifest } from "../store/envelope.js";
 
 export interface TeardownCommandOpts extends GlobalOpts {
@@ -75,8 +76,25 @@ function oauthClientFor(creds: Readonly<Record<string, LoadedCredential>>): OAut
 }
 
 /**
+ * Whether the vault may speak plain http (D-16). Derived from the ONE
+ * authorization server the credentials name, never a blanket switch: true only
+ * when at least one of its endpoints is loopback http AND every endpoint is
+ * either https or loopback http. A non-loopback http endpoint anywhere keeps
+ * the HTTPS-only guard fully on.
+ */
+function allowInsecureFor(client: OAuthClient): boolean {
+  const endpoints = [client.as.token_endpoint, client.as.revocation_endpoint].filter(
+    (url): url is string => url !== undefined,
+  );
+  const secureOrLoopback = endpoints.every(
+    (url) => isLoopbackHttp(url) || (URL.canParse(url) && new URL(url).protocol === "https:"),
+  );
+  return secureOrLoopback && endpoints.some((url) => isLoopbackHttp(url));
+}
+
+/**
  * Assembles `TeardownDeps` for one lease. `needsCredentials` is true whenever
- * `revoke_oauth` has yet to run: for a delegated lease the credentials file is
+ * `revoke_oauth` has yet to run: for a delegated or hybrid lease the credentials file is
  * then required, so that step cannot silently report nothing to revoke.
  */
 export async function buildTeardownDeps(
@@ -87,11 +105,12 @@ export async function buildTeardownDeps(
   needsCredentials: boolean,
 ): Promise<TeardownDeps> {
   const verified = await loadStoredManifest(deps, root, leaseId);
-  const delegated = resolveAuthMode(verified.manifest) === "delegated";
+  // Hybrid carries `auth.delegated` grants too; only a purely hosted lease has none.
+  const hasOAuthGrants = resolveAuthMode(verified.manifest) !== "hosted";
   const credentialsFile =
     opts.credentials === undefined || opts.credentials === "" ? undefined : opts.credentials;
 
-  if (delegated && needsCredentials && credentialsFile === undefined) {
+  if (hasOAuthGrants && needsCredentials && credentialsFile === undefined) {
     throw new CliError(
       EXIT_CODES.usage,
       "--credentials <file> is required so the lease's OAuth grants can be revoked.",
@@ -99,13 +118,14 @@ export async function buildTeardownDeps(
   }
 
   const credentials =
-    delegated && credentialsFile !== undefined
+    hasOAuthGrants && credentialsFile !== undefined
       ? await deps.credentials.load(credentialsFile)
       : undefined;
+  const oauthClient = credentials === undefined ? NO_CREDENTIAL_CLIENT : oauthClientFor(credentials);
   const vault = createCredentialVault(
-    credentials === undefined ? NO_CREDENTIAL_CLIENT : oauthClientFor(credentials),
+    oauthClient,
     deps.clock,
-    deps.teardown?.allowInsecureRequests === true ? { allowInsecureRequests: true } : {},
+    allowInsecureFor(oauthClient) ? { allowInsecureRequests: true } : {},
   );
   if (credentials !== undefined) deps.credentials.seedVault(vault, leaseId, credentials);
 

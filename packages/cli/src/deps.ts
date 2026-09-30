@@ -43,13 +43,12 @@ export interface RunSeams {
 /**
  * Optional seams for `revoke`/`cleanup` only. Production leaves them unset.
  * Tests wrap the default five teardown steps to inject a fault into any one of
- * them (or to count how often a step ran), and may allow a plain-http loopback
- * authorization server so RFC 7009 revocation can be exercised end to end.
+ * them (or to count how often a step ran). Plain-http transport to a loopback
+ * authorization server is NOT a seam: it is derived from the credentials' own
+ * endpoints by the loopback-only rule (`isLoopbackHttp`, D-16).
  */
 export interface TeardownSeams {
   readonly decorateSteps?: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
-  /** Loopback test authorization servers only; the HTTPS-only guard stays on when this is unset. */
-  readonly allowInsecureRequests?: boolean;
 }
 
 export interface CliDeps {

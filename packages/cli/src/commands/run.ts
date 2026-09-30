@@ -64,11 +64,12 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
   const verified = await loadStoredManifest(deps, root, leaseId);
 
   // Secrets: only from the credentials file, only into the in-memory vault (D-02).
-  const delegated = resolveAuthMode(verified.manifest) === "delegated";
-  if (delegated && (opts.credentials === undefined || opts.credentials === "")) {
+  // Hybrid carries `auth.delegated` grants too, so only a purely hosted lease has no OAuth grants.
+  const hasOAuthGrants = resolveAuthMode(verified.manifest) !== "hosted";
+  if (hasOAuthGrants && (opts.credentials === undefined || opts.credentials === "")) {
     throw new CliError(
       EXIT_CODES.usage,
-      "--credentials <file> is required for a lease with delegated auth.",
+      "--credentials <file> is required for a lease with delegated or hybrid auth.",
     );
   }
   const credentials =

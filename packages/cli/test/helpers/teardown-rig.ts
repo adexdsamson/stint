@@ -122,14 +122,14 @@ export function stepRecorder(failing?: TeardownStep["name"]): {
 export interface Revocable {
   /** Credentials file whose entries point at the loopback revocation endpoint. */
   readonly creds: string;
-  /** Deps with the loopback-AS seam on, plus any extra teardown seams. */
+  /** Deps with any extra teardown seams (the loopback AS needs no flag: it is derived, D-16). */
   readonly deps: (extra?: TeardownSeams, overrides?: Partial<CliDeps>) => CliDeps;
   /** Form bodies the authorization server received on its revocation endpoint. */
   readonly requests: string[];
   readonly close: () => Promise<void>;
 }
 
-/** A loopback RFC 7009 revocation endpoint (plain http, so the insecure-loopback seam is required). */
+/** A loopback RFC 7009 revocation endpoint (plain http on 127.0.0.1, allowed by the derived loopback rule). */
 export async function startRevocable(rig: TeardownRig): Promise<Revocable> {
   const requests: string[] = [];
   const server = createServer((req, res) => {
@@ -153,7 +153,7 @@ export async function startRevocable(rig: TeardownRig): Promise<Revocable> {
     creds,
     requests,
     deps: (extra = {}, overrides = {}) =>
-      rig.withDeps({ ...overrides, teardown: { allowInsecureRequests: true, ...extra } }),
+      rig.withDeps({ ...overrides, teardown: { ...extra } }),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => {
