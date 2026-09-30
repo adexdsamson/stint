@@ -7,8 +7,10 @@ import {
   buildProgram,
   createJsonLeaseStore,
   createJsonReceiptStore,
+  createRealDeps,
   createTerminalHostAdapter,
   main,
+  runLease,
 } from "../src/index.js";
 
 describe("@stint/cli public barrel", () => {
@@ -18,6 +20,8 @@ describe("@stint/cli public barrel", () => {
     ["createTerminalHostAdapter", createTerminalHostAdapter],
     ["buildProgram", buildProgram],
     ["main", main],
+    ["runLease", runLease],
+    ["createRealDeps", createRealDeps],
   ])("exports %s as a function", (_name, value) => {
     expect(typeof value).toBe("function");
   });

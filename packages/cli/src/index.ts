@@ -33,4 +33,10 @@ export { loadTrustStore } from "./trust/trust-store.js";
 export { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
 export type { LoadedCredential } from "./run/credentials.js";
 
+// The shared composition point: the in-process harness and `stint run` both drive `runLease`.
+export { runLease } from "./run/run-lease.js";
+export type { RunLeaseOptions, RunningLease } from "./run/run-lease.js";
+export type { RunProfile } from "./run/profile.js";
+export { createRealDeps } from "./real-deps.js";
+
 export const PACKAGE_NAME = "@stint/cli";

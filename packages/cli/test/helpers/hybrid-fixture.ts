@@ -110,8 +110,14 @@ export interface HybridFixture {
   readonly licenseIssuer: LicenseIssuerClient;
   /** Rows the sheets mock currently holds. */
   readonly rows: Array<Record<string, unknown>>;
-  readonly start: (options?: { readonly withIssuer?: boolean }) => Promise<Live>;
+  readonly start: (options?: StartOptions) => Promise<Live>;
   readonly stop: () => Promise<void>;
+}
+
+export interface StartOptions {
+  readonly withIssuer?: boolean;
+  /** Replaces the fixture profile (e.g. one whose bindings carry no rowAdapter, like a JSON profile). */
+  readonly profile?: RunProfile;
 }
 
 export interface Live {
@@ -243,7 +249,7 @@ export async function createHybridFixture(
   const verified = await loadStoredManifest(deps, harness.root, leaseId);
   const lives: Client[] = [];
 
-  const start = async (startOptions: { readonly withIssuer?: boolean } = {}): Promise<Live> => {
+  const start = async (startOptions: StartOptions = {}): Promise<Live> => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const running = await runLease({
       leaseId,
@@ -252,7 +258,7 @@ export async function createHybridFixture(
       adapter: deps.adapterFactory(deps.io, { json: false }),
       deps,
       verified,
-      profile,
+      profile: startOptions.profile ?? profile,
       credentials,
       outboundFetch,
       ...(startOptions.withIssuer === true ? { licenseIssuer } : {}),

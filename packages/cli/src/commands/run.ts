@@ -22,6 +22,8 @@ import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
 import { colorDecision, createStyle } from "../render/style.js";
 import { loadStoredManifest } from "../store/envelope.js";
+import { loadPublisherBinding } from "../store/publisher-binding.js";
+import { createPublisherClient } from "../run/license-http.js";
 import { loadRunProfile } from "../run/profile.js";
 import { runLease } from "../run/run-lease.js";
 import { openControllingTerminal } from "../run/terminal.js";
@@ -65,7 +67,8 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
 
   // Secrets: only from the credentials file, only into the in-memory vault (D-02).
   // Hybrid carries `auth.delegated` grants too, so only a purely hosted lease has no OAuth grants.
-  const hasOAuthGrants = resolveAuthMode(verified.manifest) !== "hosted";
+  const authMode = resolveAuthMode(verified.manifest);
+  const hasOAuthGrants = authMode !== "hosted";
   if (hasOAuthGrants && (opts.credentials === undefined || opts.credentials === "")) {
     throw new CliError(
       EXIT_CODES.usage,
@@ -76,6 +79,14 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
     opts.credentials === undefined || opts.credentials === ""
       ? undefined
       : await deps.credentials.load(opts.credentials);
+
+  // A hosted/hybrid lease holds its publisher license in memory for the run: build the verify-then-mint
+  // client from the binding `create --publisher` persisted. A delegated lease has none.
+  const binding = authMode === "delegated" ? undefined : await loadPublisherBinding(root, leaseId);
+  const licenseIssuer =
+    binding === undefined
+      ? undefined
+      : await createPublisherClient(binding, verified.manifest.spec_version);
 
   const terminal = (deps.run?.openTerminal ?? openControllingTerminal)();
   const errOut = stderrStream(deps);
@@ -106,6 +117,7 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
       verified,
       profile,
       credentials,
+      licenseIssuer,
     });
     deps.io.err(`stint: serving lease ${leaseId} over MCP stdio.\n`);
     await running.closed;

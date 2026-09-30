@@ -17,7 +17,8 @@ import { createReferenceLicenseIssuer, exportLicensePublicKey } from "@stint/cor
 
 import type { PublisherBinding } from "../../src/store/publisher-binding.js";
 
-export type StubBehavior = "ok" | "garbage" | "wrong-lease" | "refuse";
+/** `decline`: issue works, but reissue answers `{ license: null }` (the publisher refuses to refresh). */
+export type StubBehavior = "ok" | "garbage" | "wrong-lease" | "refuse" | "decline";
 
 export interface PublisherStub {
   readonly baseUrl: string;
@@ -76,6 +77,10 @@ export async function startPublisherStub(): Promise<PublisherStub> {
 
       if (stub.behavior === "refuse") {
         send(500, { error: "boom: internal publisher detail" });
+        return;
+      }
+      if (stub.behavior === "decline" && url === "/license/reissue") {
+        send(200, { license: null });
         return;
       }
       if (stub.behavior === "garbage") {
