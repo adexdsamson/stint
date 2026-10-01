@@ -6,11 +6,11 @@ Stint is an open spec, the **Agent Lease Protocol (ALP)**, plus a TypeScript SDK
 - The SDK is a pnpm monorepo: `@stint/spec` (schemas and generated types), `@stint/core` (lease state machine, receipts, licenses), `@stint/proxy` (the enforcement proxy and teardown) and `@stint/cli` (the `stint-cli` command).
 - License: Apache-2.0.
 
-> **Status: experimental.** `alp/0.1` — the spec, the wire formats and the CLI may still change. Not for production use yet.
+> **Status: experimental.** `alp/0.1`. The spec, the wire formats and the CLI may still change. Not for production use yet.
 
 ## A manifest at a glance
 
-A lease is a signed manifest — the exact thing the user consents to before an agent does anything. Trimmed from the payment-reconciler example:
+A lease is a signed manifest, the exact thing the user consents to before an agent does anything. Trimmed from the payment-reconciler example:
 
 ```jsonc
 {
@@ -33,7 +33,7 @@ A lease is a signed manifest — the exact thing the user consents to before an 
 }
 ```
 
-The access vocabulary is fixed — `read`, `write`, `send`, `pay` — and approvals are required only for what the manifest marks irreversible. The user grants exactly this, and the lease can never exceed it.
+The access vocabulary is fixed: `read`, `write`, `send`, `pay`. Approvals are required only for what the manifest marks irreversible. The user grants exactly this, and the proxy never lets a tool call exceed it.
 
 ## The problem
 
@@ -45,7 +45,7 @@ MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and
 
 Stint answers these with a **lease**: a signed manifest describes the job, the access it needs (a fixed vocabulary of `read`, `write`, `send` and `pay`), its limits and its cleanup promises. The user consents to exactly that, and the lease then runs as a small state machine that always ends in one of a few terminal states.
 
-The mechanism that makes the lease real is a lease runtime that runs as an **MCP proxy** between the agent and every system it touches. The agent never holds a real credential. Every tool call is checked against the lease by code outside the model, and the answer is allow, deny or require approval. Anything unbound is denied. So a prompt-injected or simply misbehaving agent cannot act outside the lease the user granted, however it was talked into trying.
+The mechanism that makes the lease real is a lease runtime that runs as an **MCP proxy** between the agent and every system it touches. The agent never holds a real credential. Every tool call is checked against the lease by code outside the model, and the answer is allow, deny or require approval. Anything unbound is denied. So a prompt-injected or simply misbehaving agent cannot use a tool call to act outside the lease the user granted, however it was talked into trying.
 
 The second half of the promise is the ending. When a lease ends, whether it completed, expired, hit a limit or was revoked, the runtime runs a fixed teardown: revoke every OAuth grant, invalidate the publisher license, call the publisher's cleanup hook, delete the cached lease data, and write a final signed receipt. A step that fails does not hide the others: the lease ends as `cleanup_incomplete` with each step's result recorded, and teardown can be retried. Receipts outlive the lease, and they say only what was actually observed.
 
@@ -79,7 +79,7 @@ In v0.1 the example's receipts timeline reflects this honestly: it shows `[verif
 
 ## How Stint relates to Auth0, Arcade, Composio
 
-Those manage connections and credentials for agents — they help an agent obtain, store and use tokens for third-party services. Stint is not a connection manager and not a hosted service. It is an open spec (with a reference runtime) for the part they leave out: a **job-scoped lease** that a user consents to, that enforcement code outside the model checks on every call, and that **ends** — every credential revoked, teardown run, and the result honestly receipted. You can run a Stint lease over grants any of those tools acquired; Stint governs what the agent may do with them and guarantees the cleanup when the job is over.
+Those manage connections and credentials for agents. They help an agent obtain, store and use tokens for third-party services. Stint is not a connection manager and not a hosted service. It is an open spec (with a reference runtime) for the part they leave out: a **job-scoped lease** that a user consents to, that enforcement code outside the model checks on every call, and that **ends**: teardown runs, every credential is revoked where the provider supports it, and the result is honestly receipted. You can run a Stint lease over grants any of those tools acquired; Stint governs what the agent may do with them and, when the job is over, runs the cleanup and records exactly which steps succeeded.
 
 ## Quickstart
 

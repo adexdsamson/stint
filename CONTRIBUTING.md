@@ -1,12 +1,12 @@
 # Contributing to Stint
 
-Thanks for your interest in Stint — the Agent Lease Protocol (ALP) and its reference TypeScript SDK. Stint is early and experimental (`alp/0.1`), so issues, discussion and focused PRs are all welcome.
+Thanks for your interest in Stint, the Agent Lease Protocol (ALP) and its reference TypeScript SDK. Stint is early and experimental (`alp/0.1`), so issues, discussion and focused PRs are all welcome.
 
 ## Ground rules
 
-- **The spec is normative.** `spec/ALP.md` defines the protocol; the manifest JSON Schema in `@stint/spec` is the source of truth for the manifest shape, and TypeScript types are **generated** from it — never hand-edited. A change to the manifest shape starts in the schema and the spec, not in generated code.
+- **The spec is normative.** `spec/ALP.md` defines the protocol; the manifest JSON Schema in `@stint/spec` is the source of truth for the manifest shape, and TypeScript types are **generated** from it, never hand-edited. A change to the manifest shape starts in the schema and the spec, not in generated code.
 - **Enforcement lives outside the model.** Security guarantees (deny-by-default, per-call policy, teardown) must be decided by plain code, never delegated to an agent or an LLM.
-- **No secrets in logs or receipts, ever.** Receipts carry hashes and redacted summaries — never tokens or licenses. Credentials are never handed to the agent, and the license is never forwarded to a customer resource.
+- **No secrets in logs or receipts, ever.** Receipts carry hashes and redacted summaries, never tokens or licenses. Credentials are never handed to the agent, and the license is never forwarded to a customer resource.
 - **No hand-rolled crypto.** Use the vetted libraries already in the stack (`paseto`, `jose`, `node:crypto`).
 - **Fixed vocabularies.** Access is `read | write | send | pay`; approvals are `send | pay | irreversible`; verifiers are `resource_query | user_confirm | none`. Don't introduce free-form scopes.
 
