@@ -104,3 +104,48 @@ describe("TeardownStepPayload.outcome widened enum (D-24)", () => {
     expect(validateReceiptEntry(teardownStepEntry(revokedPayload))).toBe(true);
   });
 });
+
+describe("TeardownStepPayload.resource optional field (D-26)", () => {
+  const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  const validateReceiptEntry = ajv.compile(receiptSchema);
+
+  function teardownStepEntry(payload: Record<string, unknown>): unknown {
+    return {
+      seq: 0,
+      ts: 1000,
+      chain: "verified",
+      type: "teardown_step",
+      prevHash: `jcs-sha256:${"0".repeat(64)}`,
+      payload,
+    };
+  }
+
+  const base = { step: "revoke_oauth", outcome: "discarded_revocation_unsupported" };
+
+  it("type-checks a payload carrying resource", () => {
+    const payload: TeardownStepPayload = { ...base, outcome: "discarded_revocation_unsupported", resource: "sheets.orders" };
+    expect(payload.resource).toBe("sheets.orders");
+  });
+
+  it("validates an entry whose payload carries resource", () => {
+    const entry = teardownStepEntry({ ...base, resource: "sheets.orders" });
+    expect(validateReceiptEntry(entry), JSON.stringify(validateReceiptEntry.errors)).toBe(true);
+  });
+
+  it("still validates an entry without resource", () => {
+    expect(validateReceiptEntry(teardownStepEntry(base)), JSON.stringify(validateReceiptEntry.errors)).toBe(true);
+  });
+
+  it("rejects an empty resource", () => {
+    expect(validateReceiptEntry(teardownStepEntry({ ...base, resource: "" }))).toBe(false);
+  });
+
+  it("accepts a 128-character resource and rejects a 129-character one", () => {
+    expect(validateReceiptEntry(teardownStepEntry({ ...base, resource: "r".repeat(128) }))).toBe(true);
+    expect(validateReceiptEntry(teardownStepEntry({ ...base, resource: "r".repeat(129) }))).toBe(false);
+  });
+
+  it("still rejects an unknown extra payload field", () => {
+    expect(validateReceiptEntry(teardownStepEntry({ ...base, resource: "sheets.orders", extra: "x" }))).toBe(false);
+  });
+});

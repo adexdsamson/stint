@@ -276,7 +276,7 @@ A lease occupies exactly one of eleven states at any time. Each state is either 
 - `revoked`: the user, a resource provider, or the publisher ended the lease early. Non-terminal (teardown follows).
 - `failed`: the policy engine's error threshold was exceeded, or the runtime itself failed. Non-terminal (teardown follows).
 - `tearing_down`: the teardown orchestrator is running its fixed sequence of steps. Non-terminal.
-- `cleaned_up`: teardown completed every step successfully. Terminal.
+- `cleaned_up`: every teardown step reached a terminal success outcome. A credential that could not be revoked upstream, recorded as `discarded_revocation_unsupported`, counts as terminal success with a caveat (Section 10). Terminal.
 - `cleanup_incomplete`: at least one teardown step did not complete. Non-terminal, since a retry can resume it.
 
 Rationale: `declined` and `cleaned_up` are the only two states with no outgoing transition in Section 7.4's table. Every other ending state (`completed`, `expired`, `revoked`, `failed`) funnels into `tearing_down`, and `cleanup_incomplete` can only return to `tearing_down`, never to `active`.
@@ -484,7 +484,9 @@ Teardown starts the moment a lease enters `tearing_down` (Section 7.4). It runs 
 
 Each OAuth grant's revocation records one of three outcomes: `revoked`, `discarded_revocation_unsupported`, or `failed`. A 2xx response from a revocation endpoint MUST NOT be reported as more than RFC 7009 guarantees: RFC 7009 requires a success response even for a token the provider does not recognize or cannot revoke, so a 2xx alone is not proof of revocation.
 
-A failing step does not stop the remaining steps from running. If every step succeeds, the lease moves to `cleaned_up`; if any step does not complete, the lease moves to `cleanup_incomplete` with every step's individual result recorded (Section 7.4). Retrying teardown resumes idempotently: it MUST NOT repeat a step that already completed. A lease that has entered teardown can never return to `active`. Receipts survive cleanup: the receipt log outlives the lease record itself.
+`discarded_revocation_unsupported` is a terminal success with a caveat. The runtime has discarded its own copy of the credential and can do nothing more, so the step counts as complete and the lease can reach `cleaned_up`. The credential was not revoked upstream, however, and stays valid at the provider until the user rotates it in the provider dashboard. A runtime MUST state this caveat wherever it shows the lease state to a person. The receipt for that credential MUST name the resource in its `resource` field. `failed` is not a success and leaves the lease in `cleanup_incomplete`. The rule keys on whether revocation is possible, not on the kind of credential: any credential whose provider offers no revocation endpoint is treated the same way.
+
+A failing step does not stop the remaining steps from running. If every step reaches a success outcome, `discarded_revocation_unsupported` included, the lease moves to `cleaned_up`; if any step does not complete, the lease moves to `cleanup_incomplete` with every step's individual result recorded (Section 7.4). Retrying teardown resumes idempotently: it MUST NOT repeat a step that already completed. A lease that has entered teardown can never return to `active`. Receipts survive cleanup: the receipt log outlives the lease record itself.
 
 ```mermaid
 sequenceDiagram
@@ -511,6 +513,8 @@ The runtime signs a checkpoint with Ed25519 at least at every lease-ending event
 A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
 
 A checkpoint carries `chain`, `count`, `headHash`, `ts`, and `sig`, where `headHash` is the canonical hash of the chain's last entry (or the genesis constant, for an empty chain) and `sig` is the runtime's Ed25519 signature over the canonical serialization of the other four fields.
+
+A `teardown_step` payload MAY carry a `resource` field naming the credential's resource, so a timeline can say which credential an outcome belongs to.
 
 A call receipt holds an args hash and a binding-redacted summary; it never holds raw arguments, tokens or the license. Verifying a tampered or truncated chain MUST report the exact point the chain broke, relative to the last valid checkpoint, rather than a generic failure.
 
@@ -539,7 +543,7 @@ This protocol has four documented limits that no implementation can remove by bu
 3. Publisher-side data deletion is attested, not verified: when a publisher reports that it deleted retained data (`cleanup.publisher_retains`), the runtime cannot independently confirm this; it can only relay the publisher's claim.
 4. The runtime must be operated by the user or a neutral party: if it is operated by an interested party instead, every guarantee in this document depends on that operator's honesty rather than on the protocol's own mechanisms.
 
-Additional limits worth stating plainly: the proxy governs MCP tool calls, not the agent process's own network egress, so this protocol makes no claim about traffic the agent process might send outside the proxy. Offline-verifiable licenses (Section 8) cannot be revoked instantly; revocation latency is bounded by the license's TTL, not by the moment revocation is requested. A provider without RFC 7009 support yields `discarded_revocation_unsupported`, not a verified revocation (Section 10). Publisher signing-key custody is outside the runtime's control; a compromised publisher key is a publisher-side incident this protocol cannot detect on its own.
+Additional limits worth stating plainly: the proxy governs MCP tool calls, not the agent process's own network egress, so this protocol makes no claim about traffic the agent process might send outside the proxy. Offline-verifiable licenses (Section 8) cannot be revoked instantly; revocation latency is bounded by the license's TTL, not by the moment revocation is requested. A provider without RFC 7009 support yields `discarded_revocation_unsupported`, not a verified revocation (Section 10). The lease still reaches `cleaned_up`, with the caveat that the credential must be rotated in the provider dashboard. Publisher signing-key custody is outside the runtime's control; a compromised publisher key is a publisher-side incident this protocol cannot detect on its own.
 
 ## 14. Security Considerations
 
