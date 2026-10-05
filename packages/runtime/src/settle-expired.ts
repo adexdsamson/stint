@@ -18,6 +18,11 @@ import { appendTransitionReceipt } from "@stint/proxy";
 import { RuntimeError } from "./errors.js";
 import type { RuntimePorts } from "./ports.js";
 
+/**
+ * Settles `leaseId` if its time has run out.
+ *
+ * @experimental The runtime surface is not yet stable.
+ */
 export async function settleExpired(
   ports: Pick<RuntimePorts, "leases" | "receipts" | "clock" | "telemetry">,
   leaseId: string,
