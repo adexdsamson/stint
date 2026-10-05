@@ -57,3 +57,17 @@ export function leaseFile(root: string, id: string): string {
 export function leasesRoot(root: string): string {
   return path.resolve(root, "leases");
 }
+
+/** `<root>/secrets` — the secrets tree, kept apart from the shareable lease folders (D-07). */
+export function secretsRoot(root: string): string {
+  return path.resolve(root, "secrets");
+}
+
+/** `<root>/secrets/lease/<id>` — validated, and asserted to stay under the secrets tree. */
+export function leaseSecretsDir(root: string, id: string): string {
+  assertSafeLeaseId(id);
+  const base = path.resolve(secretsRoot(root), "lease");
+  const dir = path.resolve(base, id);
+  assertUnder(base, dir);
+  return dir;
+}

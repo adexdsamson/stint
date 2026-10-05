@@ -73,10 +73,25 @@ export async function withTransientRetry<T>(
   }
 }
 
+/** Optional write settings for `atomicWriteJson`. */
+export interface AtomicWriteOptions {
+  /** POSIX file mode for the written file (for example `0o600`); ignored where the OS does not honour it. */
+  readonly mode?: number;
+}
+
 /** Atomically replaces `file` with `value` as JSON (temp file + rename, fsync'd), with transient retry. */
-export function atomicWriteJson(file: string, value: unknown): Promise<void> {
+export function atomicWriteJson(
+  file: string,
+  value: unknown,
+  opts: AtomicWriteOptions = {},
+): Promise<void> {
   // write-file-atomic unlinks its temp file in `finally`, so retrying the whole call is safe.
-  return withTransientRetry(() => writeFileAtomic(file, JSON.stringify(value), { fsync: true }));
+  return withTransientRetry(() =>
+    writeFileAtomic(file, JSON.stringify(value), {
+      fsync: true,
+      ...(opts.mode === undefined ? {} : { mode: opts.mode }),
+    }),
+  );
 }
 
 /**
