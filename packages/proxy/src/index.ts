@@ -60,6 +60,7 @@ export type { PendingApproval } from "./approvals/approval-dispatcher.js";
 // secretless `CallPayload` (re-exported from `@stint/core`); `appendCallReceipt`
 // is the sole append path for a `type: "call"` verified-chain entry.
 export { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
+export { appendReceiptEntry, RECEIPT_APPEND_ATTEMPTS } from "./receipts/append.js";
 
 // Credential vault refresh hot path (D-02, D-04, D-09, PRXY-08).
 // `createCredentialVault` is the secretless token store keyed

@@ -19,10 +19,11 @@
 
 import { randomUUID } from "node:crypto";
 
-import { appendEntry, signCheckpoint, verifyChain } from "@stint/core";
+import { signCheckpoint, verifyChain } from "@stint/core";
 import type { Lease, LicenseIssuer, ReceiptStore, TeardownStepName, TeardownStepOutcome } from "@stint/core";
 import type { CryptoKey } from "jose";
 
+import { appendReceiptEntry } from "../receipts/append.js";
 import type { CredentialVault } from "../vault/credential-vault.js";
 import type { RevokeResult } from "../vault/oauth-client.js";
 import { postCleanupToken } from "./cleanup-client.js";
@@ -93,8 +94,9 @@ function happyPathStep(name: TeardownStepName, outcome: TeardownStepOutcome): Te
  * Appends one `teardown_step` receipt directly (not via `runStepAndPersist`,
  * which only appends a single receipt carrying the step's RETURNED
  * aggregate outcome) -- mirrors `orchestrate.ts`'s private `appendReceipt`:
- * reloads the current chain first so `prevHash` always links to the latest
- * entry, safe to call multiple times in sequence from inside one step.
+ * goes through the shared `appendReceiptEntry` helper, which reloads the
+ * current chain so `prevHash` always links to the latest entry, safe to call
+ * multiple times in sequence from inside one step.
  */
 async function appendTeardownStepReceipt(
   receiptStore: ReceiptStore,
@@ -103,10 +105,8 @@ async function appendTeardownStepReceipt(
   now: number,
   resource?: string,
 ): Promise<void> {
-  const chain = await receiptStore.load("verified");
   const payload = resource === undefined ? { step, outcome } : { step, outcome, resource };
-  const entry = appendEntry(chain, { chain: "verified", type: "teardown_step", payload }, now);
-  await receiptStore.append("verified", entry);
+  await appendReceiptEntry(receiptStore, { chain: "verified", type: "teardown_step", payload }, now);
 }
 
 /** `RevokeResult.kind`'s three members are an exact subset of `TeardownStepOutcome` -- a direct, type-safe mapping (never string-matching or re-deriving the classification). */

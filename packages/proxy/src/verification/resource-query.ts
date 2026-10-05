@@ -47,7 +47,7 @@
  * for a verifier that never evaluates anything.
  */
 
-import { appendEntry, reduce, verifierEvents } from "@stint/core";
+import { reduce, verifierEvents } from "@stint/core";
 import type {
   CallPayload,
   ConnectorBinding,
@@ -61,6 +61,7 @@ import { evaluatePredicate, hashCanonical } from "@stint/spec";
 import type { PredicateAst } from "@stint/spec";
 
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
+import { appendReceiptEntry } from "../receipts/append.js";
 import type { CredentialVault } from "../vault/credential-vault.js";
 import { scrubCredential, scrubError } from "../vault/scrub.js";
 import type { OutboundConnector } from "../connectors/outbound-connector.js";
@@ -140,9 +141,7 @@ export async function appendVerificationReceipt(
     redactedSummary: verificationRedactedSummary(kind, outcome, reason),
     outcome: outcome === "true" ? "allowed" : "denied",
   };
-  const chain = await receiptStore.load("verified");
-  const entry = appendEntry(chain, { chain: "verified", type: "call", payload }, now);
-  await receiptStore.append("verified", entry);
+  await appendReceiptEntry(receiptStore, { chain: "verified", type: "call", payload }, now);
 }
 
 /**

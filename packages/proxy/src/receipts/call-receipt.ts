@@ -11,9 +11,10 @@
  * exactly one verified-chain receipt (RCPT-01).
  */
 
-import { appendEntry } from "@stint/core";
 import type { CallPayload, ConnectorBinding, ReceiptEntry, ReceiptStore } from "@stint/core";
 import { hashCanonical } from "@stint/spec";
+
+import { appendReceiptEntry } from "./append.js";
 
 /** The sentinel `resource` recorded when no binding resolved at all (the unbound/out-of-scope `no_binding` deny path) -- never a guess at what resource the agent might have meant. */
 const UNRESOLVED_RESOURCE = "unresolved";
@@ -51,18 +52,18 @@ export function buildCallPayload(
 }
 
 /**
- * Appends `payload` onto `chain` (the currently-loaded verified-chain
- * entries) and persists the new entry via `receiptStore.append` --
- * expected to run inside `dispatch.ts`'s per-lease-transaction `finally`
- * block so append order matches call order (D-13).
+ * Appends `payload` as a verified-chain `call` receipt through the shared
+ * `appendReceiptEntry` helper -- expected to run inside `dispatch.ts`'s
+ * per-lease-transaction `finally` block so append order matches call order
+ * (D-13). The helper reloads the persisted chain itself (and again on a
+ * `ReceiptConflictError`), so the pre-loaded `_chain` argument is no longer
+ * used for linking; it is kept only so the exported signature is unchanged.
  */
 export async function appendCallReceipt(
   receiptStore: ReceiptStore,
-  chain: readonly ReceiptEntry[],
+  _chain: readonly ReceiptEntry[],
   payload: CallPayload,
   now: number,
 ): Promise<ReceiptEntry> {
-  const entry = appendEntry(chain, { chain: "verified", type: "call", payload }, now);
-  await receiptStore.append("verified", entry);
-  return entry;
+  return appendReceiptEntry(receiptStore, { chain: "verified", type: "call", payload }, now);
 }

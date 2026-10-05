@@ -46,7 +46,7 @@
  * compiling and behaving exactly as before.
  */
 
-import { appendEntry, reduce, runtimeEvents, signCheckpoint, userEvents, verifyChain } from "@stint/core";
+import { reduce, runtimeEvents, signCheckpoint, userEvents, verifyChain } from "@stint/core";
 import type {
   Lease,
   LeaseStore,
@@ -60,6 +60,7 @@ import type {
 import type { CryptoKey } from "jose";
 
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
+import { appendReceiptEntry } from "../receipts/append.js";
 import { chainTeardownIfEnded } from "./auto-chain.js";
 import { allStepsSucceeded, recordStepOutcome, remainingSteps } from "./progress.js";
 import { runStepOnce } from "./steps.js";
@@ -100,11 +101,9 @@ function stepByName(steps: readonly TeardownStep[], name: TeardownStep["name"]):
   return step;
 }
 
-/** Appends `input` onto the persisted verified chain -- reloads the current chain first so `prevHash` always links to the latest entry. */
+/** Appends `input` onto the persisted verified chain through the shared conflict-tolerant helper, which reloads the current chain so `seq`/`prevHash` always link to the latest entry. */
 async function appendReceipt(receiptStore: ReceiptStore, input: ReceiptEntryInput, now: number): Promise<void> {
-  const chain = await receiptStore.load("verified");
-  const entry = appendEntry(chain, input, now);
-  await receiptStore.append("verified", entry);
+  await appendReceiptEntry(receiptStore, input, now);
 }
 
 /** A read-only "peek" at the current lease, routed through `runInLeaseTransaction` (identity mutator) so this file never calls `leaseStore.load` directly (D-30). */
