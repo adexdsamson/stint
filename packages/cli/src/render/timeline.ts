@@ -13,6 +13,7 @@ import type { TimelineEntry } from "@stint/core";
 import type { ReceiptEntry } from "@stint/spec";
 
 import { sanitizeForTerminal } from "../adapter/sanitize.js";
+import { UNREVOKED_STATE_SUFFIX, unrevokedResources } from "./caveat.js";
 import type { Style } from "./style.js";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -31,7 +32,10 @@ function isoTimestamp(ts: unknown): string {
   return Number.isNaN(date.getTime()) ? "unknown time" : date.toISOString();
 }
 
-function describe(entry: ReceiptEntry): string {
+/** Appended to a `revoke_oauth` line that names a credential the provider was never asked to revoke. */
+const ROTATE_SUFFIX = " (not revoked upstream; rotate it in the provider dashboard)";
+
+function describe(entry: ReceiptEntry, hasUnrevoked: boolean): string {
   const payload: Record<string, unknown> = isRecord(entry.payload) ? entry.payload : {};
   const type: string = entry.type;
   switch (type) {
@@ -40,10 +44,18 @@ function describe(entry: ReceiptEntry): string {
       const summary = field(payload, "redactedSummary");
       return `call ${outcome} on ${field(payload, "resource")}: ${summary}`;
     }
-    case "transition":
-      return `lease ${field(payload, "from")} -> ${field(payload, "to")} (${field(payload, "event")} by ${field(payload, "actor")})`;
-    case "teardown_step":
-      return `teardown ${field(payload, "step")}: ${field(payload, "outcome")}`;
+    case "transition": {
+      // The caveat rides on the transition into cleaned_up so the end state is never read as "all revoked".
+      const to = field(payload, "to");
+      const target = to === "cleaned_up" && hasUnrevoked ? `${to}${UNREVOKED_STATE_SUFFIX}` : to;
+      return `lease ${field(payload, "from")} -> ${target} (${field(payload, "event")} by ${field(payload, "actor")})`;
+    }
+    case "teardown_step": {
+      const base = `teardown ${field(payload, "step")}: ${field(payload, "outcome")}`;
+      if (typeof payload.resource !== "string") return base;
+      const named = `${base} for ${field(payload, "resource")}`;
+      return payload.outcome === "discarded_revocation_unsupported" ? `${named}${ROTATE_SUFFIX}` : named;
+    }
     case "attested_claim":
       return `publisher ${field(payload, "publisherId")} claims ${field(payload, "claimType")} (not verified by the runtime)`;
     default:
@@ -53,8 +65,12 @@ function describe(entry: ReceiptEntry): string {
 
 /** Renders one sanitized line per timeline entry, in the order given (`mergeTimeline` order). */
 export function renderTimeline(entries: readonly TimelineEntry[], style: Style): string[] {
+  // Only the verified chain can establish what teardown did; an attested entry is publisher-claimed.
+  const hasUnrevoked =
+    unrevokedResources(entries.filter((e) => e.origin === "verified").map((e) => e.entry)).length >
+    0;
   return entries.map(({ origin, entry }) => {
     const tag = origin === "verified" ? style.verified("[verified]") : style.attested("[attested]");
-    return `${isoTimestamp(entry.ts)} ${tag} ${describe(entry)}`;
+    return `${isoTimestamp(entry.ts)} ${tag} ${describe(entry, hasUnrevoked)}`;
   });
 }
