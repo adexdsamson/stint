@@ -1,8 +1,8 @@
 /**
  * `stint cleanup <leaseId>` (D-12): one command that auto-detects what to do.
  *
- *   completed | expired | revoked | failed | tearing_down -> runTeardown
- *   cleanup_incomplete                                     -> retryTeardown (idempotent resume)
+ *   completed | expired | revoked | failed | tearing_down -> run teardown
+ *   cleanup_incomplete                                     -> retry teardown (idempotent resume)
  *   cleaned_up                                             -> no-op success
  *   granted | active (not expired)                         -> refuse: use revoke
  *   proposed | declined                                    -> refuse: never activated
@@ -12,16 +12,21 @@
  * today), so an expired-but-unsettled lease can be torn down. Resume and
  * idempotency are entirely the orchestrator's: a step already recorded as
  * succeeded is not re-run and the lease never returns to `active`.
+ *
+ * Teardown is assembled by the runtime (`resolveTeardown`). A recorded credential
+ * the store cannot produce blocks it: the orchestrator receipts that once and
+ * throws `TeardownBlockedError`, which becomes a usage error naming the recovery.
  */
 
 import type { Lease } from "@stint/core";
-import { retryTeardown, runTeardown } from "@stint/proxy";
-import { RuntimeError, settleExpired } from "@stint/runtime";
+import { TeardownBlockedError } from "@stint/proxy";
+import { seedLeaseCredentials, settleExpired } from "@stint/runtime";
 
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
-import { buildTeardownDeps, confirmOrDecline, reportTeardown } from "./teardown-support.js";
+import { toCliError } from "../runtime-errors.js";
+import { confirmOrDecline, reportTeardown, resolveLeaseTeardown } from "./teardown-support.js";
 import type { TeardownCommandOpts } from "./teardown-support.js";
 
 export type CleanupOpts = TeardownCommandOpts;
@@ -79,10 +84,15 @@ export async function cleanupCommand(
     return reportTeardown(deps, opts, root, lease, { noop: true });
   }
 
-  // `revoke_oauth` is attempted once and never re-run (D-23), so the credentials file is
-  // only needed while it has not been recorded yet.
-  const needsCredentials = lease.teardownProgress?.revoke_oauth === undefined;
-  const teardown = await buildTeardownDeps(deps, root, leaseId, opts, needsCredentials);
+  // No pre-refusal on missing credentials: the orchestrator's preflight must run so the
+  // block is receipted (TEAR-07). `revoke_oauth` is attempted once and never re-run (D-23),
+  // so a credentials file only matters while it has not been recorded yet.
+  const { ports, resolved, fileCredentials } = await resolveLeaseTeardown(
+    deps,
+    root,
+    leaseId,
+    opts,
+  );
 
   const question =
     first === "retry"
@@ -90,6 +100,15 @@ export async function cleanupCommand(
       : "Run teardown for this lease? [y/N] ";
   const declined = await confirmOrDecline(deps, question, opts.yes);
   if (declined !== undefined) return declined;
+
+  // Seed only after consent, so a declined cleanup leaves nothing under the secrets root.
+  if (
+    fileCredentials !== undefined &&
+    lease.teardownProgress?.revoke_oauth === undefined &&
+    resolved.expectedResources.length > 0
+  ) {
+    await seedLeaseCredentials(ports, leaseId, fileCredentials);
+  }
 
   let current: Lease = lease;
   if (first === "settle") {
@@ -106,10 +125,7 @@ export async function cleanupCommand(
       );
       current = settled.lease;
     } catch (err) {
-      if (err instanceof RuntimeError && err.code === "lease_not_found") {
-        throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
-      }
-      throw err;
+      throw toCliError(err);
     }
   }
 
@@ -117,9 +133,17 @@ export async function cleanupCommand(
   if (next === "refuse" || next === "settle") throw refusal(current);
   if (next === "noop") return reportTeardown(deps, opts, root, current, { noop: true });
 
-  const finished =
-    next === "retry"
-      ? await retryTeardown(teardown, "user", deps.clock())
-      : await runTeardown(teardown, deps.clock());
+  let finished: Lease;
+  try {
+    finished =
+      next === "retry"
+        ? await resolved.retry("user", deps.clock())
+        : await resolved.run(deps.clock());
+  } catch (err) {
+    if (err instanceof TeardownBlockedError) {
+      throw new CliError(EXIT_CODES.usage, "Teardown is blocked: credentials are unavailable.");
+    }
+    throw err;
+  }
   return reportTeardown(deps, opts, root, finished);
 }
