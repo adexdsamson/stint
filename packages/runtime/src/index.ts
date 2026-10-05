@@ -20,3 +20,8 @@ export {
 } from "./license-http.js";
 export { parsePublisherBinding } from "./publisher-binding.js";
 export type { PublisherBinding } from "./publisher-binding.js";
+export { loadLeaseManifest } from "./manifest.js";
+export { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
+export type { SeedResult } from "./custody.js";
+export { resolveTeardown } from "./resolve-teardown.js";
+export type { ResolveTeardownInput, ResolvedTeardown } from "./resolve-teardown.js";
