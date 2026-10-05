@@ -29,6 +29,14 @@ import type { LicenseIssuer } from "./license/license-issuer.js";
 import { createReferenceLicenseIssuer } from "./license/reference-issuer.js";
 import { appendEntry, verifyChain } from "./receipts/chain.js";
 import type { ReceiptStore } from "./receipts/receipt-store.js";
+import {
+  SecretKeyError,
+  assertValidSecretKey,
+  assertValidSecretPrefix,
+  credentialSecretKey,
+  leaseSecretPrefix,
+} from "./ports/secret-store.js";
+import type { SecretStore } from "./ports/secret-store.js";
 
 /**
  * An in-memory `LeaseStore` double backed by a `Map<string, Lease>`.
@@ -392,4 +400,181 @@ export async function createMockLicenseIssuer(): Promise<MockLicenseIssuer> {
   // so the test double and the runtime-importable issuer can never drift.
   const { issuer, publicKey } = await createReferenceLicenseIssuer({ kid: MOCK_LICENSE_ISSUER_KID });
   return { ...issuer, publicKey };
+}
+
+/** Runs `work` and surfaces a synchronous throw as a rejected promise, as an async port method would. */
+function settle<T>(work: () => T): Promise<T> {
+  try {
+    return Promise.resolve(work());
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * An in-memory `SecretStore` double backed by one `Map<string, string>`.
+ * Every method validates its key or prefix with the exported grammar helpers,
+ * and `deletePrefix` matches on the validated prefix including its trailing
+ * slash, so `lease/a/` never reaches `lease/ab/`.
+ */
+export function createInMemorySecretStore(): SecretStore {
+  const secrets = new Map<string, string>();
+
+  return {
+    get(key: string): Promise<string | undefined> {
+      return settle(() => {
+        assertValidSecretKey(key);
+        return secrets.get(key);
+      });
+    },
+
+    put(key: string, value: string): Promise<void> {
+      return settle(() => {
+        assertValidSecretKey(key);
+        secrets.set(key, value);
+      });
+    },
+
+    delete(key: string): Promise<void> {
+      return settle(() => {
+        assertValidSecretKey(key);
+        secrets.delete(key);
+      });
+    },
+
+    deletePrefix(prefix: string): Promise<number> {
+      return settle(() => {
+        assertValidSecretPrefix(prefix);
+        let removed = 0;
+        for (const key of Array.from(secrets.keys())) {
+          if (key.startsWith(prefix)) {
+            secrets.delete(key);
+            removed += 1;
+          }
+        }
+        return removed;
+      });
+    },
+  };
+}
+
+/**
+ * Registers a reusable Vitest `describe` block that exercises ANY `SecretStore`
+ * implementation `makeStore()` supplies: round trips, last-write-wins, the
+ * prefix segment boundary, key grammar rejection and concurrent puts (RT-02).
+ * Lease ids match the CLI lease id pattern so a file-backed store can run the
+ * same suite unchanged.
+ */
+export function createSecretStoreContractTests(makeStore: () => SecretStore): void {
+  describe("SecretStore contract", () => {
+    it("EMPTY: get on a missing key resolves undefined", async () => {
+      const store = makeStore();
+      expect(await store.get(credentialSecretKey("lease-1", "sheets"))).toBeUndefined();
+    });
+
+    it("ROUND TRIP: a value with unicode, a newline and 10,000 characters reads back unchanged", async () => {
+      const store = makeStore();
+      const key = credentialSecretKey("lease-1", "sheets");
+      const value = `héllo 世界 😀\nline2 ${"x".repeat(10_000)}`;
+      await store.put(key, value);
+      expect(await store.get(key)).toBe(value);
+    });
+
+    it("REPLACE: put on an existing key replaces the value", async () => {
+      const store = makeStore();
+      const key = credentialSecretKey("lease-1", "sheets");
+      await store.put(key, "first");
+      await store.put(key, "second");
+      expect(await store.get(key)).toBe("second");
+    });
+
+    it("DELETE: delete removes the key and delete of a missing key does not throw", async () => {
+      const store = makeStore();
+      const key = credentialSecretKey("lease-1", "sheets");
+      await store.put(key, "v");
+      await store.delete(key);
+      expect(await store.get(key)).toBeUndefined();
+      await expect(store.delete(key)).resolves.toBeUndefined();
+    });
+
+    it("DELETE PREFIX: removes every key under the prefix and returns the count", async () => {
+      const store = makeStore();
+      await store.put(credentialSecretKey("lease-1", "a"), "1");
+      await store.put(credentialSecretKey("lease-1", "b"), "2");
+      await store.put(credentialSecretKey("lease-1", "c"), "3");
+      expect(await store.deletePrefix(leaseSecretPrefix("lease-1"))).toBe(3);
+      expect(await store.get(credentialSecretKey("lease-1", "a"))).toBeUndefined();
+      expect(await store.get(credentialSecretKey("lease-1", "b"))).toBeUndefined();
+      expect(await store.get(credentialSecretKey("lease-1", "c"))).toBeUndefined();
+    });
+
+    it("PREFIX BOUNDARY: deletePrefix on lease/a/ leaves every key under lease/ab/ in place", async () => {
+      const store = makeStore();
+      await store.put(credentialSecretKey("a", "x"), "mine");
+      await store.put(credentialSecretKey("ab", "x"), "neighbour");
+      expect(await store.deletePrefix(leaseSecretPrefix("a"))).toBe(1);
+      expect(await store.get(credentialSecretKey("a", "x"))).toBeUndefined();
+      expect(await store.get(credentialSecretKey("ab", "x"))).toBe("neighbour");
+    });
+
+    it("EMPTY PREFIX MATCH: deletePrefix that matches nothing resolves 0", async () => {
+      const store = makeStore();
+      expect(await store.deletePrefix(leaseSecretPrefix("nobody"))).toBe(0);
+    });
+
+    it("ISOLATION: keys under different leases do not see each other", async () => {
+      const store = makeStore();
+      await store.put(credentialSecretKey("lease-1", "sheets"), "one");
+      await store.put(credentialSecretKey("lease-2", "sheets"), "two");
+      expect(await store.get(credentialSecretKey("lease-1", "sheets"))).toBe("one");
+      expect(await store.get(credentialSecretKey("lease-2", "sheets"))).toBe("two");
+    });
+
+    it("INVALID KEYS: reject with SecretKeyError and never echo the key", async () => {
+      const store = makeStore();
+      const invalid = ["", "lease//x", "lease/../x", "lease/./x", "lease/a\\b", "lease/a\u0000b", "lease/a\nb"];
+      for (const key of invalid) {
+        await expect(store.get(key)).rejects.toBeInstanceOf(SecretKeyError);
+        await expect(store.put(key, "v")).rejects.toBeInstanceOf(SecretKeyError);
+        await expect(store.delete(key)).rejects.toBeInstanceOf(SecretKeyError);
+      }
+      const error = await store.put("lease/../secret-marker", "v").catch((e: unknown) => e as Error);
+      expect((error as Error).message).not.toContain("secret-marker");
+    });
+
+    it("INVALID PREFIXES: deletePrefix rejects a prefix with no trailing slash and the empty prefix", async () => {
+      const store = makeStore();
+      await expect(store.deletePrefix("lease/a")).rejects.toBeInstanceOf(SecretKeyError);
+      await expect(store.deletePrefix("")).rejects.toBeInstanceOf(SecretKeyError);
+      await expect(store.deletePrefix("/")).rejects.toBeInstanceOf(SecretKeyError);
+    });
+
+    it("HOSTILE NAMES: reserved-looking, spaced, long and non-ASCII final segments round trip", async () => {
+      const store = makeStore();
+      const names = ["con", "NUL", "aux.txt", "a b", "n".repeat(128), "über-çréd"];
+      for (const name of names) {
+        const key = credentialSecretKey("lease-1", name);
+        await store.put(key, `value:${name}`);
+        expect(await store.get(key)).toBe(`value:${name}`);
+      }
+    });
+
+    it("CONCURRENCY: 20 concurrent puts to one key leave exactly one of the written values", async () => {
+      const store = makeStore();
+      const key = credentialSecretKey("lease-1", "sheets");
+      const values = Array.from({ length: 20 }, (_, i) => `value-${String(i)}-${"z".repeat(2000)}`);
+      await Promise.all(values.map((value) => store.put(key, value)));
+      const final = await store.get(key);
+      expect(final).toBeDefined();
+      expect(values).toContain(final);
+    });
+
+    it("ORDERING: a later put wins over an earlier completed put", async () => {
+      const store = makeStore();
+      const key = credentialSecretKey("lease-1", "sheets");
+      await store.put(key, "earlier");
+      await store.put(key, "later");
+      expect(await store.get(key)).toBe("later");
+    });
+  });
 }
