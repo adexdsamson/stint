@@ -773,6 +773,33 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownBlockedPayload": {
+      "title": "TeardownBlockedPayload",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "credentials_unavailable"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "required": [
+        "reason",
+        "resources"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimPayload": {
       "title": "AttestedClaimPayload",
       "type": "object",
@@ -914,6 +941,41 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownBlockedEntry": {
+      "title": "TeardownBlockedEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_blocked"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownBlockedPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimEntry": {
       "title": "AttestedClaimEntry",
       "type": "object",
@@ -959,6 +1021,9 @@ export const receiptSchema = {
     },
     {
       "$ref": "#/definitions/TeardownStepEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownBlockedEntry"
     },
     {
       "$ref": "#/definitions/AttestedClaimEntry"

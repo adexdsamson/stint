@@ -5,7 +5,7 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type ReceiptEntry = CallEntry | TransitionEntry | TeardownStepEntry | AttestedClaimEntry;
+export type ReceiptEntry = CallEntry | TransitionEntry | TeardownStepEntry | TeardownBlockedEntry | AttestedClaimEntry;
 export type ReceiptChain = "verified" | "attested";
 export type ContentHash = string;
 
@@ -56,6 +56,22 @@ export interface TeardownStepPayload {
     | "not_applicable"
     | "attested_ok";
   resource?: string;
+}
+export interface TeardownBlockedEntry {
+  seq: number;
+  ts: number;
+  chain: ReceiptChain;
+  type: "teardown_blocked";
+  prevHash: ContentHash;
+  payload: TeardownBlockedPayload;
+}
+export interface TeardownBlockedPayload {
+  reason: "credentials_unavailable";
+  /**
+   * @minItems 1
+   * @maxItems 64
+   */
+  resources: [string, ...string[]];
 }
 export interface AttestedClaimEntry {
   seq: number;

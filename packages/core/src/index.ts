@@ -102,6 +102,8 @@ export type {
   TransitionPayload,
   TeardownStepEntry,
   TeardownStepPayload,
+  TeardownBlockedEntry,
+  TeardownBlockedPayload,
   AttestedClaimEntry,
   AttestedClaimPayload,
   Checkpoint,

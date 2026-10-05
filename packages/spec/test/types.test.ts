@@ -9,7 +9,7 @@ import type {
   Scope,
   Verifier,
 } from "../src/generated/manifest.js";
-import type { TeardownStepPayload } from "../src/generated/receipt.js";
+import type { TeardownBlockedPayload, TeardownStepPayload } from "../src/generated/receipt.js";
 import { receiptSchema } from "../src/generated/schemas.js";
 
 // Verifier narrows on `type` — this only compiles if the discriminated union
@@ -147,5 +147,65 @@ describe("TeardownStepPayload.resource optional field (D-26)", () => {
 
   it("still rejects an unknown extra payload field", () => {
     expect(validateReceiptEntry(teardownStepEntry({ ...base, resource: "sheets.orders", extra: "x" }))).toBe(false);
+  });
+});
+
+describe("TeardownBlockedEntry (D-11, D-26)", () => {
+  const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  const validateReceiptEntry = ajv.compile(receiptSchema);
+
+  function blockedEntry(payload: Record<string, unknown>): unknown {
+    return {
+      seq: 3,
+      ts: 1000,
+      chain: "verified",
+      type: "teardown_blocked",
+      prevHash: `jcs-sha256:${"0".repeat(64)}`,
+      payload,
+    };
+  }
+
+  it("type-checks a TeardownBlockedPayload", () => {
+    const payload: TeardownBlockedPayload = { reason: "credentials_unavailable", resources: ["sheets.orders"] };
+    expect(payload.resources).toHaveLength(1);
+  });
+
+  it("accepts one to 64 resource names", () => {
+    const one = { reason: "credentials_unavailable", resources: ["a"] };
+    expect(validateReceiptEntry(blockedEntry(one)), JSON.stringify(validateReceiptEntry.errors)).toBe(true);
+    const many = {
+      reason: "credentials_unavailable",
+      resources: Array.from({ length: 64 }, (_, i) => `r${String(i)}`),
+    };
+    expect(validateReceiptEntry(blockedEntry(many)), JSON.stringify(validateReceiptEntry.errors)).toBe(true);
+  });
+
+  it("rejects an empty resources array", () => {
+    expect(validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: [] }))).toBe(false);
+  });
+
+  it("rejects 65 resources", () => {
+    const tooMany = Array.from({ length: 65 }, (_, i) => `r${String(i)}`);
+    expect(validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: tooMany }))).toBe(false);
+  });
+
+  it("rejects an empty resource string and a 129-character one", () => {
+    expect(validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: [""] }))).toBe(false);
+    expect(
+      validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: ["r".repeat(129)] })),
+    ).toBe(false);
+    expect(
+      validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: ["r".repeat(128)] })),
+    ).toBe(true);
+  });
+
+  it("rejects an unknown reason", () => {
+    expect(validateReceiptEntry(blockedEntry({ reason: "other", resources: ["a"] }))).toBe(false);
+  });
+
+  it("rejects an extra payload field", () => {
+    expect(
+      validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: ["a"], extra: "x" })),
+    ).toBe(false);
   });
 });
