@@ -29,6 +29,7 @@ import type { LeaseMutator, LeaseStore } from "./lease-store.js";
 import type { LicenseIssuer } from "./license/license-issuer.js";
 import { createReferenceLicenseIssuer } from "./license/reference-issuer.js";
 import { appendEntry, verifyChain } from "./receipts/chain.js";
+import { ReceiptConflictError } from "./receipts/receipt-store.js";
 import type { ReceiptStore } from "./receipts/receipt-store.js";
 import {
   SecretKeyError,
@@ -234,7 +235,11 @@ export function createInMemoryReceiptStore(): ReceiptStore {
 
   return {
     append(chain: ReceiptChain, entry: ReceiptEntry): Promise<void> {
-      entriesFor(chain).push(entry);
+      const entries = entriesFor(chain);
+      if (entry.seq !== entries.length) {
+        return Promise.reject(new ReceiptConflictError(chain, entries.length));
+      }
+      entries.push(entry);
       return Promise.resolve();
     },
 
@@ -339,6 +344,61 @@ export function createReceiptStoreContractTests(makeStore: () => ReceiptStore): 
 
       expect(await store.load("verified")).toEqual([verifiedEntry]);
       expect(await store.load("attested")).toEqual([attestedEntry]);
+    });
+
+    it("SEQ GUARD: an entry whose seq is not the current length is rejected with ReceiptConflictError and nothing is written", async () => {
+      const store = makeStore();
+      const first = appendEntry(
+        [],
+        { chain: "verified", type: "transition", payload: { from: "created", event: "activate", actor: "runtime", to: "active" } },
+        1000,
+      );
+      const second = appendEntry(
+        [first],
+        { chain: "verified", type: "transition", payload: { from: "active", event: "revoke", actor: "runtime", to: "revoked" } },
+        1001,
+      );
+      const third = appendEntry(
+        [first, second],
+        { chain: "verified", type: "transition", payload: { from: "revoked", event: "settle", actor: "runtime", to: "settled" } },
+        1002,
+      );
+
+      // Skipped seq: seq 1 onto an empty chain.
+      await expect(store.append("verified", second)).rejects.toBeInstanceOf(ReceiptConflictError);
+      expect(await store.load("verified")).toEqual([]);
+
+      await store.append("verified", first);
+
+      // Stale seq: seq 0 again onto a chain of length 1.
+      const stale = await store.append("verified", first).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(stale).toBeInstanceOf(ReceiptConflictError);
+      expect((stale as ReceiptConflictError).chain).toBe("verified");
+      expect((stale as ReceiptConflictError).expectedSeq).toBe(1);
+
+      // Skipped seq: seq 2 onto a chain of length 1.
+      await expect(store.append("verified", third)).rejects.toBeInstanceOf(ReceiptConflictError);
+      expect(await store.load("verified")).toEqual([first]);
+
+      // Per-chain independence: seq 0 on "attested" succeeds while "verified" has entries.
+      const attested = appendEntry(
+        [],
+        {
+          chain: "attested",
+          type: "attested_claim",
+          payload: { publisherId: "pub-1", kid: "key-1", claimType: "usage", claimHash: "jcs-sha256:bb", sig: "sig" },
+        },
+        1000,
+      );
+      await store.append("attested", attested);
+      expect(await store.load("attested")).toEqual([attested]);
+
+      // The correct next seq still succeeds after the rejections.
+      await store.append("verified", second);
+      expect(await store.load("verified")).toEqual([first, second]);
     });
 
     it("CHECKPOINT: a written checkpoint reads back byte-equal", async () => {

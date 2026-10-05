@@ -92,6 +92,7 @@ export type { TimelineEntry, TimelineOrigin } from "./receipts/merge.js";
 export { RECEIPT_VERIFY_REASONS } from "./receipts/errors.js";
 export type { ReceiptVerifyReason, ChainVerifyFailure } from "./receipts/errors.js";
 export type { ReceiptStore } from "./receipts/receipt-store.js";
+export { ReceiptConflictError } from "./receipts/receipt-store.js";
 export type {
   ReceiptEntry,
   ReceiptChain,
