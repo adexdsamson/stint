@@ -25,9 +25,11 @@ import {
 import type { Lease } from "@stint/core";
 import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } from "@stint/spec";
 
+import { buildConsentCustody, grantsFromCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { resolveStoreRoot } from "../paths.js";
+import { buildRuntimePorts } from "../runtime-ports.js";
 import { createPublisherClient, licenseClaimsFromManifest } from "../run/license-http.js";
 import { saveEnvelope } from "../store/envelope.js";
 import { parsePublisherBindingFile, savePublisherBinding } from "../store/publisher-binding.js";
@@ -40,6 +42,11 @@ export interface CreateOpts extends GlobalOpts {
   readonly trust?: string | undefined;
   /** Publisher binding file (issue/reissue/invalidate URLs + license public key); required for hosted/hybrid. */
   readonly publisher?: string | undefined;
+  /**
+   * Credentials file (D-28). With it, consent can say which credentials cannot be
+   * revoked, and the credentials are copied into the SecretStore after consent.
+   */
+  readonly credentials?: string | undefined;
 }
 
 /** Reads the manifest file with a size cap applied BEFORE the bytes are loaded. */
@@ -117,6 +124,14 @@ export async function createCommand(
     binding = await parsePublisherBindingFile(opts.publisher);
   }
 
+  // Credentials file (D-28): parsed BEFORE consent so a malformed file never costs the user a
+  // prompt. Nothing is written to the store until consent has been granted (T-08-55).
+  const credentials =
+    opts.credentials !== undefined && opts.credentials !== ""
+      ? await deps.credentials.load(opts.credentials)
+      : undefined;
+  const custody = buildConsentCustody(manifest, credentials);
+
   // 4. Ensure the runtime signing key exists (created on first create, A4).
   await deps.keys.loadOrCreate(root);
 
@@ -142,7 +157,7 @@ export async function createCommand(
   try {
     decision = await awaitConsentDecision(
       adapter,
-      { consentId: randomUUID(), manifest: verified.value },
+      { consentId: randomUUID(), manifest: verified.value, custody },
       controller.signal,
     );
   } finally {
@@ -206,6 +221,12 @@ export async function createCommand(
   // Hosted/hybrid: keep the non-secret publisher binding beside the lease so `run`,
   // `revoke` and `cleanup` can reach the publisher without further flags.
   if (binding !== undefined) await savePublisherBinding(root, lease.id, binding);
+
+  // Record what this lease is expected to hold so teardown can fail closed, then copy any
+  // supplied credentials into the store. Both happen only now, after consent and activation.
+  const ports = buildRuntimePorts(deps, root, { trust: opts.trust });
+  await ports.artifacts.put(lease.id, "grants", grantsFromCustody(custody));
+  if (credentials !== undefined) await seedFromCredentials(deps, ports, lease.id, credentials);
 
   if (json) {
     deps.io.out(

@@ -4,7 +4,8 @@
  * This file is the single command-registration surface: all seven commands are
  * registered here with their positional args and flags (D-03). It is FROZEN
  * after plan 06-04 — later plans replace only their own `commands/*.ts`
- * bodies and never re-register anything here.
+ * bodies and never re-register anything here. The one exception is D-28 in
+ * Phase 8: `create` gained an optional `--credentials <file>` option.
  *
  * No action calls `process.exit`, and library code never touches
  * `process.exitCode`: an action stores its result in an `ExitSink` and `main`
@@ -65,6 +66,10 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option(
       "--publisher <file>",
       "publisher binding file (issue/reissue/invalidate URLs + license public key) for hosted/hybrid leases",
+    )
+    .option(
+      "--credentials <file>",
+      "credentials file, so consent can say which credentials cannot be revoked; stored for the lease",
     )
     .action(async (manifestPath: string, _opts: unknown, cmd: Command) => {
       sink.code = await createCommand(deps, manifestPath, cmd.optsWithGlobals<CreateOpts>());
