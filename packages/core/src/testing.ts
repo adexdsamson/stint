@@ -17,6 +17,7 @@
  * (D-08).
  */
 
+import { calculateJwkThumbprint, exportJWK, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
 
 import type { PublicKey } from "paseto/v4/public";
@@ -37,6 +38,9 @@ import {
   leaseSecretPrefix,
 } from "./ports/secret-store.js";
 import type { SecretStore } from "./ports/secret-store.js";
+import type { KeyProvider, RuntimeKey, RuntimePublicJwk } from "./ports/key-provider.js";
+import type { LeaseArtifactName, LeaseArtifactStore } from "./ports/lease-artifact-store.js";
+import { signCheckpoint, verifyCheckpoint } from "./receipts/checkpoint.js";
 
 /**
  * An in-memory `LeaseStore` double backed by a `Map<string, Lease>`.
@@ -575,6 +579,160 @@ export function createSecretStoreContractTests(makeStore: () => SecretStore): vo
       await store.put(key, "earlier");
       await store.put(key, "later");
       expect(await store.get(key)).toBe("later");
+    });
+  });
+}
+
+/**
+ * An in-memory `KeyProvider` double. The Ed25519 pair is generated on first
+ * `loadOrCreate`; the in-flight promise is memoised so concurrent callers share
+ * one key. `loadVerificationKeys` is empty until a key exists.
+ */
+export function createInMemoryKeyProvider(): KeyProvider {
+  let pending: Promise<RuntimeKey> | undefined;
+
+  function create(): Promise<RuntimeKey> {
+    pending ??= (async (): Promise<RuntimeKey> => {
+      const pair = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+      const jwk = await exportJWK(pair.publicKey);
+      const publicJwk: RuntimePublicJwk = { kty: "OKP", crv: "Ed25519", x: jwk.x as string };
+      return {
+        privateKey: pair.privateKey,
+        publicKey: pair.publicKey,
+        publicJwk,
+        kid: await calculateJwkThumbprint(publicJwk),
+      };
+    })();
+    return pending;
+  }
+
+  return {
+    loadOrCreate(): Promise<RuntimeKey> {
+      return create();
+    },
+
+    async loadVerificationKeys() {
+      if (pending === undefined) return [];
+      const key = await pending;
+      return [{ kid: key.kid, publicKey: key.publicKey, publicJwk: key.publicJwk }];
+    },
+  };
+}
+
+/**
+ * Registers a reusable Vitest `describe` block that exercises ANY `KeyProvider`
+ * implementation `makeProvider()` supplies: empty before creation, a stable
+ * `kid`, a public-only verification key, a real signed checkpoint that
+ * verifies through it, and concurrent creation (RT-02).
+ */
+export function createKeyProviderContractTests(makeProvider: () => KeyProvider): void {
+  describe("KeyProvider contract", () => {
+    it("EMPTY: loadVerificationKeys on a fresh provider resolves an empty array", async () => {
+      const provider = makeProvider();
+      expect(await provider.loadVerificationKeys()).toEqual([]);
+    });
+
+    it("STABLE KID: loadOrCreate returns a non-empty kid and a second call returns the same kid", async () => {
+      const provider = makeProvider();
+      const first = await provider.loadOrCreate();
+      const second = await provider.loadOrCreate();
+      expect(first.kid.length).toBeGreaterThan(0);
+      expect(second.kid).toBe(first.kid);
+    });
+
+    it("VERIFICATION KEYS: after loadOrCreate the list holds that kid and its public JWK has no d member", async () => {
+      const provider = makeProvider();
+      const key = await provider.loadOrCreate();
+      const keys = await provider.loadVerificationKeys();
+      const match = keys.find((candidate) => candidate.kid === key.kid);
+      expect(match).toBeDefined();
+      expect(Object.keys(match?.publicJwk ?? {})).not.toContain("d");
+    });
+
+    it("SIGN AND VERIFY: a checkpoint signed with the private key verifies with the verification key", async () => {
+      const provider = makeProvider();
+      const key = await provider.loadOrCreate();
+      const checkpoint = await signCheckpoint("verified", 1, `jcs-sha256:${"1".repeat(64)}`, 2000, key.privateKey);
+      const verification = (await provider.loadVerificationKeys()).find((candidate) => candidate.kid === key.kid);
+      expect(verification).toBeDefined();
+      if (verification === undefined) return;
+      expect(await verifyCheckpoint(checkpoint, verification.publicKey)).toBe(true);
+      expect(await verifyCheckpoint({ ...checkpoint, count: 2 }, verification.publicKey)).toBe(false);
+    });
+
+    it("CONCURRENCY: 5 concurrent loadOrCreate calls resolve the same kid", async () => {
+      const provider = makeProvider();
+      const keys = await Promise.all(Array.from({ length: 5 }, () => provider.loadOrCreate()));
+      expect(new Set(keys.map((key) => key.kid)).size).toBe(1);
+    });
+  });
+}
+
+/**
+ * An in-memory `LeaseArtifactStore` double: a Map keyed by lease id and
+ * artifact name that stores and returns a `structuredClone`, so a caller can
+ * never mutate a stored artifact through a retained reference.
+ */
+export function createInMemoryLeaseArtifactStore(): LeaseArtifactStore {
+  const artifacts = new Map<string, unknown>();
+  const slot = (leaseId: string, name: LeaseArtifactName): string => JSON.stringify([leaseId, name]);
+
+  return {
+    get(leaseId: string, name: LeaseArtifactName): Promise<unknown> {
+      const value = artifacts.get(slot(leaseId, name));
+      return Promise.resolve(value === undefined ? undefined : structuredClone(value));
+    },
+
+    put(leaseId: string, name: LeaseArtifactName, value: unknown): Promise<void> {
+      artifacts.set(slot(leaseId, name), structuredClone(value));
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * Registers a reusable Vitest `describe` block that exercises ANY
+ * `LeaseArtifactStore` implementation `makeStore()` supplies: absence, deep
+ * round trips for every name, isolation between names and leases, and
+ * replacement (RT-02).
+ */
+export function createLeaseArtifactStoreContractTests(makeStore: () => LeaseArtifactStore): void {
+  describe("LeaseArtifactStore contract", () => {
+    const names: readonly LeaseArtifactName[] = ["envelope", "publisher", "grants"];
+
+    it("ABSENT: get of an absent artifact resolves undefined", async () => {
+      const store = makeStore();
+      for (const name of names) {
+        expect(await store.get("lease-1", name)).toBeUndefined();
+      }
+    });
+
+    it("ROUND TRIP: put then get deep-equals for each name, including nested objects and arrays", async () => {
+      const store = makeStore();
+      const value = { version: 1, nested: { list: [1, "two", { three: 3 }], flag: true }, items: [] as unknown[] };
+      for (const name of names) {
+        await store.put("lease-1", name, value);
+        expect(await store.get("lease-1", name)).toEqual(value);
+      }
+    });
+
+    it("ISOLATION: names are isolated from each other and leases are isolated from each other", async () => {
+      const store = makeStore();
+      await store.put("lease-1", "envelope", { who: "envelope-1" });
+      await store.put("lease-1", "grants", { who: "grants-1" });
+      await store.put("lease-2", "envelope", { who: "envelope-2" });
+      expect(await store.get("lease-1", "envelope")).toEqual({ who: "envelope-1" });
+      expect(await store.get("lease-1", "grants")).toEqual({ who: "grants-1" });
+      expect(await store.get("lease-1", "publisher")).toBeUndefined();
+      expect(await store.get("lease-2", "envelope")).toEqual({ who: "envelope-2" });
+      expect(await store.get("lease-2", "grants")).toBeUndefined();
+    });
+
+    it("REPLACE: put replaces the previous value", async () => {
+      const store = makeStore();
+      await store.put("lease-1", "publisher", { v: 1 });
+      await store.put("lease-1", "publisher", { v: 2 });
+      expect(await store.get("lease-1", "publisher")).toEqual({ v: 2 });
     });
   });
 }
