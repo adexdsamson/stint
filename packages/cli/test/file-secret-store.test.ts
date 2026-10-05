@@ -156,7 +156,9 @@ describe("createFileSecretStore (file specifics)", () => {
     await store.put("lease/lease-1/cred/marker-name", "marker-value");
     const [file] = listFiles(leaseSecretsDir(root, "lease-1")).filter((f) => f.endsWith(".json"));
     writeFileSync(file as string, "marker-value{");
-    const err = await store.get("lease/lease-1/cred/marker-name").catch((e: unknown) => e as Error);
+    const err = (await store
+      .get("lease/lease-1/cred/marker-name")
+      .catch((e: unknown) => e)) as Error;
     expect(err.message).not.toContain("marker-name");
     expect(err.message).not.toContain("marker-value");
     expect(err.message).not.toContain(root);

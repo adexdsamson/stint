@@ -6,7 +6,15 @@
  */
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { HostAdapter, LeaseStore, ReceiptStore, Telemetry } from "@stint/core";
+import type {
+  HostAdapter,
+  KeyProvider,
+  LeaseArtifactStore,
+  LeaseStore,
+  ReceiptStore,
+  SecretStore,
+  Telemetry,
+} from "@stint/core";
 import type { TeardownStep } from "@stint/proxy";
 
 import type { Style } from "./render/style.js";
@@ -75,6 +83,12 @@ export interface CliDeps {
   readonly teardown?: TeardownSeams;
   /** Optional observational sink handed to `@stint/runtime`; absent means events are dropped. */
   readonly telemetry?: Telemetry;
+  /** Optional secret custody for a store root; absent means the file store under `<root>/secrets`. */
+  readonly secrets?: (root: string) => SecretStore;
+  /** Optional per-lease artifact storage for a store root; absent means the lease-folder files. */
+  readonly artifacts?: (root: string) => LeaseArtifactStore;
+  /** Optional key source for a store root; absent means one built from `keys` (the file key files). */
+  readonly keyProvider?: (root: string) => KeyProvider;
   /**
    * Asks a `[y/N]` question on the user's terminal. Resolves `true` only for
    * an explicit yes, `false` for any other answer, and `undefined` when there
