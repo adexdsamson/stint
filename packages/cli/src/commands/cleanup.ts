@@ -20,10 +20,12 @@
 
 import type { Lease } from "@stint/core";
 import { TeardownBlockedError } from "@stint/proxy";
-import { seedLeaseCredentials, settleExpired } from "@stint/runtime";
+import { settleExpired } from "@stint/runtime";
 
+import { seedFromCredentials } from "../custody.js";
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
+import { blockedTeardownMessage } from "../messages.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
 import { toCliError } from "../runtime-errors.js";
 import { confirmOrDecline, reportTeardown, resolveLeaseTeardown } from "./teardown-support.js";
@@ -107,7 +109,7 @@ export async function cleanupCommand(
     lease.teardownProgress?.revoke_oauth === undefined &&
     resolved.expectedResources.length > 0
   ) {
-    await seedLeaseCredentials(ports, leaseId, fileCredentials);
+    await seedFromCredentials(deps, ports, leaseId, fileCredentials);
   }
 
   let current: Lease = lease;
@@ -141,7 +143,7 @@ export async function cleanupCommand(
         : await resolved.run(deps.clock());
   } catch (err) {
     if (err instanceof TeardownBlockedError) {
-      throw new CliError(EXIT_CODES.usage, "Teardown is blocked: credentials are unavailable.");
+      throw new CliError(EXIT_CODES.usage, blockedTeardownMessage(leaseId, err.resources));
     }
     throw err;
   }

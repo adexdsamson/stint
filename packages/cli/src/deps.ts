@@ -83,6 +83,8 @@ export interface CliDeps {
   readonly teardown?: TeardownSeams;
   /** Optional observational sink handed to `@stint/runtime`; absent means events are dropped. */
   readonly telemetry?: Telemetry;
+  /** Operating-system name for platform-specific wording; defaults to `process.platform`. Tests inject `"win32"` or `"linux"`. */
+  readonly platform?: string;
   /** Optional secret custody for a store root; absent means the file store under `<root>/secrets`. */
   readonly secrets?: (root: string) => SecretStore;
   /** Optional per-lease artifact storage for a store root; absent means the lease-folder files. */

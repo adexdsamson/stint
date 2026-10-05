@@ -12,8 +12,8 @@
 
 import { reduce, userEvents } from "@stint/core";
 import { appendTransitionReceipt } from "@stint/proxy";
-import { seedLeaseCredentials } from "@stint/runtime";
 
+import { seedFromCredentials } from "../custody.js";
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
@@ -67,7 +67,7 @@ export async function revokeCommand(
 
   // Only after consent: a declined revoke leaves nothing under the secrets root.
   if (fileCredentials !== undefined && resolved.expectedResources.length > 0) {
-    await seedLeaseCredentials(ports, leaseId, fileCredentials);
+    await seedFromCredentials(deps, ports, leaseId, fileCredentials);
   }
 
   const now = deps.clock();
