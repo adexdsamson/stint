@@ -84,7 +84,12 @@ export type {
   RefreshResult,
   SeededCredential,
 } from "./vault/oauth-client.js";
-export { createCredentialVault, CredentialRefreshError } from "./vault/credential-vault.js";
+export {
+  createCredentialVault,
+  CredentialRefreshError,
+  parseStoredCredential,
+  serializeStoredCredential,
+} from "./vault/credential-vault.js";
 export type { CredentialVault, CredentialVaultOptions } from "./vault/credential-vault.js";
 
 // Downstream execution port + credential scrubber (D-01, D-02, PRXY-06,
