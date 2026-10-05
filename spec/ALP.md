@@ -234,7 +234,11 @@ The consent display, rendered by the host through its HostAdapter, MUST show the
 - the manifest's `approvals.require_for` triggers and `approvals.timeout_seconds`;
 - the resolved `auth.mode` (Section 8), never left implicit even when the manifest omitted `mode`;
 - the `job.verifier` type, since it determines whether and how this lease can ever reach `completed` (Section 7.6);
-- the `cleanup.hook` and `cleanup.publisher_retains`, if `cleanup` is not `null`, with `publisher_retains` clearly labelled as an attested publisher claim, not a runtime-verified guarantee (Section 13). A host MUST NOT present `publisher_retains` or any other cleanup behavior as something the runtime has confirmed; the runtime can only relay what the publisher states.
+- the `cleanup.hook` and `cleanup.publisher_retains`, if `cleanup` is not `null`, with `publisher_retains` clearly labelled as an attested publisher claim, not a runtime-verified guarantee (Section 13). A host MUST NOT present `publisher_retains` or any other cleanup behavior as something the runtime has confirmed; the runtime can only relay what the publisher states;
+- where the runtime will hold the lease's credentials, and whether they are stored unencrypted;
+- for each credential the runtime cannot revoke upstream, a statement that the credential stays valid at the provider after the lease ends until the user rotates it in the provider dashboard.
+
+The unrevocable-credential statement MUST be a separate acknowledgement that the user confirms on its own, after the general summary; declining it is `consent_declined`. When the runtime does not yet know whether a credential can be revoked, it MUST say so, it MUST NOT present the credential as revocable, and it MUST show the statement when the capability becomes known.
 
 If the user consents (`consent_granted`, Section 7.3), the runtime binds the verified manifest's content hash to the new lease before any further step; this is the same content hash Section 5 computed, never a hash of the envelope. If the user declines (`consent_declined`) or the consent request is not answered before its timeout (`consent_timed_out`), the lease moves to `declined` (Section 7.4); both outcomes are final and identical from the lease's perspective, whichever produced them.
 

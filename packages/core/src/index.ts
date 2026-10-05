@@ -43,6 +43,8 @@ export type {
   HostAdapter,
   LifecycleEvent,
   ConsentRequest,
+  ConsentCustody,
+  ConsentCredential,
   ConsentDecision,
   ApprovalRequest,
   ApprovalDecision,

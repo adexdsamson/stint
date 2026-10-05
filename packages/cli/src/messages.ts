@@ -22,3 +22,23 @@ export function blockedTeardownMessage(leaseId: string, resources: readonly stri
   const names = resources.map((resource) => sanitizeForTerminal(resource)).join(", ");
   return `Teardown is blocked: credentials for ${names} are not available. Supply them with: stint-cli cleanup ${leaseId} --credentials <file>`;
 }
+
+/** Shown once in the consent Credentials section when the lease will hold credentials (D-09). */
+export const CONSENT_PLAINTEXT_LINE =
+  "Credentials are stored unencrypted on this machine until the lease ends.";
+
+/** Shown when at least one credential's revocation capability has not been checked yet (D-28). */
+export const CONSENT_CAPABILITY_UNKNOWN_LINE =
+  "Whether these credentials can be revoked is not yet known. It is checked when credentials are supplied.";
+
+/** The question for the separate unrevocable-credential acknowledgement (D-15). */
+export const UNREVOCABLE_ACK_QUESTION =
+  "I understand this credential will not be revoked. Continue? [y/N] ";
+
+/** The header of the unrevocable-credential acknowledgement. */
+export const UNREVOCABLE_ACK_HEADER = "Credential that cannot be revoked";
+
+/** One sentence per resource in the acknowledgement; the resource name is sanitized here. */
+export function unrevocableSentence(resource: string): string {
+  return `The credential for ${sanitizeForTerminal(resource)} cannot be revoked by Stint. It stays valid at the provider after the lease ends until you rotate it in the provider dashboard.`;
+}

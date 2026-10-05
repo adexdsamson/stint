@@ -1,6 +1,13 @@
+import type { ConsentCustody } from "@stint/core";
 import { resolveAuthMode } from "@stint/spec";
 import type { Manifest } from "@stint/spec";
 
+import {
+  CONSENT_CAPABILITY_UNKNOWN_LINE,
+  CONSENT_PLAINTEXT_LINE,
+  UNREVOCABLE_ACK_HEADER,
+  unrevocableSentence,
+} from "../messages.js";
 import { createStyle } from "../render/style.js";
 import type { Style } from "../render/style.js";
 import { sanitizeForTerminal } from "./sanitize.js";
@@ -11,7 +18,11 @@ import { sanitizeForTerminal } from "./sanitize.js";
  * (T-06-09). Cleanup behaviour is labelled an attested publisher claim, never a
  * runtime-verified guarantee (section 6 / 13).
  */
-export function renderConsent(manifest: Manifest, style: Style = createStyle(false)): string {
+export function renderConsent(
+  manifest: Manifest,
+  style: Style = createStyle(false),
+  custody?: ConsentCustody,
+): string {
   const s = sanitizeForTerminal;
   const lines: string[] = [];
   const section = (title: string): void => {
@@ -65,6 +76,23 @@ export function renderConsent(manifest: Manifest, style: Style = createStyle(fal
     row(`hosted license issuer: ${s(manifest.auth.hosted.license_issuer)}`);
   }
 
+  if (custody !== undefined && custody.storage === "plaintext_file") {
+    section("Credentials");
+    for (const credential of custody.credentials) {
+      const capability =
+        credential.revocation === "supported"
+          ? "can be revoked when the lease ends"
+          : credential.revocation === "unsupported"
+            ? "cannot be revoked by Stint"
+            : "revocation not yet known";
+      row(`${s(credential.resource)}: ${capability}`);
+    }
+    row(CONSENT_PLAINTEXT_LINE);
+    if (custody.credentials.some((credential) => credential.revocation === "unknown")) {
+      row(CONSENT_CAPABILITY_UNKNOWN_LINE);
+    }
+  }
+
   section("Completion check");
   const verifier = manifest.job.verifier;
   row(`verifier: ${s(verifier.type)}`);
@@ -82,5 +110,19 @@ export function renderConsent(manifest: Manifest, style: Style = createStyle(fal
     );
   }
 
+  return lines.join("\n");
+}
+
+/**
+ * Renders the separate acknowledgement for credentials Stint cannot revoke
+ * (D-15, SPEC-07): a header and one fixed sentence per resource. Resource names
+ * are sanitized; the sentence itself is fixed text.
+ */
+export function renderUnrevocableAcknowledgement(
+  resources: readonly string[],
+  style: Style = createStyle(false),
+): string {
+  const lines = [style.header(UNREVOCABLE_ACK_HEADER)];
+  for (const resource of resources) lines.push(`  ${unrevocableSentence(resource)}`);
   return lines.join("\n");
 }

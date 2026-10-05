@@ -26,10 +26,37 @@
 import type { ConnectorBinding } from "./bindings.js";
 import type { VerifiedManifest } from "@stint/spec";
 
+/**
+ * One credential a lease holds, as the consent screen needs to describe it.
+ * `revocation` is the runtime's knowledge of whether the credential can be
+ * revoked upstream when the lease ends; `unknown` means it has not been checked
+ * yet, and a host MUST NOT present it as revocable.
+ */
+export interface ConsentCredential {
+  readonly resource: string;
+  readonly kind: "oauth" | "api_key";
+  readonly revocation: "supported" | "unsupported" | "unknown";
+}
+
+/**
+ * Where the runtime will keep the lease's credentials, and which ones it holds.
+ * This block is non-secret by construction: names, kinds and revocation
+ * capability only, with no field that could carry a token. A host MUST show the
+ * plaintext storage statement when `storage` is `plaintext_file`, and MUST
+ * obtain a separate acknowledgement for each credential whose `revocation` is
+ * `unsupported`.
+ */
+export interface ConsentCustody {
+  readonly storage: "plaintext_file" | "none";
+  readonly credentials: readonly ConsentCredential[];
+}
+
 /** A request to grant or decline the whole lease at consent time (ALP.md Section 6). */
 export interface ConsentRequest {
   readonly consentId: string;
   readonly manifest: VerifiedManifest;
+  /** Absent when the runtime has nothing to say about credential custody. */
+  readonly custody?: ConsentCustody;
 }
 
 /** `grant` accepts; `decline` carries why — `user_declined` (explicit) or `timeout` (core-decided, D-17). */

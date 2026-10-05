@@ -11,9 +11,10 @@ import type {
   OutcomeConfirmRequest,
 } from "@stint/core";
 
+import { UNREVOCABLE_ACK_QUESTION } from "../messages.js";
 import { createStyle } from "../render/style.js";
 import type { Style } from "../render/style.js";
-import { renderConsent } from "./consent-view.js";
+import { renderConsent, renderUnrevocableAcknowledgement } from "./consent-view.js";
 import { askLine } from "./prompt.js";
 import type { PromptInput, PromptOutput } from "./prompt.js";
 import { sanitizeForTerminal } from "./sanitize.js";
@@ -180,13 +181,30 @@ export function createTerminalHostAdapter(options: TerminalHostAdapterOptions): 
 
   return {
     async requestConsent(request: ConsentRequest, signal: AbortSignal): Promise<ConsentDecision> {
+      // One deadline for both questions: the consent window is not restarted by the acknowledgement.
+      const deadline = clock() + consentTimeout;
       const yes = await ask(
-        renderConsent(request.manifest.manifest, style),
+        renderConsent(request.manifest.manifest, style, request.custody),
         "Grant this lease? [y/N] ",
-        clock() + consentTimeout,
+        deadline,
         signal,
       );
-      return yes ? { decision: "grant" } : { decision: "decline", reason: "user_declined" };
+      if (!yes) return { decision: "decline", reason: "user_declined" };
+
+      // A credential Stint cannot revoke needs its own confirmation, answered separately (D-15).
+      const unrevocable = (request.custody?.credentials ?? [])
+        .filter((credential) => credential.revocation === "unsupported")
+        .map((credential) => credential.resource);
+      if (unrevocable.length > 0) {
+        const acknowledged = await ask(
+          renderUnrevocableAcknowledgement(unrevocable, style),
+          UNREVOCABLE_ACK_QUESTION,
+          deadline,
+          signal,
+        );
+        if (!acknowledged) return { decision: "decline", reason: "user_declined" };
+      }
+      return { decision: "grant" };
     },
 
     async requestApproval(
