@@ -21,6 +21,26 @@
  * attempted, is never re-run (D-23). Neither function arms a timer or
  * self-schedules; one pass per call (D-15).
  *
+ * Concurrent drivers (Phase 8 TEAR-06): two drivers may run on one lease (a
+ * live `run` process and a supervisor, or two CLI processes). Every step runs
+ * inside ONE lease transaction that first rechecks the lease against the
+ * pass baseline (the `teardownProgress` snapshot read at pass start): a step
+ * another driver already recorded, a recorded success, or `revoke_oauth` with
+ * any recorded outcome is skipped, so a real outcome is never overwritten by
+ * a later pass. A step's outcome and its `teardown_step` receipt, and a
+ * transition and its receipt, are written inside the SAME lease transaction,
+ * so the receipts of two drivers can never interleave or fork the chain. A
+ * rejected entry or landing transition is tolerated rather than thrown: the
+ * driver that lost joins the pass in flight, or returns the lease the other
+ * driver already landed. `lease.transition` and `teardown.step` telemetry is
+ * emitted only for work this driver itself performed.
+ *
+ * Known limit (Phase 8 D-29): a second driver joining a pass already in
+ * flight cannot be told apart from crash recovery, so it may re-run a step the
+ * first driver just recorded as failed. No step ever succeeds twice and the
+ * chain never forks. Closing it needs driver ownership and fencing, which the
+ * roadmap schedules for Phase 9.
+ *
  * `runTeardown` OPTIONALLY signs a SECOND checkpoint bracketing the
  * terminal-transition boundary (D-31, this plan, 05-08): when
  * `deps.signingKey` is supplied, right before any of the 5 fixed steps run
@@ -46,7 +66,7 @@
  * compiling and behaving exactly as before.
  */
 
-import { reduce, runtimeEvents, signCheckpoint, userEvents, verifyChain } from "@stint/core";
+import { reduce, runtimeEvents, safeEmit, signCheckpoint, userEvents, verifyChain } from "@stint/core";
 import type {
   Lease,
   LeaseStore,
@@ -54,7 +74,9 @@ import type {
   ReceiptEntryInput,
   ReceiptStore,
   Result,
+  TeardownProgress,
   TeardownStepOutcome,
+  Telemetry,
   TransitionRecord,
 } from "@stint/core";
 import type { CryptoKey } from "jose";
@@ -62,7 +84,7 @@ import type { CryptoKey } from "jose";
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
 import { appendReceiptEntry } from "../receipts/append.js";
 import { chainTeardownIfEnded } from "./auto-chain.js";
-import { allStepsSucceeded, recordStepOutcome, remainingSteps } from "./progress.js";
+import { allStepsSucceeded, isSuccessOutcome, recordStepOutcome, remainingSteps } from "./progress.js";
 import { runStepOnce } from "./steps.js";
 import type { TeardownStep } from "./steps.js";
 
@@ -89,6 +111,12 @@ export interface TeardownDeps {
    * as before; only a caller that opts in gets the bracketing checkpoint.
    */
   readonly signingKey?: CryptoKey;
+  /**
+   * OPTIONAL observational sink (Phase 8): one `teardown.step` event per step
+   * this driver ran and one `lease.transition` event per transition this
+   * driver performed. A faulty sink never changes an outcome.
+   */
+  readonly telemetry?: Telemetry;
 }
 
 const TERMINAL_END_STATES: ReadonlySet<Lease["state"]> = new Set(["completed", "expired", "revoked", "failed"]);
@@ -121,7 +149,7 @@ function peekLease(deps: TeardownDeps): Promise<Lease> {
  * invariant violation (this function only ever runs immediately after this
  * module's own `appendTransitionReceipt` call, so the chain it loads is
  * necessarily self-consistent), so it throws rather than silently recording
- * a step outcome.
+ * a step outcome. Two drivers signing it under a race is harmless.
  */
 async function signBracketingCheckpoint(
   receiptStore: ReceiptStore,
@@ -163,67 +191,129 @@ export async function appendTransitionReceipt(
   );
 }
 
+/** What `applyTransition` did: the lease as it stands after the call, the transition this driver performed (if any) and the rejection code when it performed none. */
+interface TransitionAttempt {
+  readonly lease: Lease;
+  readonly record: TransitionRecord | undefined;
+  readonly rejection: string | undefined;
+}
+
+function emitTransition(deps: TeardownDeps, record: TransitionRecord): void {
+  safeEmit(deps.telemetry, {
+    name: "lease.transition",
+    leaseId: deps.leaseId,
+    from: record.from,
+    to: record.to,
+    actor: record.actor,
+  });
+}
+
+function rejectedTransitionError(rejection: string | undefined): Error {
+  return new Error(`@stint/proxy: teardown transition rejected: ${rejection ?? "unknown"}.`);
+}
+
+function isLanded(state: Lease["state"]): boolean {
+  return state === "cleaned_up" || state === "cleanup_incomplete";
+}
+
 /**
- * Applies `apply` (a `reduce()`-shaped transition) to the current lease
- * under the per-lease serializer, appends the resulting `TransitionRecord`
- * as a verified-chain receipt, and returns the next lease. Throws only on
- * an invariant violation (the transition was illegal for the CURRENT lease
- * state) -- a caller-level bug, not an expected business outcome; every
- * caller in this file only invokes it when the precondition is known to
- * hold.
+ * Applies `apply` (a `reduce()`-shaped transition) to the current lease under
+ * the per-lease serializer and appends the resulting `TransitionRecord` as a
+ * verified-chain receipt INSIDE the same transaction, so the state change and
+ * its receipt commit under one lease lock. A rejected transition (another
+ * driver already moved the lease) leaves the lease unchanged and is reported
+ * through `rejection` rather than thrown; callers decide what it means.
  */
 async function applyTransition(
   deps: TeardownDeps,
   now: number,
   apply: (lease: Lease) => Result<{ lease: Lease; transition: TransitionRecord }>,
-): Promise<Lease> {
+): Promise<TransitionAttempt> {
   let record: TransitionRecord | undefined;
-  const nextLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, (lease) => {
-    const result = apply(lease);
+  let rejection: string | undefined;
+  const lease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (current) => {
+    const result = apply(current);
     if (!result.ok) {
-      throw new Error(`@stint/proxy: teardown transition rejected: ${result.errors[0]?.code ?? "unknown"}.`);
+      rejection = result.errors[0]?.code ?? "unknown";
+      return current;
     }
+    await appendTransitionReceipt(deps.receiptStore, result.value.transition, now);
     record = result.value.transition;
     return result.value.lease;
   });
-  if (record !== undefined) {
-    await appendTransitionReceipt(deps.receiptStore, record, now);
-  }
-  return nextLease;
+  if (record !== undefined) emitTransition(deps, record);
+  return { lease, record, rejection };
 }
 
-/** Runs one step, persists its outcome into `teardownProgress` (D-14), and appends its `teardown_step` receipt (D-24) -- the outcome is captured via closure from inside the transaction's mutator, mirroring `dispatch.ts`'s own `handleCall` pattern. */
-async function runStepAndPersist(deps: TeardownDeps, name: TeardownStep["name"], now: number): Promise<void> {
+/**
+ * Runs one step, persists its outcome into `teardownProgress` (D-14) and
+ * appends its `teardown_step` receipt (D-24) inside ONE lease transaction.
+ * The mutator first rechecks the lease against the pass `baseline`: it skips
+ * the step when the lease is no longer `tearing_down`, when another driver
+ * already recorded the step since the baseline was read, when `revoke_oauth`
+ * has any recorded outcome (D-23), or when the step already succeeded. A
+ * recorded real outcome is therefore never overwritten by a later pass.
+ */
+async function runStepAndPersist(
+  deps: TeardownDeps,
+  name: TeardownStep["name"],
+  baseline: TeardownProgress,
+  now: number,
+): Promise<"ran" | "skipped"> {
   const step = stepByName(deps.steps, name);
-  let outcome: TeardownStepOutcome = "failed";
+  let outcome: TeardownStepOutcome | undefined;
 
   await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
-    outcome = await runStepOnce(step, lease, now);
-    return { ...lease, teardownProgress: recordStepOutcome(lease.teardownProgress ?? {}, name, outcome) };
+    const fresh = lease.teardownProgress ?? {};
+    const recorded = fresh[name];
+    if (
+      lease.state !== "tearing_down" ||
+      recorded !== baseline[name] ||
+      (name === "revoke_oauth" && recorded !== undefined) ||
+      isSuccessOutcome(recorded)
+    ) {
+      return lease;
+    }
+    const ran = await runStepOnce(step, lease, now);
+    await appendReceipt(
+      deps.receiptStore,
+      { chain: "verified", type: "teardown_step", payload: { step: name, outcome: ran } },
+      now,
+    );
+    outcome = ran;
+    return { ...lease, teardownProgress: recordStepOutcome(fresh, name, ran) };
   });
 
-  await appendReceipt(
-    deps.receiptStore,
-    { chain: "verified", type: "teardown_step", payload: { step: name, outcome } },
-    now,
-  );
+  if (outcome === undefined) return "skipped";
+  safeEmit(deps.telemetry, { name: "teardown.step", leaseId: deps.leaseId, step: name, outcome });
+  return "ran";
 }
 
-/** Walks every remaining step (in fixed order) from the current lease's persisted progress, then lands `teardown_succeeded`/`teardown_incomplete` and fires `notify` (D-25). Shared by `runTeardown` and `retryTeardown`. */
+/** Walks every remaining step (in fixed order) from the pass baseline, then lands `teardown_succeeded`/`teardown_incomplete` exactly once and fires `notify` (D-25) only for the driver that landed it. Shared by `runTeardown` and `retryTeardown`. */
 async function landTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
-  const lease = await peekLease(deps);
-  const names = remainingSteps(lease.teardownProgress ?? {});
+  const baseline = (await peekLease(deps)).teardownProgress ?? {};
 
-  for (const name of names) {
-    await runStepAndPersist(deps, name, now);
+  for (const name of remainingSteps(baseline)) {
+    await runStepAndPersist(deps, name, baseline, now);
   }
 
-  const afterSteps = await peekLease(deps);
-  const succeeded = allStepsSucceeded(afterSteps.teardownProgress ?? {});
+  let landed: TransitionRecord | undefined;
+  const finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+    if (lease.state !== "tearing_down") return lease;
+    const succeeded = allStepsSucceeded(lease.teardownProgress ?? {});
+    const result = reduce(
+      lease,
+      succeeded ? runtimeEvents.teardownSucceeded() : runtimeEvents.teardownIncomplete(),
+      now,
+    );
+    if (!result.ok) throw rejectedTransitionError(result.errors[0]?.code);
+    await appendTransitionReceipt(deps.receiptStore, result.value.transition, now);
+    landed = result.value.transition;
+    return result.value.lease;
+  });
 
-  const finalLease = await applyTransition(deps, now, (l) =>
-    reduce(l, succeeded ? runtimeEvents.teardownSucceeded() : runtimeEvents.teardownIncomplete(), now),
-  );
+  if (landed === undefined) return finalLease;
+  emitTransition(deps, landed);
 
   if (deps.notify !== undefined) {
     const type = finalLease.state === "cleaned_up" ? "cleaned_up" : "cleanup_incomplete";
@@ -234,19 +324,41 @@ async function landTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
 }
 
 /**
+ * The tolerant entry rule shared by `runTeardown` and `retryTeardown`: after
+ * a rejected entry transition, a lease already `tearing_down` means another
+ * driver started the pass (join it: returns `undefined`); a lease already
+ * landed is returned as is; any other state rethrows the original invariant
+ * error.
+ */
+function afterRejectedEntry(attempt: TransitionAttempt): Lease | undefined {
+  if (attempt.lease.state === "tearing_down") return undefined;
+  if (isLanded(attempt.lease.state)) return attempt.lease;
+  throw rejectedTransitionError(attempt.rejection);
+}
+
+/**
  * Runs one pass of teardown for `deps.leaseId` (TEAR-01). If the currently
  * persisted lease is in a terminal end state, auto-chains `begin_teardown`
  * first via `chainTeardownIfEnded` (D-18); otherwise the lease is assumed
- * already `tearing_down` (a resume of a prior partial run -- reduce()
- * itself would reject a `begin_teardown` attempt from any other state).
- * Lands `cleaned_up` when all five steps succeed, else `cleanup_incomplete`
- * with every step's outcome honestly recorded (D-15).
+ * already `tearing_down` (a resume of a prior partial run, or a pass another
+ * driver started -- reduce() itself would reject a `begin_teardown` attempt
+ * from any other state). A lease already `cleaned_up`/`cleanup_incomplete` is
+ * returned untouched. Lands `cleaned_up` when all five steps succeed, else
+ * `cleanup_incomplete` with every step's outcome honestly recorded (D-15).
  */
 export async function runTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
   const lease = await peekLease(deps);
 
+  if (isLanded(lease.state)) return lease;
+
   if (TERMINAL_END_STATES.has(lease.state)) {
-    await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
+    const attempt = await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
+    if (attempt.record === undefined) {
+      const landed = afterRejectedEntry(attempt);
+      if (landed !== undefined) return landed;
+    }
+  } else if (lease.state !== "tearing_down") {
+    throw rejectedTransitionError("illegal_transition");
   }
 
   // D-31 bracketing checkpoint: by this point the terminal-transition +
@@ -266,16 +378,22 @@ export async function runTeardown(deps: TeardownDeps, now: number): Promise<Leas
  * landing `tearing_down`, then re-runs exactly `landTeardown`'s
  * remaining-steps walk -- `revoke_oauth`, once attempted, is never re-run
  * (D-23). No automatic/background retry anywhere in this module; `actor` is
- * always caller-supplied, never inferred.
+ * always caller-supplied, never inferred. A second concurrent caller whose
+ * `retry_teardown` is rejected joins the pass in flight or returns the lease
+ * the first caller already landed.
  */
 export async function retryTeardown(
   deps: TeardownDeps,
   actor: "user" | "runtime",
   now: number,
 ): Promise<Lease> {
-  await applyTransition(deps, now, (l) =>
+  const attempt = await applyTransition(deps, now, (l) =>
     reduce(l, actor === "user" ? userEvents.retryTeardown() : runtimeEvents.retryTeardown(), now),
   );
+  if (attempt.record === undefined) {
+    const landed = afterRejectedEntry(attempt);
+    if (landed !== undefined) return landed;
+  }
 
   return landTeardown(deps, now);
 }
