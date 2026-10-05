@@ -48,10 +48,57 @@ export interface ApprovalRequest {
   readonly binding: ConnectorBinding;
 }
 
-/** `approve` accepts; `deny` carries why — `user_denied` (explicit) or `timeout` (core-decided, D-17). */
+/**
+ * `approve` accepts; `deny` carries why: `user_denied` (explicit), `timeout`
+ * (core-decided, D-17), `lease_ended` (the lease ended while the approval was
+ * pending, D-20) or `approval_queue_full` (too many approvals pending at once,
+ * decided by the proxy's dispatcher without asking the adapter).
+ */
 export type ApprovalDecision =
   | { readonly decision: "approve" }
-  | { readonly decision: "deny"; readonly reason: "user_denied" | "timeout" };
+  | {
+      readonly decision: "deny";
+      readonly reason: "user_denied" | "timeout" | "lease_ended" | "approval_queue_full";
+    };
+
+/**
+ * The `name` of the abort reason core uses to say "the lease ended while this
+ * approval was pending" (D-20). It is compared by name, never by identity, so
+ * the check works across package copies.
+ */
+export const LEASE_ENDED_REASON = "LeaseEndedError";
+
+/** Builds the abort reason for a lease that ended while an approval was pending. */
+export function createLeaseEndedReason(): Error {
+  const reason = new Error("The lease ended while an approval was pending.");
+  reason.name = LEASE_ENDED_REASON;
+  return reason;
+}
+
+/**
+ * True when `signal` is aborted and its reason is the lease-ended reason. Works
+ * for a signal derived through `AbortSignal.any`, which carries the source's
+ * reason through.
+ */
+export function isLeaseEndedSignal(signal: AbortSignal): boolean {
+  if (!signal.aborted) return false;
+  const reason: unknown = signal.reason;
+  return (
+    typeof reason === "object" &&
+    reason !== null &&
+    (reason as { readonly name?: unknown }).name === LEASE_ENDED_REASON
+  );
+}
+
+/**
+ * Why an approval the human granted did not take effect (D-21). Fixed codes so
+ * a host can render a fixed sentence for each.
+ */
+export type ApprovalVoidReason =
+  | "expired_after_approval"
+  | "lease_ended_after_approval"
+  | "limit_reached_after_approval"
+  | "approval_drifted";
 
 /**
  * A single `user_confirm` outcome-verification request (D-05, LIFE-06):
@@ -78,7 +125,9 @@ export type OutcomeConfirmDecision =
  * etc.). Tagged by a literal `type` field so new lifecycle events extend
  * this union rather than growing `HostAdapter`'s method set (D-15). One
  * member per notifiable lease state (`transitions.ts`'s `State` union, minus
- * the non-notifiable `proposed`/`declined`/`granted` states).
+ * the non-notifiable `proposed`/`declined`/`granted` states). It also carries
+ * one per-call approval notice, `approval_void`, so the "your approval did not
+ * take effect" message reaches the user without a new `HostAdapter` method.
  */
 export type LifecycleEvent =
   | { readonly type: "activated"; readonly leaseId: string; readonly at: number }
@@ -88,7 +137,13 @@ export type LifecycleEvent =
   | { readonly type: "failed"; readonly leaseId: string; readonly at: number }
   | { readonly type: "tearing_down"; readonly leaseId: string; readonly at: number }
   | { readonly type: "cleaned_up"; readonly leaseId: string; readonly at: number }
-  | { readonly type: "cleanup_incomplete"; readonly leaseId: string; readonly at: number };
+  | { readonly type: "cleanup_incomplete"; readonly leaseId: string; readonly at: number }
+  | {
+      readonly type: "approval_void";
+      readonly leaseId: string;
+      readonly at: number;
+      readonly reason: ApprovalVoidReason;
+    };
 
 /**
  * The single published contract a platform builder implements (HOST-01).
@@ -125,17 +180,22 @@ export interface HostAdapter {
  * buggy, or hostile adapter can never turn into an approve. No real timer is
  * armed here; the caller (the Phase 4 proxy) arms the timeout and aborts
  * `signal` — tests abort the controller directly, keeping this deterministic.
- * This is the ONLY sanctioned way to call `adapter.requestApproval`.
+ * An abort carrying the lease-ended reason resolves `lease_ended` instead of
+ * `timeout` (D-20). This is the ONLY sanctioned way to call `adapter.requestApproval`.
  */
 export function awaitApprovalDecision(
   adapter: HostAdapter,
   request: ApprovalRequest,
   signal: AbortSignal,
 ): Promise<ApprovalDecision> {
-  const deny: ApprovalDecision = { decision: "deny", reason: "timeout" };
+  const timeoutDeny: ApprovalDecision = { decision: "deny", reason: "timeout" };
+  const leaseEndedDeny: ApprovalDecision = { decision: "deny", reason: "lease_ended" };
+  // Any abort is a timeout except one carrying the lease-ended reason (D-20).
+  const abortDeny = (): ApprovalDecision => (isLeaseEndedSignal(signal) ? leaseEndedDeny : timeoutDeny);
+  const deny = timeoutDeny;
 
   if (signal.aborted) {
-    return Promise.resolve(deny);
+    return Promise.resolve(abortDeny());
   }
 
   return new Promise<ApprovalDecision>((resolve) => {
@@ -144,7 +204,7 @@ export function awaitApprovalDecision(
     const onAbort = (): void => {
       if (settled) return;
       settled = true;
-      resolve(deny);
+      resolve(abortDeny());
     };
     signal.addEventListener("abort", onAbort, { once: true });
 

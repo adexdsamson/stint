@@ -31,7 +31,14 @@ export { verifyBoundHash } from "./hash-guard.js";
 
 export { activateLease, resumeLease } from "./activate.js";
 
-export { awaitConsentDecision, awaitApprovalDecision, awaitOutcomeConfirmDecision } from "./host-adapter.js";
+export {
+  awaitConsentDecision,
+  awaitApprovalDecision,
+  awaitOutcomeConfirmDecision,
+  LEASE_ENDED_REASON,
+  createLeaseEndedReason,
+  isLeaseEndedSignal,
+} from "./host-adapter.js";
 export type {
   HostAdapter,
   LifecycleEvent,
@@ -39,6 +46,7 @@ export type {
   ConsentDecision,
   ApprovalRequest,
   ApprovalDecision,
+  ApprovalVoidReason,
   OutcomeConfirmRequest,
   OutcomeConfirmDecision,
 } from "./host-adapter.js";
