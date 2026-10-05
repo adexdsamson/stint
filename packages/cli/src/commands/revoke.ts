@@ -10,7 +10,6 @@
  */
 
 import { reduce, userEvents } from "@stint/core";
-import type { TransitionRecord } from "@stint/core";
 import { appendTransitionReceipt, runTeardown } from "@stint/proxy";
 
 import type { CliDeps } from "../deps.js";
@@ -47,8 +46,9 @@ export async function revokeCommand(
   if (declined !== undefined) return declined;
 
   const now = deps.clock();
-  let record: TransitionRecord | undefined;
-  await store.transaction(leaseId, (current) => {
+  // The state change and its receipt commit under ONE lease lock, so another
+  // driver's appends cannot interleave between them (TEAR-06).
+  await store.transaction(leaseId, async (current) => {
     const result = reduce(current, userEvents.revoke(), now);
     if (!result.ok) {
       throw new CliError(
@@ -56,12 +56,9 @@ export async function revokeCommand(
         "The lease can no longer be revoked from its current state.",
       );
     }
-    record = result.value.transition;
+    await appendTransitionReceipt(teardown.receiptStore, result.value.transition, now);
     return result.value.lease;
   });
-  if (record !== undefined) {
-    await appendTransitionReceipt(teardown.receiptStore, record, now);
-  }
 
   const finished = await runTeardown(teardown, deps.clock());
   return reportTeardown(deps, opts, root, finished);
