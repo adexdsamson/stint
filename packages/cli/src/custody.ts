@@ -69,10 +69,19 @@ export async function seedFromCredentials(
   ports: RuntimePorts,
   leaseId: string,
   credentials: Readonly<Record<string, SeededCredential>>,
+  opts: {
+    /** Fills in non-secret fields before each credential is written (for example from a run profile). */
+    readonly enrich?: (resource: string, credential: SeededCredential) => SeededCredential;
+  } = {},
 ): Promise<SeedResult> {
   let result: SeedResult;
   try {
-    result = await seedLeaseCredentials(ports, leaseId, credentials);
+    result = await seedLeaseCredentials(
+      ports,
+      leaseId,
+      credentials,
+      opts.enrich === undefined ? {} : { enrich: opts.enrich },
+    );
   } catch (error) {
     throw toCliError(error);
   }

@@ -42,3 +42,12 @@ export const UNREVOCABLE_ACK_HEADER = "Credential that cannot be revoked";
 export function unrevocableSentence(resource: string): string {
   return `The credential for ${sanitizeForTerminal(resource)} cannot be revoked by Stint. It stays valid at the provider after the lease ends until you rotate it in the provider dashboard.`;
 }
+
+/**
+ * The stderr notice `run` prints, when a credential first arrives, for one that
+ * cannot be revoked upstream (D-15, D-28). It is a notice, not a prompt: under
+ * `run` stdout is the MCP channel and a prompt would stop headless runs.
+ */
+export function unrevocableNotice(resource: string): string {
+  return unrevocableSentence(resource);
+}
