@@ -21,26 +21,16 @@
 import { readFile } from "node:fs/promises";
 
 import { createBindingSet } from "@stint/core";
-import type { BindingSet, ConnectorBinding } from "@stint/core";
+import type { ConnectorBinding } from "@stint/core";
 import { createToolCatalog } from "@stint/proxy";
-import type { OAuthClient, ToolCatalog, ToolCatalogEntry } from "@stint/proxy";
+import type { OAuthClient, ToolCatalogEntry } from "@stint/proxy";
+import type { RunProfile } from "@stint/runtime";
 import type { Access } from "@stint/spec";
 
 import { CliError, EXIT_CODES } from "../exit.js";
 import { isLoopbackHttp } from "./loopback.js";
 
-export interface RunProfile {
-  readonly catalog: ToolCatalog;
-  readonly bindings: BindingSet;
-  readonly oauth: OAuthClient;
-  /**
-   * OPTIONAL map from a binding's resource IDENTIFIER (e.g. `paystack.transactions`) to the
-   * `https:`/loopback-`http:` URL the REST connector must actually call. The connector uses
-   * `binding.resource` as the request target, so without this an identifier is not a URL.
-   * Runtime-owned configuration: never from the manifest, never from the agent.
-   */
-  readonly endpoints?: Readonly<Record<string, string>>;
-}
+export type { RunProfile };
 
 const ACCESS: readonly string[] = ["read", "write", "send", "pay"];
 const PROVENANCE: readonly string[] = ["built_in", "user_approved_custom"];

@@ -55,8 +55,16 @@ function keyProviderFrom(deps: Pick<CliDeps, "keys">, root: string): KeyProvider
   };
 }
 
+/**
+ * The seams `buildRuntimePorts` reads. A full `CliDeps` satisfies it; a caller
+ * that holds only some seams (for example `runLease`) gets the file-backed
+ * default for each optional one it lacks.
+ */
+export type RuntimePortsDeps = Pick<CliDeps, "storeFactory" | "receiptStoreFactory" | "clock" | "keys"> &
+  Partial<Pick<CliDeps, "telemetry" | "secrets" | "artifacts" | "keyProvider" | "loadTrustStore">>;
+
 export function buildRuntimePorts(
-  deps: CliDeps,
+  deps: RuntimePortsDeps,
   root: string,
   opts?: { readonly trust?: string | undefined },
 ): RuntimePorts {
@@ -68,6 +76,9 @@ export function buildRuntimePorts(
     secrets: deps.secrets?.(root) ?? createFileSecretStore({ root }),
     artifacts: deps.artifacts?.(root) ?? createFileLeaseArtifactStore({ root }),
     keys: deps.keyProvider?.(root) ?? keyProviderFrom(deps, root),
-    trust: () => deps.loadTrustStore(root, { trust: opts?.trust }),
+    trust: () =>
+      deps.loadTrustStore === undefined
+        ? Promise.reject(new Error("Internal error."))
+        : deps.loadTrustStore(root, { trust: opts?.trust }),
   };
 }

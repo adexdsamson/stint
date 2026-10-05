@@ -25,3 +25,7 @@ export { expectedCredentialResources, missingCredentials, seedLeaseCredentials }
 export type { SeedResult } from "./custody.js";
 export { resolveTeardown } from "./resolve-teardown.js";
 export type { ResolveTeardownInput, ResolvedTeardown } from "./resolve-teardown.js";
+export { createLeaseRuntime, LICENSE_REFRESH_BEFORE_SECONDS } from "./lease-runtime.js";
+export type { LeaseRuntimeOptions, RunningLease } from "./lease-runtime.js";
+export { enrichFromProfile } from "./profile.js";
+export type { RunProfile } from "./profile.js";
