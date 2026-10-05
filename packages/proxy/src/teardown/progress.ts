@@ -9,7 +9,7 @@
  *   no usable credential) is already met by the always-discard rule (D-22),
  *   which is a later plan's concern, not this helper's.
  * - **D-15 (one pass, then explicit retry):** every OTHER step is skipped on
- *   resume only when its recorded outcome is one of the four SUCCESS
+ *   resume only when its recorded outcome is one of the SUCCESS
  *   outcomes -- a recorded `"failed"` for steps 2-5 always re-runs on the
  *   next pass.
  *
@@ -22,13 +22,23 @@ import type { TeardownProgress, TeardownStepName, TeardownStepOutcome } from "@s
 
 import { TEARDOWN_STEP_ORDER } from "./steps.js";
 
-/** D-33's "recorded terminal-success" outcomes -- the teardown_succeeded gate (D-19) and the steps-2-5 skip-on-resume rule (D-15). */
-const SUCCESS_OUTCOMES: readonly TeardownStepOutcome[] = ["ok", "revoked", "not_applicable", "attested_ok"];
+/**
+ * D-33's "recorded terminal-success" outcomes -- the teardown_succeeded gate (D-19) and the steps-2-5 skip-on-resume rule (D-15).
+ * `discarded_revocation_unsupported` (SPEC-07, D-01) is a terminal success WITH A CAVEAT: the runtime discarded its own
+ * copy and can do nothing more, but the credential was not revoked upstream. `failed` is never a success.
+ */
+const SUCCESS_OUTCOMES: readonly TeardownStepOutcome[] = [
+  "ok",
+  "revoked",
+  "not_applicable",
+  "attested_ok",
+  "discarded_revocation_unsupported",
+];
 
 /** Step 1 is attempted-is-terminal (D-23): once recorded, ANY outcome is never retried. */
 const ATTEMPTED_IS_TERMINAL_STEP: TeardownStepName = "revoke_oauth";
 
-/** True when `outcome` is one of the SUCCESS outcomes (D-33) -- `undefined` (not yet attempted) is never a success. */
+/** True when `outcome` is one of the SUCCESS outcomes (D-33, SPEC-07) -- `undefined` (not yet attempted) is never a success. */
 export function isSuccessOutcome(outcome: TeardownStepOutcome | undefined): boolean {
   return outcome !== undefined && SUCCESS_OUTCOMES.includes(outcome);
 }

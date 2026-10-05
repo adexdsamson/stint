@@ -55,6 +55,7 @@ export interface TeardownStepPayload {
     | "ok"
     | "not_applicable"
     | "attested_ok";
+  resource?: string;
 }
 export interface AttestedClaimEntry {
   seq: number;

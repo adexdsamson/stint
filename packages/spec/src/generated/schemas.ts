@@ -760,6 +760,11 @@ export const receiptSchema = {
             "not_applicable",
             "attested_ok"
           ]
+        },
+        "resource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       },
       "required": [

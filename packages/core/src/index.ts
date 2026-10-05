@@ -45,6 +45,10 @@ export type {
 
 export type { LeaseStore, LeaseMutator } from "./lease-store.js";
 
+// Telemetry port (D-25): closed scalar-only event union, no-op sink, throw-swallowing emit.
+export { NOOP_TELEMETRY, safeEmit } from "./ports/telemetry.js";
+export type { Telemetry, TelemetryEvent } from "./ports/telemetry.js";
+
 // License public surface (LIC-01, LIC-02, LIC-03, D-11, D-13, D-15). The
 // reference `issueLicense` secret-signing path and `@stint/core/testing`'s
 // `createMockLicenseIssuer` are deliberately NOT re-exported here -- the

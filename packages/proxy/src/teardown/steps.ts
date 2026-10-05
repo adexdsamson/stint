@@ -101,9 +101,11 @@ async function appendTeardownStepReceipt(
   step: TeardownStepName,
   outcome: TeardownStepOutcome,
   now: number,
+  resource?: string,
 ): Promise<void> {
   const chain = await receiptStore.load("verified");
-  const entry = appendEntry(chain, { chain: "verified", type: "teardown_step", payload: { step, outcome } }, now);
+  const payload = resource === undefined ? { step, outcome } : { step, outcome, resource };
+  const entry = appendEntry(chain, { chain: "verified", type: "teardown_step", payload }, now);
   await receiptStore.append("verified", entry);
 }
 
@@ -148,10 +150,13 @@ function createRevokeOauthStep(vault: CredentialVault, receiptStore: ReceiptStor
       }
 
       const outcomes: TeardownStepOutcome[] = [];
-      for (const { result } of perCredential) {
+      for (const { resource, result } of perCredential) {
         const outcome = revokeResultToOutcome(result);
         outcomes.push(outcome);
-        await appendTeardownStepReceipt(receiptStore, "revoke_oauth", outcome, now);
+        // D-26: name the credential so a timeline can say which one an outcome belongs to.
+        // Out-of-range names are omitted (the schema bounds `resource` to 1..128).
+        const named = resource.length >= 1 && resource.length <= 128 ? resource : undefined;
+        await appendTeardownStepReceipt(receiptStore, "revoke_oauth", outcome, now, named);
       }
 
       return aggregateRevokeOutcome(outcomes);

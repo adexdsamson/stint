@@ -71,24 +71,31 @@ describe("stint revoke", () => {
     expect((await rig.lease()).teardownProgress?.revoke_oauth).toBe("revoked");
   });
 
-  it("without a revocation endpoint revoke_oauth is receipted honestly, never as 'revoked'", async () => {
+  it("without a revocation endpoint the lease still reaches cleaned_up and is receipted as not revoked upstream", async () => {
     rig = await createTeardownRig();
-    // No revocation endpoint in the credentials: the vault can only discard its own copy, and the
-    // Phase-5 gate does not count that as a success, so the lease lands cleanup_incomplete.
+    // No revocation endpoint in the credentials: the vault can only discard its own copy. SPEC-07
+    // counts that as terminal success with a caveat, so the lease lands cleaned_up (exit 0) while the
+    // receipt stays honest that nothing was revoked upstream and names the credential.
     const code = await main(
       rig.argv("revoke", "--yes", "--credentials", rig.fx.credentialsPath),
       rig.deps,
     );
 
-    expect(code).toBe(EXIT_CODES.cleanupIncomplete);
+    expect(code).toBe(EXIT_CODES.ok);
     const lease = await rig.lease();
-    expect(lease.state).toBe("cleanup_incomplete");
+    expect(lease.state).toBe("cleaned_up");
     expect(lease.teardownProgress?.revoke_oauth).toBe("discarded_revocation_unsupported");
-    const outcomes = payloads(await rig.entries("teardown_step"))
-      .filter((s) => s.step === "revoke_oauth")
-      .map((s) => s.outcome);
+    const revokeSteps = payloads(await rig.entries("teardown_step")).filter(
+      (s) => s.step === "revoke_oauth",
+    );
+    const outcomes = revokeSteps.map((s) => s.outcome);
     expect(outcomes).not.toContain("revoked");
     expect(outcomes).toContain("discarded_revocation_unsupported");
+    expect(revokeSteps).toContainEqual({
+      step: "revoke_oauth",
+      outcome: "discarded_revocation_unsupported",
+      resource: "sheets.orders",
+    });
   });
 
   it("an unreachable revocation endpoint is receipted 'failed' and yields cleanup_incomplete (7)", async () => {

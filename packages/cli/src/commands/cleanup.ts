@@ -7,16 +7,16 @@
  *   granted | active (not expired)                         -> refuse: use revoke
  *   proposed | declined                                    -> refuse: never activated
  *
- * An `active` lease past `expiresAt` is settled with `clockEvents.expire()`
- * first (A9: nothing else applies that event today), so an expired-but-unsettled
- * lease can be torn down. Resume/idempotency is entirely the orchestrator's:
- * a step already recorded as succeeded is not re-run and the lease never
- * returns to `active`.
+ * An `active` lease past `expiresAt` is settled through `settleExpired` from
+ * `@stint/runtime` first (A9: nothing else applies the clock `expire` event
+ * today), so an expired-but-unsettled lease can be torn down. Resume and
+ * idempotency are entirely the orchestrator's: a step already recorded as
+ * succeeded is not re-run and the lease never returns to `active`.
  */
 
-import { clockEvents, reduce } from "@stint/core";
-import type { Lease, TransitionRecord } from "@stint/core";
-import { appendTransitionReceipt, retryTeardown, runTeardown } from "@stint/proxy";
+import type { Lease } from "@stint/core";
+import { retryTeardown, runTeardown } from "@stint/proxy";
+import { RuntimeError, settleExpired } from "@stint/runtime";
 
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
@@ -71,7 +71,7 @@ export async function cleanupCommand(
   const lease = await store.load(leaseId);
   if (lease === undefined) throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
 
-  let now = deps.clock();
+  const now = deps.clock();
   const first = route(lease, now);
   if (first === "refuse") throw refusal(lease);
   if (first === "noop") {
@@ -93,17 +93,23 @@ export async function cleanupCommand(
 
   let current: Lease = lease;
   if (first === "settle") {
-    now = deps.clock();
-    let record: TransitionRecord | undefined;
-    current = await store.transaction(leaseId, (fresh) => {
-      const result = reduce(fresh, clockEvents.expire(), now);
-      // Something else moved the lease first; carry on from whatever state it is in now.
-      if (!result.ok) return fresh;
-      record = result.value.transition;
-      return result.value.lease;
-    });
-    if (record !== undefined) {
-      await appendTransitionReceipt(teardown.receiptStore, record, now);
+    // Settling is the runtime's job (D-24): the state change and its receipt commit together.
+    try {
+      const settled = await settleExpired(
+        {
+          leases: store,
+          receipts: (id) => deps.receiptStoreFactory(root, id),
+          clock: deps.clock,
+          telemetry: deps.telemetry,
+        },
+        leaseId,
+      );
+      current = settled.lease;
+    } catch (err) {
+      if (err instanceof RuntimeError && err.code === "lease_not_found") {
+        throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
+      }
+      throw err;
     }
   }
 

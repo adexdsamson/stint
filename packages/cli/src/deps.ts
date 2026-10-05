@@ -6,7 +6,7 @@
  */
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { HostAdapter, LeaseStore, ReceiptStore } from "@stint/core";
+import type { HostAdapter, LeaseStore, ReceiptStore, Telemetry } from "@stint/core";
 import type { TeardownStep } from "@stint/proxy";
 
 import type { Style } from "./render/style.js";
@@ -73,6 +73,8 @@ export interface CliDeps {
   };
   readonly run?: RunSeams;
   readonly teardown?: TeardownSeams;
+  /** Optional observational sink handed to `@stint/runtime`; absent means events are dropped. */
+  readonly telemetry?: Telemetry;
   /**
    * Asks a `[y/N]` question on the user's terminal. Resolves `true` only for
    * an explicit yes, `false` for any other answer, and `undefined` when there
