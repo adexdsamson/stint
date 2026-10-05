@@ -26,7 +26,7 @@ export class LeaseBusyError extends CliError {
   constructor() {
     super(
       EXIT_CODES.leaseBusy,
-      "The lease is busy: another operation holds it (a call may be awaiting approval). Answer it or wait for its timeout, then retry.",
+      "The lease is busy: another operation holds it. Wait a moment, then retry.",
     );
     this.name = "LeaseBusyError";
   }

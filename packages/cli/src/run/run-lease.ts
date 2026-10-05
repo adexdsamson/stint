@@ -77,6 +77,8 @@ export interface RunLeaseOptions {
    * in-memory only and is never handed to an outbound connector (LIC-05).
    */
   readonly licenseIssuer?: LicenseIssuerClient | undefined;
+  /** How often, in milliseconds, a call waiting for an approval checks whether the lease has ended (default 1000; tests use a small value). */
+  readonly approvalWatchMs?: number | undefined;
 }
 
 export interface RunningLease {
@@ -338,6 +340,7 @@ export async function runLease(options: RunLeaseOptions): Promise<RunningLease> 
     approve: createApprovalDispatcher(adapter, verified.manifest.approvals.timeout_seconds, clock),
     enforceCaps: createCapEnforcer(),
     teardownSteps,
+    ...(options.approvalWatchMs === undefined ? {} : { approvalWatchMs: options.approvalWatchMs }),
   };
 
   const server = createLeaseProxyServer(proxyDeps);
