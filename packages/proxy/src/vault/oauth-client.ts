@@ -21,13 +21,14 @@
 import * as oauth from "oauth4webapi";
 
 /**
- * The narrow "load/seed credential" seam (D-04): both this phase's tests and
- * the future interactive-acquisition flow (CLI/example, later phases)
- * produce values of this shape to hand to the vault. `expiry` is an
- * absolute epoch-seconds value compared against the injected `now` --
- * per-call expiry, no cached "still valid" boolean (locked upstream).
+ * An OAuth grant the vault can refresh and revoke (D-04). `kind` is optional:
+ * a value with no `kind` is an OAuth grant, so every pre-existing call site
+ * and fixture keeps compiling unchanged (D-05). `expiry` is an absolute
+ * epoch-seconds value compared against the injected `now` -- per-call expiry,
+ * no cached "still valid" boolean (locked upstream).
  */
-export interface SeededCredential {
+export interface OAuthSeededCredential {
+  readonly kind?: "oauth";
   readonly accessToken: string;
   readonly refreshToken: string;
   /** Absolute epoch-seconds expiry of `accessToken`. */
@@ -35,6 +36,24 @@ export interface SeededCredential {
   readonly tokenEndpoint: string;
   /** The RFC 8707 `resource` indicator sent on every refresh request for this credential. */
   readonly resourceIndicator: string;
+  /** Non-secret per-credential client config: the OAuth `client_id` (fallback `stint`). */
+  readonly clientId?: string;
+  /** Non-secret per-credential client config: the RFC 7009 revocation endpoint, when the server has one. */
+  readonly revocationEndpoint?: string;
+}
+
+/** A static API key held for one resource. It never expires, is never refreshed and has no provider the vault can revoke at. */
+export interface ApiKeySeededCredential {
+  readonly kind: "api_key";
+  readonly key: string;
+}
+
+/** What the vault holds for one `leaseId:resource`: an OAuth grant (absent `kind`) or an API key. */
+export type SeededCredential = OAuthSeededCredential | ApiKeySeededCredential;
+
+/** Narrows a {@link SeededCredential} to the API key member. */
+export function isApiKeyCredential(c: SeededCredential): c is ApiKeySeededCredential {
+  return c.kind === "api_key";
 }
 
 /** The result of one refresh attempt -- classified per D-09, never swallowed as a bare boolean. */
@@ -53,6 +72,31 @@ export interface OAuthClient {
   readonly as: oauth.AuthorizationServer;
   readonly client: oauth.Client;
   readonly clientAuth: oauth.ClientAuth;
+}
+
+/** Picks the {@link OAuthClient} one credential refreshes and revokes with. */
+export type OAuthClientResolver = (resource: string, credential: OAuthSeededCredential) => OAuthClient;
+
+/**
+ * Builds the {@link OAuthClient} for one credential from its own non-secret
+ * fields: the issuer is the token endpoint's origin, `revocation_endpoint` is
+ * set only when the credential carries one (its absence is the structural
+ * signal for `discarded_revocation_unsupported`), the client id is `clientId`
+ * or the fallback `stint`, and the client authenticates as an RFC 6749 public
+ * client by `client_id` only.
+ */
+export function oauthClientFromCredential(credential: OAuthSeededCredential): OAuthClient {
+  return {
+    as: {
+      issuer: new URL(credential.tokenEndpoint).origin,
+      token_endpoint: credential.tokenEndpoint,
+      ...(credential.revocationEndpoint === undefined ? {} : { revocation_endpoint: credential.revocationEndpoint }),
+    },
+    client: { client_id: credential.clientId ?? "stint" },
+    clientAuth: (_as, client, body) => {
+      body.set("client_id", client.client_id);
+    },
+  };
 }
 
 /** Per-call options for {@link refreshAccessToken}. */
@@ -152,7 +196,7 @@ export async function revokeCredential(
  */
 export async function refreshAccessToken(
   oauthClient: OAuthClient,
-  credential: SeededCredential,
+  credential: OAuthSeededCredential,
   now: number,
   opts: RefreshOptions = {},
 ): Promise<RefreshResult> {

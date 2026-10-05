@@ -15,14 +15,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CredentialRefreshError, createCredentialVault } from "../src/vault/credential-vault.js";
 import type { CredentialVault } from "../src/vault/credential-vault.js";
 import { refreshAccessToken } from "../src/vault/oauth-client.js";
-import type { SeededCredential } from "../src/vault/oauth-client.js";
+import type { OAuthSeededCredential } from "../src/vault/oauth-client.js";
 import { startMockAuthServer } from "../src/testing.js";
 import type { MockAuthHarness } from "../src/testing.js";
 
 const NOW = 1_700_000_000;
 const RESOURCE_INDICATOR = "https://api.paystack.example/v1";
 
-function seedFor(overrides?: Partial<SeededCredential>): SeededCredential {
+function seedFor(overrides?: Partial<OAuthSeededCredential>): OAuthSeededCredential {
   return {
     accessToken: "seed-access-token",
     refreshToken: "seed-refresh-token",

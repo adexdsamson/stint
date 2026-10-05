@@ -18,8 +18,24 @@
  * with zero additional token-endpoint hits.
  */
 
-import { refreshAccessToken, revokeCredential } from "./oauth-client.js";
-import type { OAuthClient, RefreshOptions, RevokeResult, SeededCredential } from "./oauth-client.js";
+import { isApiKeyCredential, refreshAccessToken, revokeCredential } from "./oauth-client.js";
+import type {
+  OAuthClient,
+  OAuthClientResolver,
+  OAuthSeededCredential,
+  RevokeResult,
+  SeededCredential,
+} from "./oauth-client.js";
+
+/**
+ * Options for {@link createCredentialVault}. `allowInsecureRequests` is a
+ * superset of the old `RefreshOptions` flag: a boolean applies to every
+ * credential (as before); a function is evaluated per resolved client so plain
+ * http can be allowed for one credential's server and not another's.
+ */
+export interface CredentialVaultOptions {
+  readonly allowInsecureRequests?: boolean | ((client: OAuthClient) => boolean);
+}
 
 /** The vault's public surface (D-04). No method returns the raw store; only `resolveAccessToken` reads a token out. */
 export interface CredentialVault {
@@ -51,15 +67,17 @@ export interface CredentialVault {
   revokeAndDiscardLeaseCredentials(
     leaseId: string,
     now: number,
+    expectedResources?: readonly string[],
   ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>>;
   /**
    * Deletes every credential seeded under `leaseId` WITHOUT attempting any
    * revoke call -- used by teardown step 4 ("delete cached data", a later
    * plan) once step 1 has already made its terminal, one-time revoke
    * attempt (D-23). Idempotent: deleting an already-discarded lease's
-   * credentials is a no-op.
+   * credentials is a no-op. Returns a promise only when the vault was built
+   * with a durable store to clear.
    */
-  discardLeaseCredentials(leaseId: string): void;
+  discardLeaseCredentials(leaseId: string): void | Promise<void>;
 }
 
 /** Every credential key currently seeded for `leaseId`, resolved back to its bare `resource` (the inverse of {@link keyFor}). The trailing colon in the prefix check prevents a lease id that is a string-prefix of another (e.g. "lease-1" vs "lease-10") from matching the wrong lease's entries. */
@@ -101,19 +119,32 @@ function keyFor(leaseId: string, resource: string): string {
 }
 
 /**
- * Constructs a `CredentialVault` backed by `oauthClient` (the discovered
- * Authorization Server metadata + this proxy's `Client`/`ClientAuth`
- * identity) and `clock` (the injectable `now` source -- no internal timers,
- * per-call expiry only, matching the locked-upstream "no cached still-valid
- * boolean" discipline).
+ * Constructs a `CredentialVault` backed by `client` (either one
+ * `OAuthClient` used for every credential, or an {@link OAuthClientResolver}
+ * that picks the client per credential: the discovered Authorization Server
+ * metadata + this proxy's `Client`/`ClientAuth` identity) and `clock` (the
+ * injectable `now` source -- no internal timers, per-call expiry only,
+ * matching the locked-upstream "no cached still-valid boolean" discipline).
  */
 export function createCredentialVault(
-  oauthClient: OAuthClient,
+  client: OAuthClient | OAuthClientResolver,
   clock: () => number,
-  refreshOpts: RefreshOptions = {},
+  opts: CredentialVaultOptions = {},
 ): CredentialVault {
   const credentials = new Map<string, SeededCredential>();
   const tails = new Map<string, Promise<unknown>>();
+  const resolveClient: OAuthClientResolver = typeof client === "function" ? client : () => client;
+
+  /** The OAuth client for one credential, plus the insecure-transport flag computed for that client. */
+  function clientFor(
+    resource: string,
+    credential: OAuthSeededCredential,
+  ): { readonly oauthClient: OAuthClient; readonly requestOpts: { readonly allowInsecureRequests: boolean } } {
+    const oauthClient = resolveClient(resource, credential);
+    const flag = opts.allowInsecureRequests;
+    const allowInsecureRequests = typeof flag === "function" ? flag(oauthClient) : flag === true;
+    return { oauthClient, requestOpts: { allowInsecureRequests } };
+  }
 
   function runSingleFlight<T>(key: string, work: () => Promise<T>): Promise<T> {
     const previousTail = tails.get(key) ?? Promise.resolve();
@@ -139,6 +170,11 @@ export function createCredentialVault(
         return Promise.reject(new Error(`@stint/proxy: no credential seeded for "${key}".`));
       }
 
+      // An API key never expires and never enters the refresh path.
+      if (isApiKeyCredential(record)) {
+        return Promise.resolve(record.key);
+      }
+
       // Per-call expiry against the injected clock -- pure comparison, no
       // cached "still valid" boolean, no timer.
       if (record.expiry > now) {
@@ -152,14 +188,18 @@ export function createCredentialVault(
         if (current === undefined) {
           throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
         }
+        if (isApiKeyCredential(current)) {
+          return current.key;
+        }
         if (current.expiry > now) {
           return current.accessToken;
         }
 
-        const result = await refreshAccessToken(oauthClient, current, now, refreshOpts);
+        const { oauthClient, requestOpts } = clientFor(resource, current);
+        const result = await refreshAccessToken(oauthClient, current, now, requestOpts);
 
         if (result.kind === "ok") {
-          const updated: SeededCredential = {
+          const updated: OAuthSeededCredential = {
             ...current,
             accessToken: result.accessToken,
             refreshToken: result.refreshToken ?? current.refreshToken,
@@ -183,12 +223,23 @@ export function createCredentialVault(
       // carries no expiry/timing logic of its own, so it is unused here.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       _now: number,
+      // Effect implemented with the durable store (load-through of resources missing from memory).
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      _expectedResources?: readonly string[],
     ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>> {
       const entries = leaseCredentialEntries(credentials, leaseId);
       const outcomes: Array<{ resource: string; result: RevokeResult }> = [];
 
       for (const { key, resource, credential } of entries) {
-        const result = await revokeCredential(oauthClient, credential.refreshToken, refreshOpts);
+        let result: RevokeResult;
+        if (isApiKeyCredential(credential)) {
+          // No provider to tell and no network call: the same honest path an
+          // unrevocable OAuth grant takes (D-14).
+          result = { kind: "discarded_revocation_unsupported" };
+        } else {
+          const { oauthClient, requestOpts } = clientFor(resource, credential);
+          result = await revokeCredential(oauthClient, credential.refreshToken, requestOpts);
+        }
         // Always discard the runtime's own copy (D-22) -- regardless of
         // revoked, discarded_revocation_unsupported, or failed. This is not
         // gated on `result.kind`: even a failed revoke attempt permanently

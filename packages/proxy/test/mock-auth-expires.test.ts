@@ -13,13 +13,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { refreshAccessToken, revokeCredential } from "../src/vault/oauth-client.js";
-import type { SeededCredential } from "../src/vault/oauth-client.js";
+import type { OAuthSeededCredential } from "../src/vault/oauth-client.js";
 import { startMockAuthServer } from "../src/testing.js";
 import type { MockAuthHarness } from "../src/testing.js";
 
 const NOW = 1_700_000_000;
 
-function seed(): SeededCredential {
+function seed(): OAuthSeededCredential {
   return {
     accessToken: "seed-access-token",
     refreshToken: "seed-refresh-token",

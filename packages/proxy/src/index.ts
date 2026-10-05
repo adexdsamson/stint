@@ -69,10 +69,23 @@ export { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js"
 // `createCredentialVault` composes. `CredentialRefreshError`'s `.kind`
 // (`"provider_revoked" | "transient_error"`) is the classification 04-07's
 // revocation wiring consumes.
-export { classifyTokenError, refreshAccessToken } from "./vault/oauth-client.js";
-export type { OAuthClient, RefreshOptions, RefreshResult, SeededCredential } from "./vault/oauth-client.js";
+export {
+  classifyTokenError,
+  isApiKeyCredential,
+  oauthClientFromCredential,
+  refreshAccessToken,
+} from "./vault/oauth-client.js";
+export type {
+  ApiKeySeededCredential,
+  OAuthClient,
+  OAuthClientResolver,
+  OAuthSeededCredential,
+  RefreshOptions,
+  RefreshResult,
+  SeededCredential,
+} from "./vault/oauth-client.js";
 export { createCredentialVault, CredentialRefreshError } from "./vault/credential-vault.js";
-export type { CredentialVault } from "./vault/credential-vault.js";
+export type { CredentialVault, CredentialVaultOptions } from "./vault/credential-vault.js";
 
 // Downstream execution port + credential scrubber (D-01, D-02, PRXY-06,
 // LIC-05). `OutboundConnector` is the injected downstream-execution port --
