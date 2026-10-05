@@ -64,5 +64,5 @@ export async function revokeCommand(
   }
 
   const finished = await runTeardown(teardown, deps.clock());
-  return reportTeardown(deps, opts, finished);
+  return reportTeardown(deps, opts, root, finished);
 }

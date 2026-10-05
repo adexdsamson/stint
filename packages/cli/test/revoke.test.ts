@@ -2,9 +2,13 @@ import { rm } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { appendEntry } from "@stint/core";
+import type { TeardownStep } from "@stint/proxy";
+
 import { EXIT_CODES } from "../src/exit.js";
 import { main } from "../src/program.js";
 import { envelopeFile } from "../src/store/envelope.js";
+import { NOW } from "./helpers/cli-harness.js";
 import { ACCESS_TOKEN } from "./helpers/run-fixture.js";
 import {
   createTeardownRig,
@@ -236,5 +240,133 @@ describe("stint revoke", () => {
       leaseId: rig.leaseId,
       state: "cleaned_up",
     });
+  });
+});
+
+type RevokeOutcome = "revoked" | "discarded_revocation_unsupported" | "failed";
+
+/**
+ * Replaces `revoke_oauth` so it writes one per-credential receipt per entry (as the real step does) and
+ * returns the aggregate. The real vault holds a single OAuth client, so mixed per-credential outcomes
+ * cannot be produced from a credentials file; this seam drives the CLI's reporting with them instead.
+ */
+function mixedRevokeOauth(
+  rig: TeardownRig,
+  perCredential: ReadonlyArray<readonly [resource: string, outcome: RevokeOutcome]>,
+): (steps: readonly TeardownStep[]) => readonly TeardownStep[] {
+  const receipts = rig.fx.harness.deps.receiptStoreFactory(rig.root, rig.leaseId);
+  return (steps) =>
+    steps.map((step): TeardownStep => {
+      if (step.name !== "revoke_oauth") return step;
+      return {
+        name: step.name,
+        run: async () => {
+          for (const [resource, outcome] of perCredential) {
+            const chain = await receipts.load("verified");
+            const entry = appendEntry(
+              chain,
+              {
+                chain: "verified",
+                type: "teardown_step",
+                payload: { step: "revoke_oauth", outcome, resource },
+              },
+              NOW,
+            );
+            await receipts.append("verified", entry);
+          }
+          const outcomes = perCredential.map(([, outcome]) => outcome);
+          if (outcomes.includes("failed")) return "failed";
+          if (outcomes.every((o) => o === "revoked")) return "revoked";
+          return "discarded_revocation_unsupported";
+        },
+      };
+    });
+}
+
+describe("stint revoke: SPEC-07 caveat", () => {
+  it("an unrevocable credential exits 0, labels the state and names the credential on stderr", async () => {
+    rig = await createTeardownRig();
+    const code = await main(
+      rig.argv("revoke", "--yes", "--credentials", rig.fx.credentialsPath),
+      rig.deps,
+    );
+
+    expect(code).toBe(EXIT_CODES.ok);
+    expect(rig.fx.harness.stdout.join("")).toContain(
+      "cleaned_up (credential not revoked upstream)",
+    );
+    const err = rig.fx.harness.stderr.join("");
+    expect(err).toContain("was not revoked upstream. Rotate it in the provider dashboard.");
+    expect(err).toContain("sheets.orders");
+    // The stored state stays the plain value; only the display carries the label.
+    expect((await rig.lease()).state).toBe("cleaned_up");
+  });
+
+  it("--json keeps the plain state and lists the unrevoked resources", async () => {
+    rig = await createTeardownRig();
+    const code = await main(
+      ["--json", ...rig.argv("revoke", "--yes", "--credentials", rig.fx.credentialsPath)],
+      rig.deps,
+    );
+    expect(code).toBe(EXIT_CODES.ok);
+    expect(JSON.parse(rig.fx.harness.stdout.join(""))).toMatchObject({
+      state: "cleaned_up",
+      unrevoked: ["sheets.orders"],
+    });
+  });
+
+  it("a revocable credential prints the plain state and no caveat", async () => {
+    const { rig, as } = await setup();
+    const code = await main(rig.argv("revoke", "--yes", "--credentials", as.creds), as.deps());
+
+    expect(code).toBe(EXIT_CODES.ok);
+    const out = rig.fx.harness.stdout.join("");
+    expect(out).toContain("cleaned_up");
+    expect(out).not.toContain("not revoked upstream");
+    expect(rig.fx.harness.stderr.join("")).not.toContain("not revoked upstream");
+  });
+
+  it("revoked plus unsupported reaches cleaned_up and the caveat names only the unsupported one", async () => {
+    rig = await createTeardownRig();
+    const code = await main(
+      rig.argv("revoke", "--yes", "--credentials", rig.fx.credentialsPath),
+      rig.withDeps({
+        teardown: {
+          decorateSteps: mixedRevokeOauth(rig, [
+            ["sheets.orders", "revoked"],
+            ["docs.notes", "discarded_revocation_unsupported"],
+          ]),
+        },
+      }),
+    );
+
+    expect(code).toBe(EXIT_CODES.ok);
+    expect((await rig.lease()).state).toBe("cleaned_up");
+    expect(rig.fx.harness.stdout.join("")).toContain(
+      "cleaned_up (credential not revoked upstream)",
+    );
+    const err = rig.fx.harness.stderr.join("");
+    expect(err).toContain("The credential for docs.notes was not revoked upstream.");
+    expect(err).not.toContain("sheets.orders");
+  });
+
+  it("failed plus unsupported stays cleanup_incomplete (7) with no label suffix", async () => {
+    rig = await createTeardownRig();
+    const code = await main(
+      rig.argv("revoke", "--yes", "--credentials", rig.fx.credentialsPath),
+      rig.withDeps({
+        teardown: {
+          decorateSteps: mixedRevokeOauth(rig, [
+            ["sheets.orders", "failed"],
+            ["docs.notes", "discarded_revocation_unsupported"],
+          ]),
+        },
+      }),
+    );
+
+    expect(code).toBe(EXIT_CODES.cleanupIncomplete);
+    expect((await rig.lease()).state).toBe("cleanup_incomplete");
+    expect(rig.fx.harness.stdout.join("")).not.toContain("not revoked upstream");
+    expect(rig.fx.harness.stderr.join("")).toContain(`stint-cli cleanup ${rig.leaseId}`);
   });
 });

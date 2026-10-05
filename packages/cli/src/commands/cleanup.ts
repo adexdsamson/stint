@@ -76,7 +76,7 @@ export async function cleanupCommand(
   if (first === "refuse") throw refusal(lease);
   if (first === "noop") {
     if (opts.json !== true) deps.io.err("stint: Nothing to do; the lease is already cleaned up.\n");
-    return reportTeardown(deps, opts, lease, { noop: true });
+    return reportTeardown(deps, opts, root, lease, { noop: true });
   }
 
   // `revoke_oauth` is attempted once and never re-run (D-23), so the credentials file is
@@ -115,11 +115,11 @@ export async function cleanupCommand(
 
   const next = route(current, deps.clock());
   if (next === "refuse" || next === "settle") throw refusal(current);
-  if (next === "noop") return reportTeardown(deps, opts, current, { noop: true });
+  if (next === "noop") return reportTeardown(deps, opts, root, current, { noop: true });
 
   const finished =
     next === "retry"
       ? await retryTeardown(teardown, "user", deps.clock())
       : await runTeardown(teardown, deps.clock());
-  return reportTeardown(deps, opts, finished);
+  return reportTeardown(deps, opts, root, finished);
 }

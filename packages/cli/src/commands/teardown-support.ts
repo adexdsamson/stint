@@ -23,6 +23,7 @@ import { CliError, EXIT_CODES } from "../exit.js";
 import type { LoadedCredential } from "../run/credentials.js";
 import { createPublisherClient } from "../run/license-http.js";
 import { isLoopbackHttp } from "../run/loopback.js";
+import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import { loadStoredManifest } from "../store/envelope.js";
 import { loadPublisherBinding } from "../store/publisher-binding.js";
 
@@ -237,27 +238,36 @@ export async function confirmOrDecline(
 }
 
 /** Prints the resulting state and points at the signed trail; maps it to an exit code. */
-export function reportTeardown(
+export async function reportTeardown(
   deps: CliDeps,
   opts: GlobalOpts,
+  root: string,
   lease: Lease,
   extra: Readonly<Record<string, unknown>> = {},
-): number {
+): Promise<number> {
   const done = lease.state === "cleaned_up";
   const incomplete = lease.state === "cleanup_incomplete";
   if (!done && !incomplete) {
     throw new CliError(EXIT_CODES.internal, "Internal error.");
   }
   const progress = lease.teardownProgress ?? {};
+  // SPEC-07: a cleaned-up lease can still hold a credential that was never revoked upstream.
+  // Exit 0 is always paired with this caveat, derived from the verified chain.
+  const unrevoked = isUnrevokedCleanup(lease)
+    ? unrevokedResources(await deps.receiptStoreFactory(root, lease.id).load("verified"))
+    : [];
 
   if (opts.json === true) {
     deps.io.out(
-      `${JSON.stringify({ leaseId: lease.id, state: lease.state, teardown: progress, ...extra })}\n`,
+      `${JSON.stringify({ leaseId: lease.id, state: lease.state, teardown: progress, unrevoked, ...extra })}\n`,
     );
   } else {
-    deps.io.out(`Lease ${lease.id}: ${lease.state}\n`);
+    deps.io.out(`Lease ${lease.id}: ${stateLabel(lease)}\n`);
     for (const [step, outcome] of Object.entries(progress)) {
       deps.io.out(`  ${step}: ${outcome}\n`);
+    }
+    for (const resource of unrevoked) {
+      deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
     }
     if (incomplete) {
       deps.io.err(

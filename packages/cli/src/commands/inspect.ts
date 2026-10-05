@@ -11,6 +11,7 @@ import { sanitizeForTerminal } from "../adapter/sanitize.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
+import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 
 export type InspectOpts = GlobalOpts;
 
@@ -25,7 +26,8 @@ export async function inspectCommand(
 ): Promise<number> {
   assertSafeLeaseId(leaseId);
   const json = opts.json === true;
-  const lease = await deps.storeFactory(resolveStoreRoot(opts)).load(leaseId);
+  const root = resolveStoreRoot(opts);
+  const lease = await deps.storeFactory(root).load(leaseId);
   if (lease === undefined) {
     throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
   }
@@ -35,11 +37,20 @@ export async function inspectCommand(
     return EXIT_CODES.ok;
   }
 
-  deps.io.out(`${renderLease(lease, deps.clock(), deps.style(false))}\n`);
+  // The caveat names each credential the user must rotate; it comes from the verified receipts.
+  const unrevoked = isUnrevokedCleanup(lease)
+    ? unrevokedResources(await deps.receiptStoreFactory(root, leaseId).load("verified"))
+    : [];
+  deps.io.out(`${renderLease(lease, deps.clock(), deps.style(false), unrevoked)}\n`);
   return EXIT_CODES.ok;
 }
 
-function renderLease(lease: Lease, now: number, style: ReturnType<CliDeps["style"]>): string {
+function renderLease(
+  lease: Lease,
+  now: number,
+  style: ReturnType<CliDeps["style"]>,
+  unrevoked: readonly string[],
+): string {
   const s = sanitizeForTerminal;
   const lines: string[] = [];
   const section = (title: string): void => {
@@ -50,7 +61,7 @@ function renderLease(lease: Lease, now: number, style: ReturnType<CliDeps["style
   };
 
   lines.push(style.header(`Lease ${s(lease.id)}`));
-  row(`state: ${s(lease.state)}`);
+  row(`state: ${s(stateLabel(lease))}`);
   row(`version: ${String(lease.version)}`);
   row(`bound manifest hash: ${s(lease.boundHash)}`);
   if (lease.state === "active" && lease.expiresAt > 0 && now >= lease.expiresAt) {
@@ -75,6 +86,10 @@ function renderLease(lease: Lease, now: number, style: ReturnType<CliDeps["style
     for (const [step, outcome] of Object.entries(lease.teardownProgress)) {
       row(`${s(step)}: ${s(outcome)}`);
     }
+  }
+  if (unrevoked.length > 0) {
+    section("Teardown caveat");
+    for (const resource of unrevoked) row(rotateCaveat(resource));
   }
   return lines.join("\n");
 }
