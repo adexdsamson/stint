@@ -33,11 +33,17 @@
  */
 
 import { awaitApprovalDecision } from "@stint/core";
-import type { ApprovalDecision as HostApprovalDecision, ApprovalRequest, ApprovalRequirement, HostAdapter } from "@stint/core";
+import type {
+  ApprovalDecision as HostApprovalDecision,
+  ApprovalRequest,
+  ApprovalRequirement,
+  ApprovalVoidReason,
+  HostAdapter,
+} from "@stint/core";
 import { hashCanonical } from "@stint/spec";
 import type { ContentHash } from "@stint/spec";
 
-import type { ApprovalDecision, ApprovalStage, CallContext } from "../dispatch.js";
+import type { ApprovalDecision, ApprovalRequestOptions, ApprovalStage, CallContext } from "../dispatch.js";
 
 /**
  * A held call's stored commitment (D-11) -- carries only the opaque id and
@@ -62,6 +68,9 @@ export interface PendingApproval {
  */
 const pendingApprovals = new Map<string, PendingApproval>();
 let approvalSequence = 0;
+
+/** The most approvals one dispatcher lets wait at once; past it a request is denied `approval_queue_full` without asking the adapter (A13, T-08-49). */
+export const DEFAULT_MAX_PENDING_APPROVALS = 20;
 
 /**
  * The confirmed D-11 commitment-hash tuple (04-04-PLAN.md Task 1 checkpoint,
@@ -97,14 +106,35 @@ function redactedSummary(ctx: CallContext, requirement: ApprovalRequirement): st
  * pure comparison against an injected `now` -- an interactive out-of-band
  * wait is exactly the one place in this codebase a real timer is correct
  * (unlike `evaluatePolicy`'s per-call expiry, which stays timerless).
+ *
+ * The timer is armed when the approval is requested, so a request that waits
+ * behind others in a host's display queue still times out on schedule (D-18).
+ * The signal handed to the adapter merges that timeout with the optional
+ * lease-ended signal `handleCall` passes (D-20). At most `opts.maxPending`
+ * (default 20) requests may wait at once per dispatcher; the next is denied
+ * `approval_queue_full` without reaching the adapter (A13).
  */
 export function createApprovalDispatcher(
   adapter: HostAdapter,
   timeoutSeconds: number,
   clock: () => number,
+  opts?: { readonly maxPending?: number },
 ): ApprovalStage {
+  const maxPending = opts?.maxPending ?? DEFAULT_MAX_PENDING_APPROVALS;
+  let inFlight = 0;
+
   return {
-    async requestApproval(ctx: CallContext, requirement: ApprovalRequirement): Promise<ApprovalDecision> {
+    async requestApproval(
+      ctx: CallContext,
+      requirement: ApprovalRequirement,
+      _now: number,
+      requestOpts?: ApprovalRequestOptions,
+    ): Promise<ApprovalDecision> {
+      if (inFlight >= maxPending) {
+        return { decision: "deny", reason: "approval_queue_full" };
+      }
+      inFlight += 1;
+
       approvalSequence += 1;
       const approvalId = `approval-${String(approvalSequence)}`;
       const commitmentHash = computeApprovalHash(ctx.resolvedArgs, ctx.binding, ctx.leaseVersion);
@@ -120,18 +150,24 @@ export function createApprovalDispatcher(
       const timer = setTimeout(() => {
         controller.abort();
       }, timeoutSeconds * 1000);
+      const signal =
+        requestOpts?.signal !== undefined
+          ? AbortSignal.any([controller.signal, requestOpts.signal])
+          : controller.signal;
 
       let decision: HostApprovalDecision;
       try {
         // The ONLY sanctioned way to call `adapter.requestApproval` --
-        // races the adapter against `controller.signal`, resolving `{
-        // decision: 'deny', reason: 'timeout' }` on abort, adapter
-        // rejection/throw, or a late resolution that loses the race (Phase
-        // 2 D-17). A slow, throwing, or hostile adapter can never turn a
-        // held call into an allow.
-        decision = await awaitApprovalDecision(adapter, request, controller.signal);
+        // races the adapter against `signal`, resolving `{ decision:
+        // 'deny', reason: 'timeout' }` on abort, adapter rejection/throw, or
+        // a late resolution that loses the race, and `lease_ended` when the
+        // lease-ended signal aborted it (Phase 2 D-17, D-20). A slow,
+        // throwing, or hostile adapter can never turn a held call into an
+        // allow.
+        decision = await awaitApprovalDecision(adapter, request, signal);
       } finally {
         clearTimeout(timer);
+        inFlight -= 1;
       }
 
       if (decision.decision === "approve") {
@@ -140,6 +176,24 @@ export function createApprovalDispatcher(
 
       pendingApprovals.delete(approvalId);
       return { decision: "deny", reason: decision.reason };
+    },
+
+    /** Drops a commitment whose approval will never be verified (the post-approval transaction failed first). */
+    release(approvalId: string): void {
+      pendingApprovals.delete(approvalId);
+    },
+
+    /**
+     * Tells the user an approval they gave did not take effect (D-21), through
+     * the existing `notify` method. Best effort: every failure is swallowed so
+     * it can never change a call's result.
+     */
+    async reportVoided(ctx: CallContext, reason: ApprovalVoidReason, now: number): Promise<void> {
+      try {
+        await adapter.notify({ type: "approval_void", leaseId: ctx.leaseId, at: now, reason });
+      } catch {
+        // a failed notice must not alter the call's result
+      }
     },
 
     /**

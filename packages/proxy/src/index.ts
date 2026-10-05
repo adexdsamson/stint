@@ -24,6 +24,7 @@ export {
 } from "./dispatch.js";
 export type {
   ApprovalDecision,
+  ApprovalRequestOptions,
   ApprovalStage,
   CallContext,
   CapCheck,
@@ -53,7 +54,11 @@ export { createCapEnforcer } from "./caps/cap-enforcer.js";
 // D-11 commitment-hash function (`hashCanonical({ args, tool, provenance,
 // leaseVersion })`) -- exported so a platform can independently verify a
 // receipted approval's commitment offline.
-export { computeApprovalHash, createApprovalDispatcher } from "./approvals/approval-dispatcher.js";
+export {
+  DEFAULT_MAX_PENDING_APPROVALS,
+  computeApprovalHash,
+  createApprovalDispatcher,
+} from "./approvals/approval-dispatcher.js";
 export type { PendingApproval } from "./approvals/approval-dispatcher.js";
 
 // Per-call receipt builder (D-13, RCPT-01). `buildCallPayload` produces the

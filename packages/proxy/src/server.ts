@@ -19,7 +19,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { BindingSet, LeaseStore, ReceiptStore } from "@stint/core";
+import type { BindingSet, LeaseStore, ReceiptStore, Telemetry } from "@stint/core";
 import type { Access, Approvals, Limits } from "@stint/spec";
 
 import type { ToolCatalog } from "./catalog.js";
@@ -58,6 +58,10 @@ export interface ProxyDeps {
   readonly approve: ApprovalStage;
   readonly enforceCaps: CapEnforcer;
   readonly teardownSteps?: readonly TeardownStep[];
+  /** How often, in milliseconds, a call waiting for an approval polls the lease store to notice the lease ending (D-20). Default 1000. */
+  readonly approvalWatchMs?: number;
+  /** Optional observational sink; one `call.decided` event per call (D-25). */
+  readonly telemetry?: Telemetry;
 }
 
 function toWireTool(name: string, catalog: ToolCatalog): Tool {
