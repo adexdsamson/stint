@@ -40,6 +40,8 @@ import {
 import type { SecretStore } from "./ports/secret-store.js";
 import type { KeyProvider, RuntimeKey, RuntimePublicJwk } from "./ports/key-provider.js";
 import type { LeaseArtifactName, LeaseArtifactStore } from "./ports/lease-artifact-store.js";
+import type { Telemetry, TelemetryEvent } from "./ports/telemetry.js";
+import { safeEmit } from "./ports/telemetry.js";
 import { signCheckpoint, verifyCheckpoint } from "./receipts/checkpoint.js";
 
 /**
@@ -733,6 +735,73 @@ export function createLeaseArtifactStoreContractTests(makeStore: () => LeaseArti
       await store.put("lease-1", "publisher", { v: 1 });
       await store.put("lease-1", "publisher", { v: 2 });
       expect(await store.get("lease-1", "publisher")).toEqual({ v: 2 });
+    });
+  });
+}
+
+/** A `Telemetry` double that records every event in emission order. */
+export function createRecordingTelemetry(): Telemetry & { readonly events: readonly TelemetryEvent[] } {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    emit(event: TelemetryEvent): void {
+      events.push(event);
+    },
+  };
+}
+
+/**
+ * Registers a reusable Vitest `describe` block that exercises ANY `Telemetry`
+ * implementation `makeTelemetry()` supplies: every event shape is accepted
+ * without throwing, and `safeEmit` never lets a faulty sink escape (D-25).
+ */
+export function createTelemetryContractTests(makeTelemetry: () => Telemetry): void {
+  describe("Telemetry contract", () => {
+    const events: readonly TelemetryEvent[] = [
+      { name: "call.decided", leaseId: "lease-1", tool: "sheets.read", outcome: "allowed" },
+      { name: "call.decided", leaseId: "lease-1", tool: "sheets.write", outcome: "denied", reason: "over_budget" },
+      { name: "lease.transition", leaseId: "lease-1", from: "granted", to: "active", actor: "runtime" },
+      { name: "teardown.step", leaseId: "lease-1", step: "revoke_oauth", outcome: "revoked" },
+      { name: "teardown.blocked", leaseId: "lease-1", reason: "credentials_unavailable", resourceCount: 2 },
+    ];
+
+    it("EMIT: accepts each event shape without throwing", () => {
+      const telemetry = makeTelemetry();
+      for (const event of events) {
+        expect(() => {
+          telemetry.emit(event);
+        }).not.toThrow();
+      }
+    });
+
+    it("SAFE EMIT: a sink whose emit throws does not make safeEmit throw", () => {
+      const throwing: Telemetry = {
+        emit(): void {
+          throw new Error("sink exploded");
+        },
+      };
+      for (const event of events) {
+        expect(() => {
+          safeEmit(throwing, event);
+        }).not.toThrow();
+      }
+    });
+
+    it("SAFE EMIT: undefined sink is a no-op", () => {
+      for (const event of events) {
+        expect(() => {
+          safeEmit(undefined, event);
+        }).not.toThrow();
+      }
+    });
+
+    it("SAFE EMIT: delivers to a working sink", () => {
+      const telemetry = makeTelemetry();
+      for (const event of events) {
+        expect(() => {
+          safeEmit(telemetry, event);
+        }).not.toThrow();
+      }
     });
   });
 }

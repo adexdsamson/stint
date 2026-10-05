@@ -49,6 +49,21 @@ export type { LeaseStore, LeaseMutator } from "./lease-store.js";
 export { NOOP_TELEMETRY, safeEmit } from "./ports/telemetry.js";
 export type { Telemetry, TelemetryEvent } from "./ports/telemetry.js";
 
+// Storage ports (RT-02): secrets, signing keys and per-lease artifacts. Their
+// in-memory doubles and contract suites live in `@stint/core/testing` only and
+// are deliberately NOT re-exported here.
+export {
+  SecretKeyError,
+  assertValidSecretKey,
+  assertValidSecretPrefix,
+  leaseSecretPrefix,
+  credentialSecretKey,
+} from "./ports/secret-store.js";
+export type { SecretStore } from "./ports/secret-store.js";
+export type { KeyProvider, RuntimeKey, RuntimePublicJwk, RuntimeVerificationKey } from "./ports/key-provider.js";
+export { parseGrantsArtifact } from "./ports/lease-artifact-store.js";
+export type { LeaseArtifactStore, LeaseArtifactName, GrantRecord, GrantsArtifact } from "./ports/lease-artifact-store.js";
+
 // License public surface (LIC-01, LIC-02, LIC-03, D-11, D-13, D-15). The
 // reference `issueLicense` secret-signing path and `@stint/core/testing`'s
 // `createMockLicenseIssuer` are deliberately NOT re-exported here -- the
