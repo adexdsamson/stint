@@ -132,10 +132,10 @@ export { applyEntitlementRevocation, applyProviderRevocation, isProviderRevocati
 // (hardened by 05-04/05-05/05-06); `TeardownDeps` is `runTeardown`'s/
 // `retryTeardown`'s construction-time dependency bag.
 export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
-export { appendTransitionReceipt, retryTeardown, runTeardown } from "./teardown/orchestrate.js";
-export type { TeardownDeps } from "./teardown/orchestrate.js";
+export { appendTransitionReceipt, retryTeardown, runTeardown, TeardownBlockedError } from "./teardown/orchestrate.js";
+export type { TeardownCredentialCheck, TeardownDeps } from "./teardown/orchestrate.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
-export type { CleanupHookConfig, LicenseCustody, TeardownStep } from "./teardown/steps.js";
+export type { CleanupHookConfig, LicenseCustody, TeardownStep, TeardownStepOptions } from "./teardown/steps.js";
 export {
   allStepsSucceeded,
   isSuccessOutcome,

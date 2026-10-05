@@ -19,8 +19,15 @@
 
 import { randomUUID } from "node:crypto";
 
-import { signCheckpoint, verifyChain } from "@stint/core";
-import type { Lease, LicenseIssuer, ReceiptStore, TeardownStepName, TeardownStepOutcome } from "@stint/core";
+import { credentialSecretKey, leaseSecretPrefix, SecretKeyError, signCheckpoint, verifyChain } from "@stint/core";
+import type {
+  Lease,
+  LicenseIssuer,
+  ReceiptStore,
+  SecretStore,
+  TeardownStepName,
+  TeardownStepOutcome,
+} from "@stint/core";
 import type { CryptoKey } from "jose";
 
 import { appendReceiptEntry } from "../receipts/append.js";
@@ -130,38 +137,61 @@ function aggregateRevokeOutcome(perCredentialOutcomes: readonly TeardownStepOutc
 
 /**
  * The real `revoke_oauth` (step 1) implementation (D-20, D-22, D-23, D-33,
- * TEAR-02): revokes and discards every credential the vault holds for this
- * lease via `vault.revokeAndDiscardLeaseCredentials` (the refresh token
+ * TEAR-02, TEAR-07): revokes and discards every credential the vault holds for
+ * this lease via `vault.revokeAndDiscardLeaseCredentials` (the refresh token
  * never leaves the vault -- this function only ever sees the closed
- * {@link RevokeResult}). A hosted-only lease with no seeded credential
- * returns `"not_applicable"` (D-33) and makes no revoke call. Otherwise
- * appends ONE `teardown_step` receipt PER credential carrying that
- * credential's own honest outcome (never a raw token/error, D-24, Pitfall
- * 8), then returns the aggregate outcome ({@link aggregateRevokeOutcome})
- * for `runStepAndPersist`'s own progress-record write and receipt.
+ * {@link RevokeResult}). `"not_applicable"` (D-33, hosted-only lease, no
+ * revoke call) is returned ONLY when no credential is expected for the lease
+ * and the vault produced none. An expected credential the vault could not
+ * produce is recorded as `failed` for that resource and makes the aggregate
+ * `failed` (TEAR-07: a grant the lease recorded may still be live, so it is
+ * never `not_applicable`). Appends ONE `teardown_step` receipt PER credential
+ * carrying that credential's own honest outcome (never a raw token/error,
+ * D-24, Pitfall 8), then returns the aggregate outcome
+ * ({@link aggregateRevokeOutcome}) for `runStepAndPersist`'s own
+ * progress-record write and receipt.
  */
-function createRevokeOauthStep(vault: CredentialVault, receiptStore: ReceiptStore): TeardownStep {
+function createRevokeOauthStep(
+  vault: CredentialVault,
+  receiptStore: ReceiptStore,
+  expectedResources: readonly string[],
+): TeardownStep {
   return {
     name: "revoke_oauth",
     async run(lease: Lease, now: number): Promise<TeardownStepOutcome> {
-      const perCredential = await vault.revokeAndDiscardLeaseCredentials(lease.id, now);
-      if (perCredential.length === 0) {
+      const perCredential = await vault.revokeAndDiscardLeaseCredentials(
+        lease.id,
+        now,
+        expectedResources.length === 0 ? undefined : expectedResources,
+      );
+      if (perCredential.length === 0 && expectedResources.length === 0) {
         return "not_applicable";
       }
 
       const outcomes: TeardownStepOutcome[] = [];
+      const produced = new Set<string>();
       for (const { resource, result } of perCredential) {
+        produced.add(resource);
         const outcome = revokeResultToOutcome(result);
         outcomes.push(outcome);
         // D-26: name the credential so a timeline can say which one an outcome belongs to.
-        // Out-of-range names are omitted (the schema bounds `resource` to 1..128).
-        const named = resource.length >= 1 && resource.length <= 128 ? resource : undefined;
-        await appendTeardownStepReceipt(receiptStore, "revoke_oauth", outcome, now, named);
+        await appendTeardownStepReceipt(receiptStore, "revoke_oauth", outcome, now, namedResource(resource));
+      }
+
+      for (const resource of new Set(expectedResources)) {
+        if (produced.has(resource)) continue;
+        outcomes.push("failed");
+        await appendTeardownStepReceipt(receiptStore, "revoke_oauth", "failed", now, namedResource(resource));
       }
 
       return aggregateRevokeOutcome(outcomes);
     },
   };
+}
+
+/** The receipt `resource` for a credential name; out-of-range names are omitted (the schema bounds `resource` to 1..128). */
+function namedResource(resource: string): string | undefined {
+  return resource.length >= 1 && resource.length <= 128 ? resource : undefined;
 }
 
 /**
@@ -235,32 +265,56 @@ function createCleanupHookStep(config: CleanupHookConfig, signingKey: CryptoKey)
 }
 
 /**
- * The real `delete_cached_data` (step 4) implementation (D-17): a
- * belt-and-suspenders sweep that deletes any REMAINING sensitive cached
- * material for this lease. Calls `vault.discardLeaseCredentials` -- a pure
+ * The real `delete_cached_data` (step 4) implementation (D-17, D-13, TEAR-07):
+ * a belt-and-suspenders sweep that deletes any REMAINING sensitive cached
+ * material for this lease. Awaits `vault.discardLeaseCredentials` -- a pure
  * delete, no revoke attempt (step 1 already made revoke_oauth's one
  * terminal attempt per credential, D-23; idempotent no-op if step 1 already
- * discarded everything or a hosted-only lease never had a credential).
- * When a `custody` collaborator is supplied, also confirms the held-license
- * custody is discarded (idempotent no-op if step 2 already discarded it, or
- * a delegated-only lease never held one). This step NEVER touches the
- * `ReceiptStore` or the `Lease`/`teardownProgress` record -- receipts
- * outlive the lease (RCPT-07) and the progress record must survive so a
- * `cleanup_incomplete` retry can resume (D-17's delete/retain split; a full
- * lease-record drop, if ever, happens only after `cleaned_up`, and is not
- * this step's concern). Always resolves `"ok"` -- deleting an
- * already-discarded lease's credentials/license is idempotent, never a
- * failure.
+ * discarded everything or a hosted-only lease never had a credential) -- so a
+ * durable discard that fails is surfaced, not dropped. When a `custody`
+ * collaborator is supplied, also confirms the held-license custody is
+ * discarded (idempotent no-op if step 2 already discarded it, or a
+ * delegated-only lease never held one). When a `secrets` store is supplied it
+ * purges the lease's whole secret prefix and then reads back the key of every
+ * expected credential: a value still present resolves `"failed"` (a secret
+ * left on disk is a failed cleanup, never a caveat), and a rejected purge is
+ * thrown and recorded `"failed"` by `runStepOnce`, so the lease lands
+ * `cleanup_incomplete` and a normal retry picks it up. This step NEVER
+ * touches the `ReceiptStore` or the `Lease`/`teardownProgress` record --
+ * receipts outlive the lease (RCPT-07) and the progress record must survive
+ * so a `cleanup_incomplete` retry can resume (D-17's delete/retain split).
+ * Otherwise resolves `"ok"` -- deleting an already-discarded lease's
+ * credentials/license is idempotent.
  */
-function createDeleteCachedDataStep(vault: CredentialVault, custody?: LicenseCustody): TeardownStep {
+function createDeleteCachedDataStep(
+  vault: CredentialVault,
+  custody: LicenseCustody | undefined,
+  options: TeardownStepOptions,
+): TeardownStep {
   return {
     name: "delete_cached_data",
-    run(lease: Lease): Promise<TeardownStepOutcome> {
-      vault.discardLeaseCredentials(lease.id);
+    async run(lease: Lease): Promise<TeardownStepOutcome> {
       if (custody !== undefined && custody.hasLicense(lease.id)) {
         custody.discard(lease.id);
       }
-      return Promise.resolve("ok");
+      await vault.discardLeaseCredentials(lease.id);
+
+      const secrets = options.secrets;
+      if (secrets === undefined) return "ok";
+
+      await secrets.deletePrefix(leaseSecretPrefix(lease.id));
+      for (const resource of options.expectedResources ?? []) {
+        let key: string;
+        try {
+          key = credentialSecretKey(lease.id, resource);
+        } catch (error) {
+          // A name the store cannot address was never stored under any key.
+          if (error instanceof SecretKeyError) continue;
+          throw error;
+        }
+        if ((await secrets.get(key)) !== undefined) return "failed";
+      }
+      return "ok";
     },
   };
 }
@@ -294,6 +348,18 @@ function createFinalReceiptStep(receiptStore: ReceiptStore, signingKey: CryptoKe
 }
 
 /**
+ * Optional hardening inputs (Phase 8 TEAR-07, D-13). `expectedResources` is
+ * every resource name the lease recorded a credential for at grant time: step 1
+ * records `failed` for any the vault cannot produce, and step 4 reads each one
+ * back from `secrets` after the purge. `secrets` is the durable store step 4
+ * purges by lease prefix.
+ */
+export interface TeardownStepOptions {
+  readonly expectedResources?: readonly string[];
+  readonly secrets?: SecretStore;
+}
+
+/**
  * The 5 fixed-order default `TeardownStep`s (D-33), in `TEARDOWN_STEP_ORDER`
  * -- the production defaults a `TeardownDeps.steps` should be built from.
  * `revoke_oauth` (05-04), `cleanup_hook` (05-06), `delete_cached_data` (this
@@ -318,7 +384,9 @@ function createFinalReceiptStep(receiptStore: ReceiptStore, signingKey: CryptoKe
  * exercises that step's honest implementation. No new parameter is added
  * for `delete_cached_data`: it reuses `vault`/`license` verbatim, since D-17
  * is a belt-and-suspenders sweep over the SAME collaborators steps 1/2
- * already hold, never a distinct credential/license seam.
+ * already hold, never a distinct credential/license seam. The optional sixth
+ * `options` ({@link TeardownStepOptions}) feeds the TEAR-07 defences: the
+ * expected credential list to step 1 and both fields to step 4.
  */
 export function createDefaultTeardownSteps(
   receiptStore: ReceiptStore,
@@ -326,16 +394,19 @@ export function createDefaultTeardownSteps(
   vault?: CredentialVault,
   license?: { readonly issuer: LicenseIssuer; readonly custody: LicenseCustody },
   cleanup?: CleanupHookConfig,
+  options: TeardownStepOptions = {},
 ): readonly TeardownStep[] {
   return [
-    vault === undefined ? happyPathStep("revoke_oauth", "revoked") : createRevokeOauthStep(vault, receiptStore),
+    vault === undefined
+      ? happyPathStep("revoke_oauth", "revoked")
+      : createRevokeOauthStep(vault, receiptStore, options.expectedResources ?? []),
     license === undefined
       ? happyPathStep("invalidate_license", "ok")
       : createInvalidateLicenseStep(license.issuer, license.custody),
     cleanup === undefined ? happyPathStep("cleanup_hook", "attested_ok") : createCleanupHookStep(cleanup, signingKey),
     vault === undefined
       ? happyPathStep("delete_cached_data", "ok")
-      : createDeleteCachedDataStep(vault, license?.custody),
+      : createDeleteCachedDataStep(vault, license?.custody, options),
     createFinalReceiptStep(receiptStore, signingKey),
   ];
 }

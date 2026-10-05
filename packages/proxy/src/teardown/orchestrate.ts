@@ -41,6 +41,18 @@
  * chain never forks. Closing it needs driver ownership and fencing, which the
  * roadmap schedules for Phase 9.
  *
+ * Fail closed on missing credentials (Phase 8 TEAR-07, D-11): when
+ * `deps.credentialCheck` is supplied, both entry points first run a PREFLIGHT
+ * (never a sixth step, D-02). If revoke_oauth has no recorded outcome and the
+ * check reports a credential the lease recorded but the runtime cannot
+ * produce, NO step runs, NO transition is performed, NO checkpoint is signed
+ * and the lease state is left exactly as it was. One `teardown_blocked`
+ * receipt (reason `credentials_unavailable`, the missing resource names
+ * de-duplicated and sorted) is appended inside a lease transaction, skipped
+ * when the chain tail already records the identical block, and
+ * `TeardownBlockedError` is thrown. A check that throws counts as every
+ * expected credential missing.
+ *
  * `runTeardown` OPTIONALLY signs a SECOND checkpoint bracketing the
  * terminal-transition boundary (D-31, this plan, 05-08): when
  * `deps.signingKey` is supplied, right before any of the 5 fixed steps run
@@ -117,6 +129,55 @@ export interface TeardownDeps {
    * driver performed. A faulty sink never changes an outcome.
    */
   readonly telemetry?: Telemetry;
+  /**
+   * OPTIONAL (Phase 8 TEAR-07): the credential preflight. Absent keeps the
+   * pre-08-08 behavior exactly. See this module's docstring.
+   */
+  readonly credentialCheck?: TeardownCredentialCheck;
+}
+
+/**
+ * The credential preflight contract: `expected` is every resource name the
+ * lease recorded a credential for at grant time; `missing` resolves the subset
+ * the runtime cannot currently produce. `missing` rejecting is treated as every
+ * `expected` credential being missing (fail closed).
+ */
+export interface TeardownCredentialCheck {
+  readonly expected: readonly string[];
+  readonly missing: () => Promise<readonly string[]>;
+}
+
+/** Fixed message: a resource name is never interpolated (it may be hostile). */
+const BLOCKED_MESSAGE = "Teardown is blocked: credentials are unavailable.";
+
+/** Thrown by `runTeardown`/`retryTeardown` when the credential preflight blocks the teardown. `resources` is the normalized list also written to the `teardown_blocked` receipt. */
+export class TeardownBlockedError extends Error {
+  readonly reason = "credentials_unavailable" as const;
+  readonly resources: readonly string[];
+
+  constructor(resources: readonly string[]) {
+    super(BLOCKED_MESSAGE);
+    this.name = "TeardownBlockedError";
+    this.resources = resources;
+  }
+}
+
+const BLOCKED_RESOURCE_PLACEHOLDER = "unknown";
+const BLOCKED_MAX_RESOURCES = 64;
+const BLOCKED_MAX_NAME_LENGTH = 128;
+
+/** De-duplicates, replaces an unwritable name (empty or over 128 characters) with `unknown`, sorts ascending and caps at the schema bound, so one missing set always yields one payload. */
+function normalizeBlockedResources(names: readonly string[]): string[] {
+  const unique = new Set<string>();
+  for (const name of names) {
+    const writable = typeof name === "string" && name.length >= 1 && name.length <= BLOCKED_MAX_NAME_LENGTH;
+    unique.add(writable ? name : BLOCKED_RESOURCE_PLACEHOLDER);
+  }
+  return [...unique].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).slice(0, BLOCKED_MAX_RESOURCES);
+}
+
+function sameResources(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, index) => name === b[index]);
 }
 
 const TERMINAL_END_STATES: ReadonlySet<Lease["state"]> = new Set(["completed", "expired", "revoked", "failed"]);
@@ -337,6 +398,70 @@ function afterRejectedEntry(attempt: TransitionAttempt): Lease | undefined {
 }
 
 /**
+ * The TEAR-07 preflight. Returns at once without a `credentialCheck`. Otherwise
+ * one lease transaction (the mutator always returns the lease unchanged)
+ * skips when the lease is not in a state the entry point would act on or when
+ * revoke_oauth already has a recorded outcome, asks the check which
+ * credentials are missing (a throw means every expected one), and appends one
+ * `teardown_blocked` receipt unless the chain tail already records the
+ * identical block. Doing the dedupe and the append inside the transaction is
+ * what makes two concurrent blocked drivers write one entry. Throws
+ * `TeardownBlockedError` after the transaction when anything is missing.
+ */
+async function assertCredentialsAvailable(
+  deps: TeardownDeps,
+  mode: "run" | "retry",
+  now: number,
+): Promise<void> {
+  const check = deps.credentialCheck;
+  if (check === undefined) return;
+
+  let blocked: string[] = [];
+  await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+    const eligible =
+      mode === "run"
+        ? TERMINAL_END_STATES.has(lease.state) || lease.state === "tearing_down"
+        : lease.state === "cleanup_incomplete" || lease.state === "tearing_down";
+    if (!eligible) return lease;
+    if (lease.teardownProgress?.revoke_oauth !== undefined) return lease;
+
+    let missing: readonly string[];
+    try {
+      missing = await check.missing();
+    } catch {
+      missing = check.expected;
+    }
+    const [first, ...rest] = normalizeBlockedResources(missing);
+    if (first === undefined) return lease;
+    const resources: [string, ...string[]] = [first, ...rest];
+
+    const chain = await deps.receiptStore.load("verified");
+    const tail = chain.at(-1);
+    const alreadyRecorded =
+      tail?.type === "teardown_blocked" &&
+      sameResources(tail.payload.resources, resources);
+    if (!alreadyRecorded) {
+      await appendReceipt(
+        deps.receiptStore,
+        { chain: "verified", type: "teardown_blocked", payload: { reason: "credentials_unavailable", resources } },
+        now,
+      );
+    }
+    blocked = resources;
+    return lease;
+  });
+
+  if (blocked.length === 0) return;
+  safeEmit(deps.telemetry, {
+    name: "teardown.blocked",
+    leaseId: deps.leaseId,
+    reason: "credentials_unavailable",
+    resourceCount: blocked.length,
+  });
+  throw new TeardownBlockedError(blocked);
+}
+
+/**
  * Runs one pass of teardown for `deps.leaseId` (TEAR-01). If the currently
  * persisted lease is in a terminal end state, auto-chains `begin_teardown`
  * first via `chainTeardownIfEnded` (D-18); otherwise the lease is assumed
@@ -347,6 +472,7 @@ function afterRejectedEntry(attempt: TransitionAttempt): Lease | undefined {
  * `cleanup_incomplete` with every step's outcome honestly recorded (D-15).
  */
 export async function runTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
+  await assertCredentialsAvailable(deps, "run", now);
   const lease = await peekLease(deps);
 
   if (isLanded(lease.state)) return lease;
@@ -387,6 +513,7 @@ export async function retryTeardown(
   actor: "user" | "runtime",
   now: number,
 ): Promise<Lease> {
+  await assertCredentialsAvailable(deps, "retry", now);
   const attempt = await applyTransition(deps, now, (l) =>
     reduce(l, actor === "user" ? userEvents.retryTeardown() : runtimeEvents.retryTeardown(), now),
   );
