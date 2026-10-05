@@ -56,6 +56,17 @@ function describe(entry: ReceiptEntry, hasUnrevoked: boolean): string {
       const named = `${base} for ${field(payload, "resource")}`;
       return payload.outcome === "discarded_revocation_unsupported" ? `${named}${ROTATE_SUFFIX}` : named;
     }
+    case "teardown_blocked": {
+      // Read defensively: a hand-edited receipt may carry any shape.
+      const resources = payload.resources;
+      const names =
+        Array.isArray(resources) && resources.length > 0 && resources.every((r): r is string => typeof r === "string")
+          ? resources.map((r) => sanitizeForTerminal(r)).join(", ")
+          : undefined;
+      return names === undefined
+        ? "teardown blocked: credentials unavailable"
+        : `teardown blocked: credentials unavailable for ${names}`;
+    }
     case "attested_claim":
       return `publisher ${field(payload, "publisherId")} claims ${field(payload, "claimType")} (not verified by the runtime)`;
     default:

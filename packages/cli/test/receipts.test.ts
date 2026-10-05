@@ -310,3 +310,51 @@ describe("stint receipts: SPEC-07 caveat", () => {
     expect(out).toContain("for evilname forged line");
   });
 });
+
+describe("stint receipts: teardown_blocked", () => {
+  function blocked(ts: number, resources: [string, ...string[]]): Seed {
+    return {
+      chain: "verified",
+      ts,
+      input: { type: "teardown_blocked", payload: { reason: "credentials_unavailable", resources } },
+    };
+  }
+
+  it("renders a well-formed entry with its resource names", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [blocked(NOW - 30, ["sheets.orders", "mail.send"])]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).toContain("[verified] teardown blocked: credentials unavailable for sheets.orders, mail.send\n");
+    expect(out).not.toContain("unrecognized receipt entry");
+  });
+
+  it("renders a malformed payload without the resource list and does not throw", async () => {
+    const harness = await harnessWithLease();
+    const store = harness.deps.receiptStoreFactory(harness.root, LEASE.id);
+    await store.append("verified", {
+      seq: 0,
+      ts: NOW,
+      chain: "verified",
+      type: "teardown_blocked",
+      prevHash: HASH,
+      payload: { reason: "credentials_unavailable", resources: "not-an-array" },
+    } as unknown as ReceiptEntry);
+
+    expect(await main(["--store", harness.root, "receipts", LEASE.id], harness.deps)).toBe(0);
+    expect(harness.stdout.join("")).toContain("[verified] teardown blocked: credentials unavailable\n");
+  });
+
+  it("sanitizes a resource name that carries an escape character", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [blocked(NOW - 30, [`evil${ESC}[31mname\r\nforged line`])]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).not.toContain(ESC);
+    expect(out).not.toContain("\r");
+    expect(out.trimEnd().split("\n")).toHaveLength(1);
+    expect(out).toContain("credentials unavailable for evilname forged line");
+  });
+});

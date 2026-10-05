@@ -488,6 +488,8 @@ Each OAuth grant's revocation records one of three outcomes: `revoked`, `discard
 
 A failing step does not stop the remaining steps from running. If every step reaches a success outcome, `discarded_revocation_unsupported` included, the lease moves to `cleaned_up`; if any step does not complete, the lease moves to `cleanup_incomplete` with every step's individual result recorded (Section 7.4). Retrying teardown resumes idempotently: it MUST NOT repeat a step that already completed. A lease that has entered teardown can never return to `active`. Receipts survive cleanup: the receipt log outlives the lease record itself.
 
+Teardown fails closed when a recorded credential cannot be produced. Before any teardown step runs, a runtime MUST check that it can produce every credential the lease recorded at grant time. If any is unavailable and the revocation step has not yet been attempted, the runtime MUST NOT run any step, MUST NOT change the lease state, and MUST append a `teardown_blocked` receipt with reason `credentials_unavailable` naming the missing resources. The lease stays in its ended state until the credentials are supplied again. A runtime MUST NOT record `not_applicable` for the revocation step while a recorded credential is unavailable: `not_applicable` is only for a lease that recorded no credential. A repeated attempt that finds the same credentials missing SHOULD NOT append a second identical receipt. A runtime MUST NOT leave a stored credential behind after teardown: if stored secrets cannot be deleted, or are still present once deleted, the delete step is `failed` and the lease moves to `cleanup_incomplete`.
+
 ```mermaid
 sequenceDiagram
     participant Runtime
@@ -510,11 +512,13 @@ Every tool call, allowed or denied, and every state transition and teardown step
 
 The runtime signs a checkpoint with Ed25519 at least at every lease-ending event, plus a final signed receipt at teardown. The entry format for a receipt and a checkpoint is defined normatively by [spec/receipt.schema.json](receipt.schema.json) and [spec/checkpoint.schema.json](checkpoint.schema.json) (JSON Schema draft-07); this section explains the shape in prose and does not duplicate the schema.
 
-A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
+A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, `teardown_blocked`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
 
 A checkpoint carries `chain`, `count`, `headHash`, `ts`, and `sig`, where `headHash` is the canonical hash of the chain's last entry (or the genesis constant, for an empty chain) and `sig` is the runtime's Ed25519 signature over the canonical serialization of the other four fields.
 
 A `teardown_step` payload MAY carry a `resource` field naming the credential's resource, so a timeline can say which credential an outcome belongs to.
+
+A `teardown_blocked` entry records that teardown could not start and why: its payload carries a `reason` and the names of the missing `resources`. It is written on the verified chain.
 
 A call receipt holds an args hash and a binding-redacted summary; it never holds raw arguments, tokens or the license. Verifying a tampered or truncated chain MUST report the exact point the chain broke, relative to the last valid checkpoint, rather than a generic failure.
 
