@@ -11,3 +11,12 @@ export { settleExpired } from "./settle-expired.js";
 export { RuntimeError } from "./errors.js";
 export type { RuntimeErrorCode } from "./errors.js";
 export type { RuntimePorts } from "./ports.js";
+export { isLoopbackHttp, allowInsecureForClient } from "./loopback.js";
+export {
+  PUBLISHER_TIMEOUT_MS,
+  httpIssuerTransport,
+  createPublisherClient,
+  licenseClaimsFromManifest,
+} from "./license-http.js";
+export { parsePublisherBinding } from "./publisher-binding.js";
+export type { PublisherBinding } from "./publisher-binding.js";

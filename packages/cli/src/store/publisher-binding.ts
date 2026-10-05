@@ -17,50 +17,17 @@ import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { importLicensePublicKey } from "@stint/core/license-issuer";
+import { parsePublisherBinding } from "@stint/runtime";
+import type { PublisherBinding } from "@stint/runtime";
 
 import { CliError, EXIT_CODES } from "../exit.js";
 import { leaseDir } from "../paths.js";
-import { isLoopbackHttp } from "../run/loopback.js";
 import { atomicWriteJson, readJsonRetry } from "./atomic-file.js";
 
-export interface PublisherBinding {
-  readonly issue_url: string;
-  readonly reissue_url: string;
-  readonly invalidate_url: string;
-  /** PASERK `k4.public.<base64url>`: the publisher's pinned license verification key. */
-  readonly license_public_key: string;
-}
-
-const BINDING_KEYS = ["issue_url", "reissue_url", "invalidate_url", "license_public_key"] as const;
+export type { PublisherBinding };
 
 export function publisherBindingFile(root: string, leaseId: string): string {
   return path.join(leaseDir(root, leaseId), "publisher.json");
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/** `https:` or loopback `http:` only; everything else (including unparseable) is refused. */
-function isAllowedPublisherUrl(url: string): boolean {
-  if (!URL.canParse(url)) return false;
-  return new URL(url).protocol === "https:" || isLoopbackHttp(url);
-}
-
-/** Structural validation (no key import). Returns a clean copy, or `undefined` for any malformed shape. */
-function shapeOf(raw: unknown): PublisherBinding | undefined {
-  if (!isRecord(raw)) return undefined;
-  for (const key of BINDING_KEYS) {
-    const value = raw[key];
-    if (typeof value !== "string" || value === "") return undefined;
-  }
-  const { issue_url, reissue_url, invalidate_url, license_public_key } = raw as Record<
-    (typeof BINDING_KEYS)[number],
-    string
-  >;
-  if (![issue_url, reissue_url, invalidate_url].every(isAllowedPublisherUrl)) return undefined;
-  if (!license_public_key.startsWith("k4.public.")) return undefined;
-  return { issue_url, reissue_url, invalidate_url, license_public_key };
 }
 
 /**
@@ -81,7 +48,7 @@ export async function parsePublisherBindingFile(file: string): Promise<Publisher
   } catch {
     throw new CliError(EXIT_CODES.usage, "The publisher file is not valid JSON.");
   }
-  const binding = shapeOf(parsed);
+  const binding = parsePublisherBinding(parsed);
   if (binding === undefined) {
     throw new CliError(EXIT_CODES.usage, "The publisher file has an unexpected shape.");
   }
@@ -114,7 +81,7 @@ export async function loadPublisherBinding(
 ): Promise<PublisherBinding | undefined> {
   const raw = await readJsonRetry(publisherBindingFile(root, leaseId));
   if (raw === undefined) return undefined;
-  const binding = shapeOf(raw);
+  const binding = parsePublisherBinding(raw);
   if (binding === undefined) {
     throw new CliError(EXIT_CODES.storeCorrupt, "The stored publisher binding is invalid.");
   }
