@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import * as runtime from "../src/index.js";
 
 describe("@stint/runtime public surface", () => {
-  it("exposes the three entry points as functions", () => {
+  it("exposes the four entry points as functions", () => {
     expect(typeof runtime.createLeaseRuntime).toBe("function");
     expect(typeof runtime.resolveTeardown).toBe("function");
     expect(typeof runtime.settleExpired).toBe("function");
+    expect(typeof runtime.runSweep).toBe("function");
+    expect(typeof runtime.createSweepState).toBe("function");
   });
 
   it("names the package", () => {

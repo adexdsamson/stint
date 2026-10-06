@@ -367,7 +367,11 @@ async function clockGate(
   return true;
 }
 
-/** Runs one sweep over every lease in `ports.leases`. */
+/**
+ * Runs one sweep over every lease in `ports.leases`.
+ *
+ * @experimental The runtime surface is not yet stable.
+ */
 export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {}): Promise<SweepReport> {
   const events: SweepEvent[] = [];
   const emit = async (event: SweepEvent): Promise<void> => {

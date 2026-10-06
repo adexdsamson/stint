@@ -2,15 +2,16 @@ Experimental. No stability promise yet. The API may change in any release before
 
 # @stint/runtime
 
-The host-agnostic runtime for the Agent Lease Protocol. A host (a command line tool, an IDE extension, a server) hands this package a bundle of ports from `@stint/core`, and the package assembles the lease lifecycle on top of them: serving a lease as an MCP proxy, tearing a lease down, and settling a lease whose time ran out. The package imports no file-system, path, OS or child-process module, never reads the process global, and names no concrete storage backend.
+The host-agnostic runtime for the Agent Lease Protocol. A host (a command line tool, an IDE extension, a server) hands this package a bundle of ports from `@stint/core`, and the package assembles the lease lifecycle on top of them: serving a lease as an MCP proxy, tearing a lease down, settling a lease whose time ran out, and sweeping a whole store. The package imports no file-system, path, OS or child-process module, never reads the process global, and names no concrete storage backend.
 
 ## Entry points
 
-There are three, and they are the whole supported surface.
+There are four, and they are the whole supported surface.
 
 - `createLeaseRuntime` (create a lease runtime): given the ports and a set of options (the lease id, an MCP transport, a host adapter, the verified manifest, the run profile and optionally credentials), serves the lease as an MCP proxy and returns a handle with `closed`, `close` and `verifyOutcome`. Credentials the secret store holds are loaded on demand, a refreshed token is written back to the store, and credentials passed in are copied in only when the store has none for that resource.
 - `resolveTeardown` (resolve teardown): given the ports and a lease id, re-verifies the stored manifest and assembles everything teardown needs, with a fail-closed check that every recorded credential is available. It returns a handle that can run the teardown, retry a `cleanup_incomplete` lease and report which credentials are missing.
 - `settleExpired` (settle expired): given the ports and a lease id, moves a `granted` or `active` lease whose expiry has passed to `expired` and records the transition. A second caller racing the first does nothing.
+- `runSweep` (run sweep): given the ports and a set of options (the retry and probe settings, a stop signal, the clock pause control and a sweep state from `createSweepState` that the host keeps between calls), runs one store-driven sweep over every lease in the store. It settles leases whose time ran out, tears ended leases down, retries an incomplete teardown on a backoff and marks it stuck when retrying cannot help, probes idle leases for a revoked grant, and reports records it cannot read. It returns the events of that sweep. The host owns the loop, the timers and the signals: it decides when to call `runSweep` again and how to stop. `stint-cli supervise` is one such host.
 
 Each entry point is tagged `@experimental` in its JSDoc.
 
