@@ -53,7 +53,12 @@ export function leaseFile(root: string, id: string): string {
   return path.join(leaseDir(root, id), "lease.json");
 }
 
-/** `<root>/leases` — the directory `list()` scans. */
+/** `<root>/supervisor`: holds the supervisor's single-instance lock (D-21). */
+export function supervisorDir(root: string): string {
+  return path.resolve(root, "supervisor");
+}
+
+/** `<root>/leases`— the directory `list()` scans. */
 export function leasesRoot(root: string): string {
   return path.resolve(root, "leases");
 }

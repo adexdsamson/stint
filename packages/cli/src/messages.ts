@@ -126,3 +126,18 @@ export function sweepCorruptLine(leaseId: string): string {
 export function sweepLeaseErrorLine(leaseId: string): string {
   return `Lease ${leaseId} could not be processed in this sweep.`;
 }
+
+/** The fixed refusal when another supervisor holds the store lock (D-21, exit 8). */
+export function supervisorBusyMessage(): string {
+  return "Another supervisor is already running on this store.";
+}
+
+/** The fixed line when the supervisor lock is lost and the loop stops (D-21, exit 8). */
+export function supervisorLockLostMessage(): string {
+  return "The supervisor lock was lost; stopping.";
+}
+
+/** The fixed line when a whole sweep fails in the long-running mode; printed once per failure streak (D-20). */
+export function sweepFailedLine(): string {
+  return "The sweep could not read the store; it will try again at the next interval.";
+}

@@ -33,7 +33,7 @@
 
 import { RuntimeError, createSweepState, runSweep } from "@stint/runtime";
 import type { Lease } from "@stint/core";
-import type { SweepEvent } from "@stint/runtime";
+import type { RuntimePorts, SupervisorConfig, SweepEvent } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
@@ -50,6 +50,7 @@ import { resolveStoreRoot } from "../paths.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { StoreCorruptError } from "../store/atomic-file.js";
+import { acquireSupervisorLock } from "../store/supervisor-lock.js";
 import { parseSupervisorConfig } from "./supervise-options.js";
 
 export interface SuperviseOpts extends GlobalOpts {
@@ -153,6 +154,25 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   const ports = buildRuntimePorts(deps, root);
   const json = opts.json === true;
 
+  // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
+  const lock = await acquireSupervisorLock(root, {
+    staleMs: deps.supervise?.lockStaleMs,
+    acquireWindowMs: deps.supervise?.lockAcquireWindowMs,
+  });
+  try {
+    return await sweepOnceLocked(deps, config, root, ports, json);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function sweepOnceLocked(
+  deps: CliDeps,
+  config: SupervisorConfig,
+  root: string,
+  ports: RuntimePorts,
+  json: boolean,
+): Promise<number> {
   const stuckLeases = new Set<string>();
   const corruptLeases = new Set<string>();
   // One state for the run: a stuck lease is announced once here, never on every event.

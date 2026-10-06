@@ -71,6 +71,29 @@ export interface TeardownSeams {
   readonly fenceWaitMs?: number;
 }
 
+/**
+ * Optional seams for `supervise` only (Phase 9 D-21). Production supplies
+ * `shutdown`, `sleep` and `monotonicMs` from `real-deps.ts` (the only place that
+ * may touch `process`); tests inject their own. Command code never reads
+ * `process`, so a command without these seams runs with a never-aborting signal.
+ */
+export interface SuperviseSeams {
+  /**
+   * Starts listening for a stop request and returns the signal the loop and the
+   * sweep observe, plus `dispose` to stop listening. Only `supervise` calls it, so
+   * every other command keeps the default Ctrl-C behaviour.
+   */
+  readonly shutdown?: () => { readonly signal: AbortSignal; readonly dispose: () => void };
+  /** Waits `ms` and resolves early, without rejecting, when `signal` aborts. */
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** A monotonic millisecond clock for the loop's own timing (defaults to `performance.now`). */
+  readonly monotonicMs?: () => number;
+  /** Test seam: how long, in milliseconds, a supervisor lock goes without a heartbeat before it counts as stale (production: 10000, never below 5000). */
+  readonly lockStaleMs?: number;
+  /** Test seam: how long, in milliseconds, to wait for a live holder's lock before exiting 8 (production: the stale time plus 2000). */
+  readonly lockAcquireWindowMs?: number;
+}
+
 export interface CliDeps {
   readonly io: CliIo;
   /** Epoch SECONDS (matches lease timestamps). */
@@ -93,6 +116,8 @@ export interface CliDeps {
   };
   readonly run?: RunSeams;
   readonly teardown?: TeardownSeams;
+  /** Optional seams for `supervise`; production-supplied by `real-deps.ts`, test-injected otherwise. */
+  readonly supervise?: SuperviseSeams;
   /** Optional observational sink handed to `@stint/runtime`; absent means events are dropped. */
   readonly telemetry?: Telemetry;
   /** Operating-system name for platform-specific wording; defaults to `process.platform`. Tests inject `"win32"` or `"linux"`. */
