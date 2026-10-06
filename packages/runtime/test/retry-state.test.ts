@@ -82,8 +82,14 @@ function landings(count: number, at = L): readonly Step[] {
 const CONFIG = DEFAULT_SUPERVISOR_CONFIG;
 
 describe("DEFAULT_SUPERVISOR_CONFIG", () => {
-  it("is 60 s base, 3600 s max and a cap of 8 retries (D-22)", () => {
-    expect(CONFIG).toEqual({ retryBaseSeconds: 60, retryMaxSeconds: 3600, retryCap: 8 });
+  it("is 60 s base, 3600 s max, a cap of 8 retries (D-22) and a 900 s probe interval (D-15)", () => {
+    expect(CONFIG).toEqual({
+      retryBaseSeconds: 60,
+      retryMaxSeconds: 3600,
+      retryCap: 8,
+      probeIntervalSeconds: 900,
+      probeTimeoutMs: 15_000,
+    });
   });
 });
 
@@ -153,7 +159,7 @@ describe("deriveRetryState", () => {
   });
 
   it("honours a custom config", () => {
-    const config: SupervisorConfig = { retryBaseSeconds: 5, retryMaxSeconds: 12, retryCap: 1 };
+    const config: SupervisorConfig = { ...DEFAULT_SUPERVISOR_CONFIG, retryBaseSeconds: 5, retryMaxSeconds: 12, retryCap: 1 };
     const one = deriveRetryState(chainOf({ kind: "landing", ts: L }), config, L);
     expect(one.waitSeconds).toBe(5);
     expect(one.exhausted).toBe(false);

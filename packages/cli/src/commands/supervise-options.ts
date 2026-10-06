@@ -45,5 +45,5 @@ export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
   );
   const retryCap = wholeNumber(opts.retryCap, MAX_CAP, DEFAULT_SUPERVISOR_CONFIG.retryCap, CAP_MESSAGE);
   if (retryMaxSeconds < retryBaseSeconds) throw new CliError(EXIT_CODES.usage, ORDER_MESSAGE);
-  return { retryBaseSeconds, retryMaxSeconds, retryCap };
+  return { ...DEFAULT_SUPERVISOR_CONFIG, retryBaseSeconds, retryMaxSeconds, retryCap };
 }

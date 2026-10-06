@@ -45,7 +45,14 @@ export type TelemetryEvent =
   | {
       readonly name: "supervisor.action";
       readonly leaseId: string;
-      readonly action: "expired" | "torn_down" | "retried" | "stuck";
+      readonly action: "expired" | "torn_down" | "retried" | "stuck" | "grant_revoked";
+    }
+  | {
+      readonly name: "supervisor.probe";
+      readonly leaseId: string;
+      readonly result: "ok" | "revoked" | "transient" | "not_probeable" | "skipped";
+      /** Seconds until the lease is probed again; 0 when it is due on the next sweep or no longer scheduled. */
+      readonly nextProbeInSeconds: number;
     };
 
 /** One synchronous method; a sink that needs I/O must queue internally. */

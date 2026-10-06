@@ -29,6 +29,14 @@
  * lease that is already stuck, once, so an operator who starts a new
  * supervisor sees what remains live. There is no way to abandon a stuck lease.
  *
+ * Probe (SUP-04, D-14 to D-18): an idle `active` lease is probed on a schedule
+ * (default every 900 s after its last call or grant). The probe is a real
+ * refresh under the lease lock; only a definitive provider revocation ends the
+ * lease, which is then torn down in the same sweep. A 5xx, a 429, a network
+ * error or a timeout never ends a lease: the sweep only records telemetry and
+ * waits longer (capped exponential backoff, `Retry-After` honoured). A lease a
+ * live `run` serves (fresh `run_heartbeat`) is never probed.
+ *
  * Isolation: each lease runs in its own try/catch. A lease another driver
  * holds (`TeardownFencedError`) adds no event; any other failure is reported
  * as a `lease_error` carrying only the lease id, and the sweep continues. A
@@ -38,16 +46,27 @@
 
 import { safeEmit } from "@stint/core";
 import type { Lease, LeaseScanEntry, LifecycleEvent, TeardownStuckReason } from "@stint/core";
-import { TeardownBlockedError, TeardownFencedError } from "@stint/proxy";
+import {
+  TeardownBlockedError,
+  TeardownFencedError,
+  createCredentialVault,
+  oauthClientFromCredential,
+} from "@stint/proxy";
 import type { TeardownStep } from "@stint/proxy";
+import type { ReceiptEntry } from "@stint/spec";
 
+import { expectedCredentialResources } from "../custody.js";
 import { RuntimeError } from "../errors.js";
+import { allowInsecureForClient } from "../loopback.js";
+import { loadLeaseManifest } from "../manifest.js";
 import type { RuntimePorts } from "../ports.js";
 import { resolveTeardown } from "../resolve-teardown.js";
 import type { ResolvedTeardown } from "../resolve-teardown.js";
 import { settleExpired } from "../settle-expired.js";
 import { DEFAULT_SUPERVISOR_CONFIG } from "./config.js";
 import type { SupervisorConfig } from "./config.js";
+import { isRunLive } from "./heartbeat.js";
+import { probeLeaseGrants } from "./probe.js";
 import { deriveRetryState } from "./retry-state.js";
 import { markStuck } from "./stuck.js";
 
@@ -61,6 +80,8 @@ export type SweepEvent =
       readonly unreadable: "corrupt" | "io_error";
     }
   | { readonly kind: "lease_error"; readonly leaseId: string }
+  /** The provider revoked the grant of an idle lease; the lease is torn down next, in the same sweep. */
+  | { readonly kind: "grant_revoked"; readonly leaseId: string }
   | { readonly kind: "retried"; readonly leaseId: string; readonly attempt: number; readonly lease: Lease }
   | {
       readonly kind: "stuck";
@@ -79,10 +100,36 @@ export type SweepEvent =
 export interface SweepState {
   /** Lease ids announced as stuck in this run; cleared for a lease once it is torn down or retried. */
   readonly announcedStuck: Set<string>;
+  /** The probe schedule of each idle active lease, kept for the life of this run (D-15, D-17). */
+  readonly probes: Map<string, ProbeSchedule>;
+}
+
+/** When a lease is next probed and how many probes in a row failed transiently. */
+export interface ProbeSchedule {
+  /** Epoch seconds. */
+  nextProbeAt: number;
+  failures: number;
 }
 
 export function createSweepState(): SweepState {
-  return { announcedStuck: new Set<string>() };
+  return { announcedStuck: new Set<string>(), probes: new Map<string, ProbeSchedule>() };
+}
+
+/** The later of the grant time and the newest `call` receipt: the lease's last activity (D-16). */
+function lastActivityOf(lease: Lease, chain: readonly ReceiptEntry[]): number {
+  let latest = lease.grantedAt;
+  for (const entry of chain) {
+    if (entry.type !== "call") continue;
+    const ts: unknown = entry.ts;
+    if (typeof ts === "number" && Number.isFinite(ts) && ts > latest) latest = ts;
+  }
+  return latest;
+}
+
+/** Seconds to wait after `failures` consecutive transient probes: `min(60 * 2^(failures-1), interval)`. */
+function probeBackoff(failures: number, intervalSeconds: number): number {
+  const exponent = Math.min(failures, 31) - 1;
+  return Math.min(60 * 2 ** exponent, intervalSeconds);
 }
 
 const STUCK_REASONS: ReadonlySet<string> = new Set<TeardownStuckReason>([
@@ -191,6 +238,99 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   const failedPassesOf = async (leaseId: string): Promise<number> =>
     deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock()).failedPasses;
 
+  /**
+   * Probes an idle active lease when its schedule says so (SUP-04). Returns the
+   * lease the provider revocation moved to `tearing_down`, or `undefined` when
+   * nothing ended it. A provider failure never throws out of here; a transient
+   * result only moves the schedule.
+   */
+  const probeIdle = async (leaseId: string, lease: Lease): Promise<Lease | undefined> => {
+    const interval = config.probeIntervalSeconds;
+    if (interval <= 0) return undefined;
+    const telemetry = (result: "ok" | "revoked" | "transient" | "not_probeable" | "skipped", next: number): void => {
+      safeEmit(ports.telemetry, {
+        name: "supervisor.probe",
+        leaseId,
+        result,
+        nextProbeInSeconds: Math.max(0, Math.round(next)),
+      });
+    };
+
+    let schedule = state.probes.get(leaseId);
+    if (schedule === undefined) {
+      // First sight in this run: due one interval after the last call or the grant.
+      const first = await ports.receipts(leaseId).load("verified");
+      schedule = { nextProbeAt: lastActivityOf(lease, first) + interval, failures: 0 };
+      state.probes.set(leaseId, schedule);
+    }
+    if (ports.clock() < schedule.nextProbeAt) return undefined;
+
+    // Cheap check first; probeLeaseGrants checks again inside the lease transaction (D-18).
+    if (await isRunLive(ports.artifacts, leaseId, ports.clock())) {
+      telemetry("skipped", 0);
+      return undefined;
+    }
+
+    // A call since the schedule was made means the lease is not idle yet.
+    const chain = await ports.receipts(leaseId).load("verified");
+    if (deriveRetryState(chain, config, ports.clock()).stuck !== undefined) return undefined;
+    const idleUntil = lastActivityOf(lease, chain) + interval;
+    if (ports.clock() < idleUntil) {
+      schedule.nextProbeAt = idleUntil;
+      return undefined;
+    }
+
+    let resources: readonly string[];
+    try {
+      const { manifest } = await loadLeaseManifest(ports, leaseId);
+      resources = await expectedCredentialResources(ports, leaseId, manifest);
+    } catch (error) {
+      if (!isManifestInvalid(error)) throw error;
+      // Nothing to probe against and nothing to receipt: look again in a full interval.
+      schedule.nextProbeAt = ports.clock() + interval;
+      return undefined;
+    }
+
+    // A vault built just now from the stores never holds a refresh token another run or supervisor rotated (Pitfall 4).
+    const vault = createCredentialVault((_resource, credential) => oauthClientFromCredential(credential), ports.clock, {
+      secrets: ports.secrets,
+      allowInsecureRequests: allowInsecureForClient,
+    });
+    const outcome = await probeLeaseGrants(ports, leaseId, {
+      vault,
+      resources,
+      timeoutMs: config.probeTimeoutMs,
+      checkLiveRun: true,
+    });
+
+    const at = ports.clock();
+    switch (outcome.kind) {
+      case "revoked":
+        state.probes.delete(leaseId);
+        telemetry("revoked", 0);
+        safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "grant_revoked" });
+        await emit({ kind: "grant_revoked", leaseId });
+        return outcome.lease;
+      case "ok":
+      case "not_probeable":
+        schedule.failures = 0;
+        schedule.nextProbeAt = at + interval;
+        telemetry(outcome.kind, interval);
+        return undefined;
+      case "transient": {
+        schedule.failures += 1;
+        const wait = Math.max(outcome.retryAfterSeconds ?? 0, probeBackoff(schedule.failures, interval));
+        schedule.nextProbeAt = at + wait;
+        telemetry("transient", wait);
+        return undefined;
+      }
+      case "skipped":
+        if (outcome.reason === "not_active") state.probes.delete(leaseId);
+        telemetry("skipped", 0);
+        return undefined;
+    }
+  };
+
   /** Reports an already stuck lease once per run, with no receipt and no host notice. */
   const reannounce = async (leaseId: string, reason: TeardownStuckReason, attempts: number): Promise<void> => {
     if (state.announcedStuck.has(leaseId)) return;
@@ -207,6 +347,7 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
     try {
       let lease = entry.lease;
       let action = route(lease, ports.clock());
+      if (lease.state !== "active") state.probes.delete(leaseId);
       if (action === "settle_then_teardown") {
         const settled = await settleExpired(ports, leaseId);
         lease = settled.lease;
@@ -214,6 +355,13 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
           safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "expired" });
           await emit({ kind: "expired", leaseId });
         }
+        action = route(lease, ports.clock());
+      }
+      if (action === "nothing" && lease.state === "active") {
+        // An idle, unexpired lease: ask the provider whether its grant is alive (SUP-04).
+        const ended = await probeIdle(leaseId, lease);
+        if (ended === undefined) continue;
+        lease = ended;
         action = route(lease, ports.clock());
       }
       if (action !== "retry" && action !== "teardown") continue;

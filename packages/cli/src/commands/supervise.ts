@@ -29,6 +29,7 @@ import { CliError, EXIT_CODES } from "../exit.js";
 import {
   sweepCorruptLine,
   sweepExpiredLine,
+  sweepGrantRevokedLine,
   sweepLeaseErrorLine,
   sweepRetriedLine,
   sweepStuckLine,
@@ -63,6 +64,8 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
       return { event: "corrupt_record", leaseId: event.leaseId, reason: "store_corrupt" };
     case "lease_error":
       return { event: "lease_error", leaseId: event.leaseId };
+    case "grant_revoked":
+      return { event: "grant_revoked", leaseId: event.leaseId };
     case "retried":
       return { event: "retried", leaseId: event.leaseId, attempt: event.attempt, state: event.lease.state };
     case "stuck":
@@ -103,6 +106,9 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
       return;
     case "lease_error":
       deps.io.err(`stint: ${sweepLeaseErrorLine(event.leaseId)}\n`);
+      return;
+    case "grant_revoked":
+      deps.io.err(`stint: ${sweepGrantRevokedLine(event.leaseId)}\n`);
       return;
     case "retried":
       deps.io.err(`stint: ${sweepRetriedLine(event.leaseId, event.attempt, stateLabel(event.lease))}\n`);

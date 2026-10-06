@@ -5,7 +5,14 @@ import type { TeardownStep } from "@stint/proxy";
 import type { ReceiptEntry } from "@stint/spec";
 import { describe, expect, it } from "vitest";
 
-import { createSweepState, markStuck, resolveTeardown, runSweep, seedLeaseCredentials } from "../src/index.js";
+import {
+  DEFAULT_SUPERVISOR_CONFIG,
+  createSweepState,
+  markStuck,
+  resolveTeardown,
+  runSweep,
+  seedLeaseCredentials,
+} from "../src/index.js";
 import type { RuntimePorts, SupervisorConfig, SweepEvent, SweepState } from "../src/index.js";
 import { buildRig, delegatedManifest, oauthCredential } from "./helpers.js";
 
@@ -207,7 +214,7 @@ describe("supervisor retry (SUP-02)", () => {
         T0 + i,
       );
     }
-    const config: SupervisorConfig = { retryBaseSeconds: 60, retryMaxSeconds: 3600, retryCap: 1 };
+    const config: SupervisorConfig = { ...DEFAULT_SUPERVISOR_CONFIG, retryBaseSeconds: 60, retryMaxSeconds: 3600, retryCap: 1 };
 
     const events = await sweepAt(h, T0 + 100_000, config);
 

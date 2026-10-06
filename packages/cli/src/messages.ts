@@ -67,6 +67,11 @@ export function sweepExpiredLine(leaseId: string): string {
   return `Lease ${leaseId} expired and was settled.`;
 }
 
+/** One `supervise` line when the provider revoked an idle lease's grant; the teardown line follows (SUP-04, D-17, D-20). Only the validated lease id is interpolated. */
+export function sweepGrantRevokedLine(leaseId: string): string {
+  return `Lease ${leaseId}: the provider revoked the grant; tearing the lease down.`;
+}
+
 /** One `supervise` line when a sweep finished a teardown; `label` is a closed state label from `stateLabel` (D-20, SPEC-07). */
 export function sweepTornDownLine(leaseId: string, label: string): string {
   return `Lease ${leaseId} teardown finished: ${label}.`;

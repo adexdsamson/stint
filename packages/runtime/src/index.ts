@@ -9,7 +9,7 @@ export const PACKAGE_NAME = "@stint/runtime";
 
 export { settleExpired } from "./settle-expired.js";
 export { runSweep, createSweepState } from "./supervisor/sweep.js";
-export type { RunSweepOptions, SweepEvent, SweepReport, SweepState } from "./supervisor/sweep.js";
+export type { ProbeSchedule, RunSweepOptions, SweepEvent, SweepReport, SweepState } from "./supervisor/sweep.js";
 export { DEFAULT_SUPERVISOR_CONFIG } from "./supervisor/config.js";
 export type { SupervisorConfig } from "./supervisor/config.js";
 export { deriveRetryState } from "./supervisor/retry-state.js";
@@ -42,3 +42,5 @@ export {
   isRunLive,
   writeRunHeartbeat,
 } from "./supervisor/heartbeat.js";
+export { probeLeaseGrants } from "./supervisor/probe.js";
+export type { ProbeLeaseOptions, ProbeOutcome } from "./supervisor/probe.js";

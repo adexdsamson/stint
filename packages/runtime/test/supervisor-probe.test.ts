@@ -341,7 +341,7 @@ describe("a transient failure never ends a lease (D-17)", () => {
     });
     const address = stub.address();
     if (address === null || typeof address === "string") throw new Error("no stub address");
-    const h = await setup({ tokenEndpoint: `http://127.0.0.1:${address.port}/token` });
+    const h = await setup({ tokenEndpoint: `http://127.0.0.1:${String(address.port)}/token` });
 
     await sweep(h, FIRST_DUE);
     expect(hits).toBe(1);
