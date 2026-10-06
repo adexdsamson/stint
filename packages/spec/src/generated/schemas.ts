@@ -800,6 +800,32 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownTakeoverPayload": {
+      "title": "TeardownTakeoverPayload",
+      "type": "object",
+      "properties": {
+        "previousEpoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fence_expired"
+          ]
+        }
+      },
+      "required": [
+        "previousEpoch",
+        "epoch",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimPayload": {
       "title": "AttestedClaimPayload",
       "type": "object",
@@ -976,6 +1002,41 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownTakeoverEntry": {
+      "title": "TeardownTakeoverEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_takeover"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownTakeoverPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimEntry": {
       "title": "AttestedClaimEntry",
       "type": "object",
@@ -1024,6 +1085,9 @@ export const receiptSchema = {
     },
     {
       "$ref": "#/definitions/TeardownBlockedEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownTakeoverEntry"
     },
     {
       "$ref": "#/definitions/AttestedClaimEntry"

@@ -70,6 +70,8 @@ export type {
   TeardownStepPayload,
   TeardownBlockedEntry,
   TeardownBlockedPayload,
+  TeardownTakeoverEntry,
+  TeardownTakeoverPayload,
   AttestedClaimEntry,
   AttestedClaimPayload,
 } from "./generated/receipt.js";

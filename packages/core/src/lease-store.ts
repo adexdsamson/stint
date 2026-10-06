@@ -33,6 +33,21 @@ import type { Lease } from "./lease.js";
 export type LeaseMutator = (lease: Lease) => Lease | Promise<Lease>;
 
 /**
+ * One entry of `LeaseStore.scan()` (Phase 9 SUP-05). A readable record is a
+ * `Lease`; a record the store could not read or validate is reported by id
+ * with a closed reason and a cheap change fingerprint, never with its
+ * contents, so one bad record cannot stop a sweep and an operator is told
+ * only when the record changes.
+ */
+export type LeaseScanEntry =
+  | { readonly id: string; readonly lease: Lease }
+  | {
+      readonly id: string;
+      readonly unreadable: "corrupt" | "io_error";
+      readonly fingerprint: string;
+    };
+
+/**
  * The async CRUD contract plus the serialized read-modify-write primitive
  * every `LeaseStore` implementation (the in-memory double here, the Phase 6
  * JSON-file store) must uphold.
@@ -44,6 +59,13 @@ export interface LeaseStore {
   save(lease: Lease): Promise<void>;
   /** Returns every lease currently in the store. An empty store returns `[]`. */
   list(): Promise<readonly Lease[]>;
+  /**
+   * Returns one entry per lease in the store in ascending id order, tolerating
+   * bad records: it never throws because one record is unreadable (that record
+   * is returned as an `unreadable` entry) and it never modifies, renames or
+   * deletes a record. An empty store returns `[]`.
+   */
+  scan(): Promise<readonly LeaseScanEntry[]>;
   /** Removes the lease stored under `id`, if any. */
   delete(id: string): Promise<void>;
   /**

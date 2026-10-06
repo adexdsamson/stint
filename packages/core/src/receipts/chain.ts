@@ -45,6 +45,7 @@ import type {
   TransitionPayload,
   TeardownStepPayload,
   TeardownBlockedPayload,
+  TeardownTakeoverPayload,
   AttestedClaimPayload,
 } from "@stint/spec";
 import type { CryptoKey } from "jose";
@@ -86,6 +87,11 @@ export type ReceiptEntryInput =
       readonly chain: "verified" | "attested";
       readonly type: "teardown_blocked";
       readonly payload: TeardownBlockedPayload;
+    }
+  | {
+      readonly chain: "verified" | "attested";
+      readonly type: "teardown_takeover";
+      readonly payload: TeardownTakeoverPayload;
     }
   | {
       readonly chain: "verified" | "attested";
@@ -147,6 +153,15 @@ export function appendEntry(
         payload: input.payload,
       };
     case "teardown_blocked":
+      return {
+        seq,
+        ts: now,
+        chain: input.chain,
+        type: input.type,
+        prevHash,
+        payload: input.payload,
+      };
+    case "teardown_takeover":
       return {
         seq,
         ts: now,

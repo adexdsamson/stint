@@ -12,7 +12,15 @@ export { userEvents, clockEvents, policyEvents, providerEvents, publisherEvents,
 export type { LeaseEvent } from "./events.js";
 
 export { reduce } from "./lease.js";
-export type { Lease, LeaseCounters, TransitionRecord, TeardownStepName, TeardownStepOutcome, TeardownProgress } from "./lease.js";
+export type {
+  Lease,
+  LeaseCounters,
+  TransitionRecord,
+  TeardownStepName,
+  TeardownStepOutcome,
+  TeardownProgress,
+  TeardownFence,
+} from "./lease.js";
 
 export { createBindingSet, resolveBinding } from "./bindings.js";
 export type {
@@ -53,7 +61,7 @@ export type {
   OutcomeConfirmDecision,
 } from "./host-adapter.js";
 
-export type { LeaseStore, LeaseMutator } from "./lease-store.js";
+export type { LeaseStore, LeaseMutator, LeaseScanEntry } from "./lease-store.js";
 
 // Telemetry port (D-25): closed scalar-only event union, no-op sink, throw-swallowing emit.
 export { NOOP_TELEMETRY, safeEmit } from "./ports/telemetry.js";

@@ -35,11 +35,21 @@
  * driver already landed. `lease.transition` and `teardown.step` telemetry is
  * emitted only for work this driver itself performed.
  *
- * Known limit (Phase 8 D-29): a second driver joining a pass already in
- * flight cannot be told apart from crash recovery, so it may re-run a step the
- * first driver just recorded as failed. No step ever succeeds twice and the
- * chain never forks. Closing it needs driver ownership and fencing, which the
- * roadmap schedules for Phase 9.
+ * Known limit (Phase 8 D-29): without a fence, a second driver joining a pass
+ * already in flight cannot be told apart from crash recovery, so it may re-run
+ * a step the first driver just recorded as failed. No step ever succeeds twice
+ * and the chain never forks. The fence below closes it for every caller that
+ * supplies `deps.fence`; plan 09-02 rewrites this paragraph.
+ *
+ * Fencing (Phase 9 D-09): when `deps.fence` is supplied, a pass acquires a
+ * lease-record fence (see `fence.ts`) before its entry transition, renews it
+ * inside every step transaction with a live clock, and releases it in the
+ * same write as the landing transition. A live fence held by another driver
+ * makes the pass throw `TeardownFencedError("held")` before any step runs; a
+ * driver whose fence was taken over throws `TeardownFencedError("stale")` and
+ * runs no further step. An expired fence is taken over inside one lease
+ * transaction that appends a verified `teardown_takeover` receipt. Without
+ * `deps.fence` every code path is exactly as before.
  *
  * Fail closed on missing credentials (Phase 8 TEAR-07, D-11): when
  * `deps.credentialCheck` is supplied, both entry points first run a PREFLIGHT
@@ -96,6 +106,15 @@ import type { CryptoKey } from "jose";
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
 import { appendReceiptEntry } from "../receipts/append.js";
 import { chainTeardownIfEnded } from "./auto-chain.js";
+import {
+  TeardownFencedError,
+  acquireFence,
+  assertFenceHolder,
+  releaseFence,
+  releasedFence,
+  renewedFence,
+} from "./fence.js";
+import type { FenceToken, TeardownFenceConfig } from "./fence.js";
 import { allStepsSucceeded, isSuccessOutcome, recordStepOutcome, remainingSteps } from "./progress.js";
 import { runStepOnce } from "./steps.js";
 import type { TeardownStep } from "./steps.js";
@@ -134,6 +153,14 @@ export interface TeardownDeps {
    * pre-08-08 behavior exactly. See this module's docstring.
    */
   readonly credentialCheck?: TeardownCredentialCheck;
+  /**
+   * OPTIONAL (Phase 9 D-09): the teardown fence. Absent keeps every code path
+   * exactly as before. When supplied, `runTeardown`/`retryTeardown` hold a
+   * lease-record fence for the pass; see this module's docstring and
+   * `fence.ts`. `clock` is read live for every fence time (never the pass
+   * `now`).
+   */
+  readonly fence?: TeardownFenceConfig;
 }
 
 /**
@@ -320,11 +347,18 @@ async function runStepAndPersist(
   name: TeardownStep["name"],
   baseline: TeardownProgress,
   now: number,
+  token: FenceToken | undefined,
 ): Promise<"ran" | "skipped"> {
   const step = stepByName(deps.steps, name);
   let outcome: TeardownStepOutcome | undefined;
 
   await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+    // Fenced pass: the holder check is the first statement, so a driver whose
+    // fence was taken over never runs a step. Every return below renews the
+    // fence from the live clock, including a skipped step.
+    if (deps.fence !== undefined && token !== undefined) assertFenceHolder(lease, token);
+    const renewed =
+      deps.fence !== undefined && token !== undefined ? { fence: renewedFence(token, deps.fence) } : {};
     const fresh = lease.teardownProgress ?? {};
     const recorded = fresh[name];
     if (
@@ -333,7 +367,7 @@ async function runStepAndPersist(
       (name === "revoke_oauth" && recorded !== undefined) ||
       isSuccessOutcome(recorded)
     ) {
-      return lease;
+      return { ...lease, ...renewed };
     }
     const ran = await runStepOnce(step, lease, now);
     await appendReceipt(
@@ -342,7 +376,7 @@ async function runStepAndPersist(
       now,
     );
     outcome = ran;
-    return { ...lease, teardownProgress: recordStepOutcome(fresh, name, ran) };
+    return { ...lease, ...renewed, teardownProgress: recordStepOutcome(fresh, name, ran) };
   });
 
   if (outcome === undefined) return "skipped";
@@ -351,16 +385,18 @@ async function runStepAndPersist(
 }
 
 /** Walks every remaining step (in fixed order) from the pass baseline, then lands `teardown_succeeded`/`teardown_incomplete` exactly once and fires `notify` (D-25) only for the driver that landed it. Shared by `runTeardown` and `retryTeardown`. */
-async function landTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
+async function landTeardown(deps: TeardownDeps, now: number, token: FenceToken | undefined): Promise<Lease> {
   const baseline = (await peekLease(deps)).teardownProgress ?? {};
 
   for (const name of remainingSteps(baseline)) {
-    await runStepAndPersist(deps, name, baseline, now);
+    await runStepAndPersist(deps, name, baseline, now, token);
   }
 
   let landed: TransitionRecord | undefined;
   const finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
-    if (lease.state !== "tearing_down") return lease;
+    if (deps.fence !== undefined && token !== undefined) assertFenceHolder(lease, token);
+    const released = deps.fence !== undefined && token !== undefined ? { fence: releasedFence(token) } : {};
+    if (lease.state !== "tearing_down") return { ...lease, ...released };
     const succeeded = allStepsSucceeded(lease.teardownProgress ?? {});
     const result = reduce(
       lease,
@@ -370,7 +406,7 @@ async function landTeardown(deps: TeardownDeps, now: number): Promise<Lease> {
     if (!result.ok) throw rejectedTransitionError(result.errors[0]?.code);
     await appendTransitionReceipt(deps.receiptStore, result.value.transition, now);
     landed = result.value.transition;
-    return result.value.lease;
+    return { ...result.value.lease, ...released };
   });
 
   if (landed === undefined) return finalLease;
@@ -476,26 +512,46 @@ export async function runTeardown(deps: TeardownDeps, now: number): Promise<Leas
   const lease = await peekLease(deps);
 
   if (isLanded(lease.state)) return lease;
-
-  if (TERMINAL_END_STATES.has(lease.state)) {
-    const attempt = await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
-    if (attempt.record === undefined) {
-      const landed = afterRejectedEntry(attempt);
-      if (landed !== undefined) return landed;
-    }
-  } else if (lease.state !== "tearing_down") {
+  if (!TERMINAL_END_STATES.has(lease.state) && lease.state !== "tearing_down") {
     throw rejectedTransitionError("illegal_transition");
   }
 
-  // D-31 bracketing checkpoint: by this point the terminal-transition +
-  // begin_teardown receipts are already appended, whether this call just
-  // auto-chained them above or the caller chained them itself before
-  // invoking runTeardown (see this module's docstring).
-  if (deps.signingKey !== undefined) {
-    await signBracketingCheckpoint(deps.receiptStore, deps.signingKey, now);
-  }
+  const token = deps.fence === undefined ? undefined : await acquireFence(deps, deps.fence);
+  try {
+    if (TERMINAL_END_STATES.has(lease.state)) {
+      const attempt = await applyTransition(deps, now, (l) => chainTeardownIfEnded(l, now));
+      if (attempt.record === undefined) {
+        const landed = afterRejectedEntry(attempt);
+        if (landed !== undefined) {
+          if (token !== undefined) await releaseFence(deps, token);
+          return landed;
+        }
+      }
+    }
 
-  return landTeardown(deps, now);
+    // D-31 bracketing checkpoint: by this point the terminal-transition +
+    // begin_teardown receipts are already appended, whether this call just
+    // auto-chained them above or the caller chained them itself before
+    // invoking runTeardown (see this module's docstring).
+    if (deps.signingKey !== undefined) {
+      await signBracketingCheckpoint(deps.receiptStore, deps.signingKey, now);
+    }
+
+    return await landTeardown(deps, now, token);
+  } catch (error) {
+    await releaseAfterError(deps, token, error);
+    throw error;
+  }
+}
+
+/** After an error escapes a fenced pass: release the fence once, best effort, unless the error says the fence is no longer ours. Never masks the original error. */
+async function releaseAfterError(deps: TeardownDeps, token: FenceToken | undefined, error: unknown): Promise<void> {
+  if (token === undefined || error instanceof TeardownFencedError) return;
+  try {
+    await releaseFence(deps, token);
+  } catch {
+    // swallowed: the original error is what the caller must see
+  }
 }
 
 /**
@@ -514,13 +570,22 @@ export async function retryTeardown(
   now: number,
 ): Promise<Lease> {
   await assertCredentialsAvailable(deps, "retry", now);
-  const attempt = await applyTransition(deps, now, (l) =>
-    reduce(l, actor === "user" ? userEvents.retryTeardown() : runtimeEvents.retryTeardown(), now),
-  );
-  if (attempt.record === undefined) {
-    const landed = afterRejectedEntry(attempt);
-    if (landed !== undefined) return landed;
-  }
+  const token = deps.fence === undefined ? undefined : await acquireFence(deps, deps.fence);
+  try {
+    const attempt = await applyTransition(deps, now, (l) =>
+      reduce(l, actor === "user" ? userEvents.retryTeardown() : runtimeEvents.retryTeardown(), now),
+    );
+    if (attempt.record === undefined) {
+      const landed = afterRejectedEntry(attempt);
+      if (landed !== undefined) {
+        if (token !== undefined) await releaseFence(deps, token);
+        return landed;
+      }
+    }
 
-  return landTeardown(deps, now);
+    return await landTeardown(deps, now, token);
+  } catch (error) {
+    await releaseAfterError(deps, token, error);
+    throw error;
+  }
 }

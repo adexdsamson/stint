@@ -16,6 +16,7 @@
 import type { Lease, LicenseIssuer } from "@stint/core";
 import {
   createCredentialVault,
+  DEFAULT_FENCE_TTL_SECONDS,
   createDefaultTeardownSteps,
   oauthClientFromCredential,
   retryTeardown,
@@ -37,6 +38,8 @@ export interface ResolveTeardownInput {
   readonly leaseId: string;
   /** Lets a host (or a test) wrap the five default steps, for example to count or fault one. */
   readonly decorateSteps?: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
+  /** How long a teardown fence this pass writes stays valid; defaults to the proxy's DEFAULT_FENCE_TTL_SECONDS (120). */
+  readonly fenceTtlSeconds?: number;
 }
 
 export interface ResolvedTeardown {
@@ -153,6 +156,8 @@ export async function resolveTeardown(
     signingKey: privateKey,
     ...(ports.telemetry === undefined ? {} : { telemetry: ports.telemetry }),
     credentialCheck: { expected: expectedResources, missing },
+    // Phase 9 D-09: every pass assembled here is fenced, with the runtime's own clock.
+    fence: { clock: ports.clock, ttlSeconds: input.fenceTtlSeconds ?? DEFAULT_FENCE_TTL_SECONDS },
   };
 
   return {

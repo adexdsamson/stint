@@ -139,6 +139,8 @@ export { applyEntitlementRevocation, applyProviderRevocation, isProviderRevocati
 export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
 export { appendTransitionReceipt, retryTeardown, runTeardown, TeardownBlockedError } from "./teardown/orchestrate.js";
 export type { TeardownCredentialCheck, TeardownDeps } from "./teardown/orchestrate.js";
+export { DEFAULT_FENCE_TTL_SECONDS, TeardownFencedError } from "./teardown/fence.js";
+export type { TeardownFenceConfig } from "./teardown/fence.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
 export type { CleanupHookConfig, LicenseCustody, TeardownStep, TeardownStepOptions } from "./teardown/steps.js";
 export {

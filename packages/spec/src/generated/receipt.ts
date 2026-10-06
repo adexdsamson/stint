@@ -5,7 +5,8 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type ReceiptEntry = CallEntry | TransitionEntry | TeardownStepEntry | TeardownBlockedEntry | AttestedClaimEntry;
+export type ReceiptEntry =
+  CallEntry | TransitionEntry | TeardownStepEntry | TeardownBlockedEntry | TeardownTakeoverEntry | AttestedClaimEntry;
 export type ReceiptChain = "verified" | "attested";
 export type ContentHash = string;
 
@@ -72,6 +73,19 @@ export interface TeardownBlockedPayload {
    * @maxItems 64
    */
   resources: [string, ...string[]];
+}
+export interface TeardownTakeoverEntry {
+  seq: number;
+  ts: number;
+  chain: ReceiptChain;
+  type: "teardown_takeover";
+  prevHash: ContentHash;
+  payload: TeardownTakeoverPayload;
+}
+export interface TeardownTakeoverPayload {
+  previousEpoch: number;
+  epoch: number;
+  reason: "fence_expired";
 }
 export interface AttestedClaimEntry {
   seq: number;

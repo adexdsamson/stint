@@ -8,6 +8,8 @@
 export const PACKAGE_NAME = "@stint/runtime";
 
 export { settleExpired } from "./settle-expired.js";
+export { runSweep } from "./supervisor/sweep.js";
+export type { RunSweepOptions, SweepEvent, SweepReport } from "./supervisor/sweep.js";
 export { RuntimeError } from "./errors.js";
 export type { RuntimeErrorCode } from "./errors.js";
 export type { RuntimePorts } from "./ports.js";

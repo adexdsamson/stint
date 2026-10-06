@@ -1,11 +1,12 @@
 /**
  * The commander@15 program factory and the top-level `main` (Pattern 2).
  *
- * This file is the single command-registration surface: all seven commands are
- * registered here with their positional args and flags (D-03). It is FROZEN
- * after plan 06-04 — later plans replace only their own `commands/*.ts`
- * bodies and never re-register anything here. The one exception is D-28 in
- * Phase 8: `create` gained an optional `--credentials <file>` option.
+ * This file is the single command-registration surface: the seven original
+ * commands are registered here with their positional args and flags (D-03). It
+ * was FROZEN after plan 06-04, and later plans replace only their own
+ * `commands/*.ts` bodies and never re-register anything here. The exceptions:
+ * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option)
+ * and Phase 9 D-21 (an eighth command, `supervise`).
  *
  * No action calls `process.exit`, and library code never touches
  * `process.exitCode`: an action stores its result in an `ExitSink` and `main`
@@ -27,6 +28,8 @@ import { revokeCommand } from "./commands/revoke.js";
 import type { RevokeOpts } from "./commands/revoke.js";
 import { runCommand } from "./commands/run.js";
 import type { RunOpts } from "./commands/run.js";
+import { superviseCommand } from "./commands/supervise.js";
+import type { SuperviseOpts } from "./commands/supervise.js";
 import { verifyCommand } from "./commands/verify.js";
 import type { VerifyOpts } from "./commands/verify.js";
 import type { CliDeps, GlobalOpts } from "./deps.js";
@@ -128,6 +131,14 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .argument("<leaseId>", "lease id")
     .action(async (leaseId: string, _opts: unknown, cmd: Command) => {
       sink.code = await verifyCommand(deps, leaseId, cmd.optsWithGlobals<VerifyOpts>());
+    });
+
+  program
+    .command("supervise")
+    .description("Settle and tear down ended leases in this store")
+    .option("--once", "run a single sweep and exit")
+    .action(async (_opts: unknown, cmd: Command) => {
+      sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
     });
 
   return program;

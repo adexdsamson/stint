@@ -9,7 +9,11 @@ import type {
   Scope,
   Verifier,
 } from "../src/generated/manifest.js";
-import type { TeardownBlockedPayload, TeardownStepPayload } from "../src/generated/receipt.js";
+import type {
+  TeardownBlockedPayload,
+  TeardownStepPayload,
+  TeardownTakeoverPayload,
+} from "../src/generated/receipt.js";
 import { receiptSchema } from "../src/generated/schemas.js";
 
 // Verifier narrows on `type` — this only compiles if the discriminated union
@@ -207,5 +211,45 @@ describe("TeardownBlockedEntry (D-11, D-26)", () => {
     expect(
       validateReceiptEntry(blockedEntry({ reason: "credentials_unavailable", resources: ["a"], extra: "x" })),
     ).toBe(false);
+  });
+});
+
+describe("TeardownTakeoverEntry (Phase 9 D-11)", () => {
+  const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  const validateReceiptEntry = ajv.compile(receiptSchema);
+
+  function takeoverEntry(payload: Record<string, unknown>): unknown {
+    return {
+      seq: 5,
+      ts: 1000,
+      chain: "verified",
+      type: "teardown_takeover",
+      prevHash: `jcs-sha256:${"0".repeat(64)}`,
+      payload,
+    };
+  }
+
+  it("type-checks a TeardownTakeoverPayload", () => {
+    const payload: TeardownTakeoverPayload = { previousEpoch: 1, epoch: 2, reason: "fence_expired" };
+    expect(payload.epoch).toBe(2);
+  });
+
+  it("accepts a takeover that moves the epoch forward", () => {
+    const ok = { previousEpoch: 1, epoch: 2, reason: "fence_expired" };
+    expect(validateReceiptEntry(takeoverEntry(ok)), JSON.stringify(validateReceiptEntry.errors)).toBe(true);
+  });
+
+  it("rejects an unknown reason, a missing field and an extra field", () => {
+    expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1, epoch: 2, reason: "other" }))).toBe(false);
+    expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1, reason: "fence_expired" }))).toBe(false);
+    expect(
+      validateReceiptEntry(takeoverEntry({ previousEpoch: 1, epoch: 2, reason: "fence_expired", extra: "x" })),
+    ).toBe(false);
+  });
+
+  it("rejects a non-integer or out-of-range epoch", () => {
+    expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 0, epoch: 2, reason: "fence_expired" }))).toBe(false);
+    expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1, epoch: 1, reason: "fence_expired" }))).toBe(false);
+    expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1.5, epoch: 2, reason: "fence_expired" }))).toBe(false);
   });
 });

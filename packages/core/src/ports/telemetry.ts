@@ -35,6 +35,17 @@ export type TelemetryEvent =
       readonly leaseId: string;
       readonly reason: "credentials_unavailable";
       readonly resourceCount: number;
+    }
+  | {
+      readonly name: "teardown.fence_takeover";
+      readonly leaseId: string;
+      readonly previousEpoch: number;
+      readonly epoch: number;
+    }
+  | {
+      readonly name: "supervisor.action";
+      readonly leaseId: string;
+      readonly action: "expired" | "torn_down";
     };
 
 /** One synchronous method; a sink that needs I/O must queue internally. */

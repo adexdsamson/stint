@@ -25,7 +25,7 @@ import type { PublicKey } from "paseto/v4/public";
 import type { Checkpoint, ReceiptChain, ReceiptEntry } from "@stint/spec";
 
 import type { Lease } from "./lease.js";
-import type { LeaseMutator, LeaseStore } from "./lease-store.js";
+import type { LeaseMutator, LeaseScanEntry, LeaseStore } from "./lease-store.js";
 import type { LicenseIssuer } from "./license/license-issuer.js";
 import { createReferenceLicenseIssuer } from "./license/reference-issuer.js";
 import { appendEntry, verifyChain } from "./receipts/chain.js";
@@ -81,6 +81,13 @@ export function createInMemoryLeaseStore(): LeaseStore {
 
     list(): Promise<readonly Lease[]> {
       return Promise.resolve(Array.from(leases.values()));
+    },
+
+    scan(): Promise<readonly LeaseScanEntry[]> {
+      const entries = Array.from(leases.values())
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((lease): LeaseScanEntry => ({ id: lease.id, lease }));
+      return Promise.resolve(entries);
     },
 
     delete(id: string): Promise<void> {
@@ -165,6 +172,21 @@ export function createLeaseStoreContractTests(makeStore: () => LeaseStore): void
       const all = await store.list();
       expect(all).toHaveLength(2);
       expect(all).toEqual(expect.arrayContaining([leaseA, leaseB]));
+    });
+
+    it("SCAN: scan() returns one readable entry per lease in ascending id order", async () => {
+      const store = makeStore();
+      expect(await store.scan()).toEqual([]);
+      const leaseB = makeTestLease("lease-b");
+      const leaseA = makeTestLease("lease-a");
+      await store.save(leaseB);
+      await store.save(leaseA);
+      const scanned = await store.scan();
+      expect(scanned.map((entry) => entry.id)).toEqual(["lease-a", "lease-b"]);
+      expect(scanned).toEqual([
+        { id: "lease-a", lease: leaseA },
+        { id: "lease-b", lease: leaseB },
+      ]);
     });
 
     it("CRUD: after delete(id), load(id) returns undefined", async () => {
@@ -823,6 +845,9 @@ export function createTelemetryContractTests(makeTelemetry: () => Telemetry): vo
       { name: "lease.transition", leaseId: "lease-1", from: "granted", to: "active", actor: "runtime" },
       { name: "teardown.step", leaseId: "lease-1", step: "revoke_oauth", outcome: "revoked" },
       { name: "teardown.blocked", leaseId: "lease-1", reason: "credentials_unavailable", resourceCount: 2 },
+      { name: "teardown.fence_takeover", leaseId: "lease-1", previousEpoch: 1, epoch: 2 },
+      { name: "supervisor.action", leaseId: "lease-1", action: "expired" },
+      { name: "supervisor.action", leaseId: "lease-1", action: "torn_down" },
     ];
 
     it("EMIT: accepts each event shape without throwing", () => {

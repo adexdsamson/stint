@@ -51,3 +51,23 @@ export function unrevocableSentence(resource: string): string {
 export function unrevocableNotice(resource: string): string {
   return unrevocableSentence(resource);
 }
+
+/** One `supervise` line when a sweep settled a lease past its expiry (D-20). Only the validated lease id is interpolated. */
+export function sweepExpiredLine(leaseId: string): string {
+  return `Lease ${leaseId} expired and was settled.`;
+}
+
+/** One `supervise` line when a sweep finished a teardown; `label` is a closed state label from `stateLabel` (D-20, SPEC-07). */
+export function sweepTornDownLine(leaseId: string, label: string): string {
+  return `Lease ${leaseId} teardown finished: ${label}.`;
+}
+
+/** One `supervise` line for a lease record the store could not read (D-23). Never includes the record's contents. */
+export function sweepCorruptLine(leaseId: string): string {
+  return `Lease record ${leaseId} could not be read (store_corrupt); it was skipped and left unchanged.`;
+}
+
+/** One `supervise` line when a lease could not be processed. Never includes error text. */
+export function sweepLeaseErrorLine(leaseId: string): string {
+  return `Lease ${leaseId} could not be processed in this sweep.`;
+}
