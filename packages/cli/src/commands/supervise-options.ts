@@ -3,6 +3,7 @@
  * value is a plain non-negative decimal integer; the durations stay within the
  * largest value a platform timer accepts, in seconds, and the cap within a
  * small count. `--probe-interval` alone accepts 0, which disables probing. A bad value is a usage error with fixed text naming the flag.
+ * `--corrupt-repeat` is the quiet period, in seconds, before an unchanged corrupt record is reported again.
  */
 
 import { DEFAULT_SUPERVISOR_CONFIG } from "@stint/runtime";
@@ -19,6 +20,7 @@ const BASE_MESSAGE = `--retry-base must be a whole number of seconds from 1 to $
 const MAX_MESSAGE = `--retry-max must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
 const CAP_MESSAGE = `--retry-cap must be a whole number of retries from 1 to ${String(MAX_CAP)}.`;
 const PROBE_MESSAGE = `--probe-interval must be a whole number of seconds from 0 to ${String(MAX_SECONDS)} (0 disables probing).`;
+const CORRUPT_MESSAGE = `--corrupt-repeat must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
 const ORDER_MESSAGE = "--retry-max must not be smaller than --retry-base.";
 
 /** The value as a whole number in `[min, max]`, or a usage error with `message`. An absent flag yields `fallback`. */
@@ -30,7 +32,7 @@ function wholeNumber(value: string | undefined, max: number, fallback: number, m
   return parsed;
 }
 
-/** Validates `--retry-base`, `--retry-max`, `--retry-cap` and `--probe-interval`; absent flags take the defaults. */
+/** Validates `--retry-base`, `--retry-max`, `--retry-cap`, `--probe-interval` and `--corrupt-repeat`; absent flags take the defaults. */
 export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
   const retryBaseSeconds = wholeNumber(
     opts.retryBase,
@@ -52,6 +54,19 @@ export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
     PROBE_MESSAGE,
     0,
   );
+  const corruptRepeatSeconds = wholeNumber(
+    opts.corruptRepeat,
+    MAX_SECONDS,
+    DEFAULT_SUPERVISOR_CONFIG.corruptRepeatSeconds,
+    CORRUPT_MESSAGE,
+  );
   if (retryMaxSeconds < retryBaseSeconds) throw new CliError(EXIT_CODES.usage, ORDER_MESSAGE);
-  return { ...DEFAULT_SUPERVISOR_CONFIG, retryBaseSeconds, retryMaxSeconds, retryCap, probeIntervalSeconds };
+  return {
+    ...DEFAULT_SUPERVISOR_CONFIG,
+    retryBaseSeconds,
+    retryMaxSeconds,
+    retryCap,
+    probeIntervalSeconds,
+    corruptRepeatSeconds,
+  };
 }

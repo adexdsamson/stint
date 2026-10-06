@@ -20,11 +20,18 @@
  * (default 900, 0 disables). A revoked grant prints one line and the lease is torn
  * down; a probe that fails any other way prints nothing (SUP-04, D-15, D-17).
  *
+ * A lease record the store cannot read, or a lease whose receipts, envelope or
+ * secrets are corrupt, is reported once as one line naming the lease id and
+ * `store_corrupt` (never the file contents) and skipped; the sweep carries on
+ * with every other lease and never modifies, renames or deletes the corrupt file.
+ * `--once` then exits 10, which takes precedence over the 7 of a stuck lease
+ * (SUP-05, D-23).
+ *
  * Without `--once` the command refuses: the long-running loop arrives in a
  * later plan (D-21).
  */
 
-import { createSweepState, runSweep } from "@stint/runtime";
+import { RuntimeError, createSweepState, runSweep } from "@stint/runtime";
 import type { Lease } from "@stint/core";
 import type { SweepEvent } from "@stint/runtime";
 
@@ -42,6 +49,7 @@ import {
 import { resolveStoreRoot } from "../paths.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
+import { StoreCorruptError } from "../store/atomic-file.js";
 import { parseSupervisorConfig } from "./supervise-options.js";
 
 export interface SuperviseOpts extends GlobalOpts {
@@ -52,6 +60,13 @@ export interface SuperviseOpts extends GlobalOpts {
   readonly retryCap?: string | undefined;
   /** Seconds between grant probes of an idle lease; `0` disables; validated by `parseSupervisorConfig`. */
   readonly probeInterval?: string | undefined;
+  /** Seconds before an unchanged corrupt record is reported again; validated by `parseSupervisorConfig`. */
+  readonly corruptRepeat?: string | undefined;
+}
+
+/** What the sweep counts as corrupt stored data: this CLI's store error or the runtime's `store_corrupt`. */
+function isStoreCorrupt(error: unknown): boolean {
+  return error instanceof StoreCorruptError || (error instanceof RuntimeError && error.code === "store_corrupt");
 }
 
 /** The JSON object for one event: scalar fields only. */
@@ -67,7 +82,7 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
         unrevoked: await unrevokedFor(deps, root, event.leaseId, event.lease),
       };
     case "corrupt_record":
-      return { event: "corrupt_record", leaseId: event.leaseId, reason: "store_corrupt" };
+      return { event: "corrupt_record", leaseId: event.leaseId };
     case "lease_error":
       return { event: "lease_error", leaseId: event.leaseId };
     case "grant_revoked":
@@ -139,18 +154,21 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   const json = opts.json === true;
 
   const stuckLeases = new Set<string>();
+  const corruptLeases = new Set<string>();
   // One state for the run: a stuck lease is announced once here, never on every event.
   const state = createSweepState();
 
   await runSweep(ports, {
     config,
     state,
+    isStoreCorrupt,
     // The stuck line already names the lease, the reason and the fix. A second generic terminal line
     // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
     notify: () => Promise.resolve(),
     ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
     onEvent: async (event) => {
       if (event.kind === "stuck") stuckLeases.add(event.leaseId);
+      if (event.kind === "corrupt_record") corruptLeases.add(event.leaseId);
       if (json) {
         deps.io.out(`${JSON.stringify(await jsonFor(deps, root, event))}\n`);
       } else {
@@ -158,7 +176,8 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
       }
     },
   });
-  // Exit 7 while any lease is stuck, so cron can alert (D-04).
+  // Exit 10 when any record was corrupt, ahead of 7 for a stuck lease, so cron can alert (D-23, D-04).
+  if (corruptLeases.size > 0) return EXIT_CODES.storeCorrupt;
   return stuckLeases.size > 0 ? EXIT_CODES.cleanupIncomplete : EXIT_CODES.ok;
 }
 

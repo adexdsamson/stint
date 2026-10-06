@@ -6,7 +6,7 @@
  * touched; and `--once` exits 10 so cron can alert (SUP-05, D-23).
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Lease } from "@stint/core";
@@ -151,6 +151,7 @@ describe("supervise --once with one lease's receipts torn (SUP-05)", () => {
     const { rig: r, a, b, c, clock } = await setupThree();
     // C keeps a valid lease.json but its receipt chain is torn.
     const receiptFile = path.join(r.root, "leases", c, "receipts", "verified.json");
+    await mkdir(path.dirname(receiptFile), { recursive: true });
     await writeFile(receiptFile, TORN);
     const before = await readFile(receiptFile);
     const leaseBytes = await readFile(leaseFile(r.root, c));

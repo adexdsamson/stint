@@ -158,7 +158,8 @@ describe("supervise --once (SUP-01)", () => {
     const tornFile = path.join(dir, "lease.json");
     await writeFile(tornFile, '{"id": "torn-lease", "state": ');
 
-    expect(await supervise(r, expiresAt + 1)).toBe(EXIT_CODES.ok);
+    // A corrupt record makes --once exit 10 for cron (plan 09-09); the other lease is still torn down.
+    expect(await supervise(r, expiresAt + 1)).toBe(EXIT_CODES.storeCorrupt);
 
     expect((await r.lease()).state).toBe("cleaned_up");
     const stderr = stderrOf(r);
