@@ -21,7 +21,7 @@ import type { ResolvedTeardown, RuntimePorts } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
-import { teardownBusyMessage } from "../messages.js";
+import { runTeardownUnfinishedLine, teardownBusyMessage } from "../messages.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import type { LoadedCredential } from "../run/credentials.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
@@ -189,9 +189,7 @@ export async function reportTeardown(
       deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
     }
     if (incomplete) {
-      deps.io.err(
-        `stint: Teardown did not finish. Run "stint-cli cleanup ${lease.id}" to resume it.\n`,
-      );
+      deps.io.err(`stint: ${runTeardownUnfinishedLine(lease.id)}\n`);
     }
     deps.io.err(
       `stint: See the signed per-step trail with "stint-cli receipts ${lease.id}" and "stint-cli verify ${lease.id}".\n`,

@@ -5,6 +5,7 @@
  * `assertSafeLeaseId` and resource names that go through `sanitizeForTerminal`.
  */
 
+import type { LeaseEndReason } from "@stint/runtime";
 import type { TeardownStuckPayload } from "@stint/spec";
 
 import { sanitizeForTerminal } from "./adapter/sanitize.js";
@@ -60,6 +61,22 @@ export function unrevocableSentence(resource: string): string {
  */
 export function unrevocableNotice(resource: string): string {
   return unrevocableSentence(resource);
+}
+
+/**
+ * The one line `stint-cli run` prints, on stderr, when its lease ends and it stops serving (D-08).
+ * Only the closed reason is interpolated; the caller adds the `stint: ` prefix.
+ */
+export function leaseEndedLine(reason: LeaseEndReason): string {
+  return `Lease ended (${reason}); stopping.`;
+}
+
+/**
+ * The line for a teardown that landed incomplete: shared by `revoke`, `cleanup` and a `run` that
+ * ended its own lease. Only the validated lease id is interpolated; the caller adds the `stint: ` prefix.
+ */
+export function runTeardownUnfinishedLine(leaseId: string): string {
+  return `Teardown did not finish. Run "stint-cli cleanup ${leaseId}" to resume it.`;
 }
 
 /** One `supervise` line when a sweep settled a lease past its expiry (D-20). Only the validated lease id is interpolated. */

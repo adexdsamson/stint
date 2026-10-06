@@ -93,6 +93,13 @@ async function serve(
   return { rig, clock, client, done, clientClosed: () => closed, deps };
 }
 
+/** Writes a run profile whose authorization server is `as`: a run revokes through the profile's client. */
+async function writeProfile(rig: TeardownRig, as: Record<string, string>): Promise<string> {
+  const profile = path.join(rig.root, "profile-custom.json");
+  await writeFile(profile, JSON.stringify({ ...PROFILE_JSON, oauth: { ...PROFILE_JSON.oauth, as } }));
+  return profile;
+}
+
 /** A run whose authorization server is a loopback http one, so the run's vault may revoke upstream. */
 async function serveRevocable(): Promise<{ served: Served; revocable: Awaited<ReturnType<typeof startRevocable>> }> {
   let revocable: Awaited<ReturnType<typeof startRevocable>> | undefined;
@@ -103,14 +110,11 @@ async function serveRevocable(): Promise<{ served: Served; revocable: Awaited<Re
       const creds = JSON.parse(await readFile(revocable.creds, "utf8")) as Record<string, { revocationEndpoint: string }>;
       const endpoint = new URL(creds[ORDERS]?.revocationEndpoint ?? "");
       const origin = endpoint.origin;
-      const profile = path.join(rig.root, "profile-loopback.json");
-      await writeFile(
-        profile,
-        JSON.stringify({
-          ...PROFILE_JSON,
-          oauth: { ...PROFILE_JSON.oauth, as: { issuer: origin, token_endpoint: `${origin}/token` } },
-        }),
-      );
+      const profile = await writeProfile(rig, {
+        issuer: origin,
+        token_endpoint: `${origin}/token`,
+        revocation_endpoint: `${origin}/revoke`,
+      });
       return { credentials: revocable.creds, profile };
     },
   });
@@ -173,14 +177,17 @@ describe("stint-cli run stops when its lease expires (D-08, SUP-01)", () => {
   });
 
   it("prints the resume line after the stop line when teardown does not finish", async () => {
-    // The fixture profile's token endpoint is https, so the run's vault refuses the plain-http loopback
-    // revocation endpoint: revoke_oauth fails and the lease lands cleanup_incomplete.
+    // The profile's authorization server offers a revocation endpoint that nothing listens on, so
+    // revoke_oauth fails and the lease lands cleanup_incomplete.
     const served = await serve({
-      prepare: async (rig) => {
-        const revocable = await startRevocable(rig);
-        cleanups.push(() => revocable.close());
-        return { credentials: revocable.creds, profile: rig.fx.profilePath };
-      },
+      prepare: async (rig) => ({
+        credentials: rig.fx.credentialsPath,
+        profile: await writeProfile(rig, {
+          issuer: "https://as.example.test",
+          token_endpoint: "https://as.example.test/token",
+          revocation_endpoint: "https://127.0.0.1:1/revoke",
+        }),
+      }),
     });
     const lease = await served.rig.lease();
 

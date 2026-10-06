@@ -15,6 +15,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { isApiKeyCredential } from "@stint/proxy";
 import { enrichFromProfile, expectedCredentialResources, missingCredentials } from "@stint/runtime";
+import type { LeaseEnded } from "@stint/runtime";
 import { resolveAuthMode } from "@stint/spec";
 
 import type { PromptOutput } from "../adapter/prompt.js";
@@ -22,8 +23,14 @@ import { createTerminalHostAdapter } from "../adapter/terminal-host-adapter.js";
 import { seedFromCredentials } from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
-import { unrevocableNotice } from "../messages.js";
+import {
+  blockedTeardownMessage,
+  leaseEndedLine,
+  runTeardownUnfinishedLine,
+  unrevocableNotice,
+} from "../messages.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
+import { isUnrevokedCleanup, rotateCaveat, unrevokedResources } from "../render/caveat.js";
 import { colorDecision, createStyle } from "../render/style.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { loadStoredManifest } from "../store/envelope.js";
@@ -55,6 +62,35 @@ function createStdioTransport(): Transport {
     void transport.close();
   });
   return transport;
+}
+
+/**
+ * What the run says when its lease ended and it stopped serving (D-08): one fixed line, then what is
+ * left to do. Everything goes to stderr; stdout is the MCP channel and is never written here.
+ */
+async function reportLeaseEnd(deps: CliDeps, root: string, leaseId: string, ended: LeaseEnded): Promise<void> {
+  deps.io.err(`stint: ${leaseEndedLine(ended.reason)}\n`);
+  switch (ended.teardown) {
+    case "cleaned_up": {
+      // SPEC-07: a cleaned-up lease can still hold a credential that was never revoked upstream.
+      const lease = await deps.storeFactory(root).load(leaseId);
+      if (lease === undefined || !isUnrevokedCleanup(lease)) return;
+      const chain = await deps.receiptStoreFactory(root, leaseId).load("verified");
+      for (const resource of unrevokedResources(chain)) {
+        deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
+      }
+      return;
+    }
+    case "blocked":
+      deps.io.err(`stint: ${blockedTeardownMessage(leaseId, ended.blockedResources ?? [])}\n`);
+      return;
+    case "cleanup_incomplete":
+      deps.io.err(`stint: ${runTeardownUnfinishedLine(leaseId)}\n`);
+      return;
+    case "other_driver":
+    case "not_run":
+      return;
+  }
 }
 
 async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<number> {
@@ -142,9 +178,18 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
       verified,
       profile,
       licenseIssuer,
+      leaseWatchMs: deps.run?.leaseWatchMs,
     });
     deps.io.err(`stint: serving lease ${leaseId} over MCP stdio.\n`);
+    // Either the agent goes away or the lease ends; both stop the run with the normal exit code.
+    const outcome = await Promise.race([
+      running.ended.then((ended) => ({ ended })),
+      running.closed.then(() => undefined),
+    ]);
+    if (outcome !== undefined) await reportLeaseEnd(deps, root, leaseId, outcome.ended);
     await running.closed;
+    // Publish the final heartbeat before exiting, so a supervisor sees the run as ended (D-18).
+    await running.close().catch(() => undefined);
     return EXIT_CODES.ok;
   } finally {
     terminal?.close();

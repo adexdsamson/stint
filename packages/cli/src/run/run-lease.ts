@@ -50,6 +50,10 @@ export interface RunLeaseOptions {
   readonly licenseIssuer?: LicenseIssuerClient | undefined;
   /** How often, in milliseconds, a call waiting for an approval checks whether the lease has ended (default 1000; tests use a small value). */
   readonly approvalWatchMs?: number | undefined;
+  /** How often, in milliseconds, the run checks its own lease (default 5000; tests use a small value). */
+  readonly leaseWatchMs?: number | undefined;
+  /** Seconds a lease may sit idle before the run probes its own grant (default 900; 0 turns the probe off). */
+  readonly probeIntervalSeconds?: number | undefined;
 }
 
 export async function runLease(options: RunLeaseOptions): Promise<RunningLease> {
@@ -64,6 +68,7 @@ export async function runLease(options: RunLeaseOptions): Promise<RunningLease> 
   return {
     closed: running.closed,
     close: running.close,
+    ended: running.ended,
     verifyOutcome: async (): Promise<Lease> => {
       try {
         return await running.verifyOutcome();

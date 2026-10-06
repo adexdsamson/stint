@@ -46,6 +46,8 @@ export interface AdapterContext {
 export interface RunSeams {
   readonly openTerminal?: () => ControllingTerminal | undefined;
   readonly createTransport?: () => Transport;
+  /** Test seam: how often, in milliseconds, a run checks its own lease (production leaves it unset: 5000). */
+  readonly leaseWatchMs?: number;
 }
 
 /**
