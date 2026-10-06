@@ -194,7 +194,7 @@ describe("corrupt per-lease data is isolated (SUP-05)", () => {
 
     const events = await sweep(h, undefined, { isStoreCorrupt: isFake });
 
-    expect(events.map((e) => `${e.kind}:${e.leaseId}`)).toEqual(["corrupt_record:lease-a", "torn_down:lease-b"]);
+    expect(events.map((e) => `${e.kind}:${"leaseId" in e ? e.leaseId : ""}`)).toEqual(["corrupt_record:lease-a", "torn_down:lease-b"]);
   });
 
   it("by default recognises a RuntimeError with code store_corrupt", async () => {
@@ -203,7 +203,7 @@ describe("corrupt per-lease data is isolated (SUP-05)", () => {
 
     const events = await sweep(h);
 
-    expect(events.map((e) => `${e.kind}:${e.leaseId}`)).toEqual(["corrupt_record:lease-a", "torn_down:lease-b"]);
+    expect(events.map((e) => `${e.kind}:${"leaseId" in e ? e.leaseId : ""}`)).toEqual(["corrupt_record:lease-a", "torn_down:lease-b"]);
   });
 
   it("deduplicates in-data corruption by the quiet period only", async () => {
@@ -222,7 +222,7 @@ describe("corrupt per-lease data is isolated (SUP-05)", () => {
     h.brokenReceipts.set("lease-a", new Error("disk went away"));
 
     const first = await sweep(h, T0);
-    expect(first.map((e) => `${e.kind}:${e.leaseId}`)).toEqual(["lease_error:lease-a", "torn_down:lease-b"]);
+    expect(first.map((e) => `${e.kind}:${"leaseId" in e ? e.leaseId : ""}`)).toEqual(["lease_error:lease-a", "torn_down:lease-b"]);
     expect(await sweep(h, T0 + 10)).toEqual([]);
     expect(await sweep(h, T0 + REPEAT - 1)).toEqual([]);
     expect(await sweep(h, T0 + REPEAT)).toEqual([{ kind: "lease_error", leaseId: "lease-a" }]);

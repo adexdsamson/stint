@@ -52,6 +52,15 @@
  * and releases its fence. The sweep then returns `aborted: true` and starts no
  * further lease; the lease a pass left `tearing_down` is resumed by the next
  * driver from its receipts.
+ *
+ * Clock (SUP-06, D-19): with `control` and `monotonicMs` set, each sweep samples the wall and
+ * the monotonic clock. When the wall clock moved more than `clockJumpThresholdSeconds` beyond the
+ * monotonic clock since the previous sweep, a persisted pause marker is written and the sweep stops
+ * settling expiry: a lease past `expiresAt` stays as it is, with no receipt, until the operator
+ * confirms the clock. Retries, the teardown of ended leases and grant probes carry on. The
+ * confirmation carries the pause's random id and is honoured only while that pause exists; an
+ * unreadable marker counts as a pause. A run with no baseline (a new `SweepState`) cannot detect a
+ * jump but honours a pause already on disk.
  */
 
 import { safeEmit } from "@stint/core";
@@ -73,8 +82,11 @@ import type { RuntimePorts } from "../ports.js";
 import { resolveTeardown } from "../resolve-teardown.js";
 import type { ResolvedTeardown } from "../resolve-teardown.js";
 import { settleExpired } from "../settle-expired.js";
+import { forwardJumpSeconds } from "./clock-guard.js";
+import type { ClockSample } from "./clock-guard.js";
 import { DEFAULT_SUPERVISOR_CONFIG } from "./config.js";
 import type { SupervisorConfig } from "./config.js";
+import type { SupervisorControl } from "./control.js";
 import { isRunLive } from "./heartbeat.js";
 import { probeBackoffSeconds, probeLeaseGrants } from "./probe.js";
 import { deriveRetryState } from "./retry-state.js";
@@ -100,7 +112,13 @@ export type SweepEvent =
       readonly attempts: number;
       /** True for a re-announcement of a lease that was already stuck, with no new receipt. */
       readonly repeat: boolean;
-    };
+    }
+  /** Lease expiry is paused after a forward clock jump; `repeat` is true for a pause found on disk by a run that did not write it. */
+  | { readonly kind: "clock_paused"; readonly jumpSeconds: number; readonly repeat: boolean }
+  /** The operator confirmed the clock; lease expiry resumes in this sweep. */
+  | { readonly kind: "clock_confirmed" }
+  /** The pause marker exists but cannot be read; lease expiry stays paused until it is fixed. Once per run. */
+  | { readonly kind: "clock_marker_unreadable" };
 
 /**
  * What one supervisor run has already told the operator. Pass the same state
@@ -114,6 +132,18 @@ export interface SweepState {
   readonly probes: Map<string, ProbeSchedule>;
   /** What was last reported for each lease that is corrupt or failing, for deduplication (D-23). */
   readonly reports: Map<string, ReportMemory>;
+  /** The clock baseline and what was announced about the pause markers in this run (SUP-06, D-19). */
+  readonly clock: ClockState;
+}
+
+/** The clock guard's memory for one supervisor run. */
+export interface ClockState {
+  /** The wall and monotonic reading of the previous sweep; `undefined` until a sweep takes one. Not moved while paused. */
+  baseline: ClockSample | undefined;
+  /** True once this run has announced the current pause. */
+  pauseAnnounced: boolean;
+  /** True once this run has announced an unreadable pause marker. */
+  unreadableAnnounced: boolean;
 }
 
 /** The last `corrupt_record` or `lease_error` report made for a lease in this run. */
@@ -136,6 +166,7 @@ export function createSweepState(): SweepState {
     announcedStuck: new Set<string>(),
     probes: new Map<string, ProbeSchedule>(),
     reports: new Map<string, ReportMemory>(),
+    clock: { baseline: undefined, pauseAnnounced: false, unreadableAnnounced: false },
   };
 }
 
@@ -203,6 +234,12 @@ export interface RunSweepOptions {
   readonly onEvent?: (event: SweepEvent) => void | Promise<void>;
   /** A graceful-stop request (D-21): checked before each lease and passed into each teardown pass, which stops between steps. */
   readonly signal?: AbortSignal;
+  /** Where the clock pause and its confirmation are kept (SUP-06, D-19). Without it expiry is never paused. */
+  readonly control?: SupervisorControl;
+  /** A monotonic millisecond clock. Without it no jump is ever detected, but a pause already persisted is honoured. */
+  readonly monotonicMs?: () => number;
+  /** A fresh random id for a pause marker; defaults to `globalThis.crypto.randomUUID()`. */
+  readonly randomId?: () => string;
 }
 
 /** What the sweep does with a lease in a given state. Closed so a new state is a compile error. */
@@ -232,6 +269,104 @@ function isLanded(state: Lease["state"]): boolean {
   return state === "cleaned_up" || state === "cleanup_incomplete";
 }
 
+/**
+ * The clock guard (SUP-06, D-19), run at the start of a sweep. Resolves `true` when lease expiry must not
+ * be settled in this sweep: a pause marker exists that no matching confirmation has cleared, the marker
+ * cannot be read (fail closed), or a jump was just detected. A host without `control` is never paused.
+ * It never throws: a marker that cannot be written leaves expiry paused for this sweep and is tried again
+ * at the next one, because the baseline does not move.
+ */
+async function clockGate(
+  ports: RuntimePorts,
+  options: RunSweepOptions,
+  config: SupervisorConfig,
+  state: SweepState,
+  emit: (event: SweepEvent) => Promise<void>,
+): Promise<boolean> {
+  const control = options.control;
+  if (control === undefined) return false;
+  const clock = state.clock;
+
+  let pause: Awaited<ReturnType<SupervisorControl["readPause"]>>;
+  try {
+    pause = await control.readPause();
+    clock.unreadableAnnounced = false;
+  } catch {
+    if (!clock.unreadableAnnounced) {
+      clock.unreadableAnnounced = true;
+      await emit({ kind: "clock_marker_unreadable" });
+    }
+    return true;
+  }
+
+  const sample = (): ClockSample | undefined => {
+    const monoMs = options.monotonicMs;
+    if (monoMs === undefined) return undefined;
+    const reading = { wall: ports.clock(), monoMs: monoMs() };
+    return Number.isFinite(reading.wall) && Number.isFinite(reading.monoMs) ? reading : undefined;
+  };
+
+  if (pause !== undefined) {
+    let confirmedId: string | undefined;
+    try {
+      confirmedId = (await control.readConfirm())?.id;
+    } catch {
+      // An unreadable confirmation confirms nothing.
+    }
+    if (confirmedId === pause.id) {
+      try {
+        await control.clearPause();
+      } catch {
+        // Still paused; the matching confirmation is still there for the next sweep.
+        return true;
+      }
+      try {
+        await control.clearConfirm();
+      } catch {
+        // A leftover confirmation carries the old id and can never match a later pause.
+      }
+      clock.baseline = sample();
+      clock.pauseAnnounced = false;
+      await emit({ kind: "clock_confirmed" });
+      return false;
+    }
+    if (!clock.pauseAnnounced) {
+      clock.pauseAnnounced = true;
+      safeEmit(ports.telemetry, { name: "supervisor.clock_paused", jumpSeconds: pause.jumpSeconds });
+      await emit({ kind: "clock_paused", jumpSeconds: pause.jumpSeconds, repeat: true });
+    }
+    return true;
+  }
+
+  const current = sample();
+  if (current === undefined) return false;
+  const previous = clock.baseline;
+  if (previous === undefined) {
+    clock.baseline = current;
+    return false;
+  }
+  const jump = forwardJumpSeconds(previous, current);
+  if (!(jump > config.clockJumpThresholdSeconds)) {
+    clock.baseline = current;
+    return false;
+  }
+
+  const jumpSeconds = Math.floor(jump);
+  const id = (options.randomId ?? ((): string => globalThis.crypto.randomUUID()))();
+  try {
+    // A confirmation already on disk predates this pause; clear it before the pause exists so it cannot linger.
+    await control.clearConfirm().catch(() => undefined);
+    await control.writePause({ v: 1, id, detectedAt: Math.floor(current.wall), jumpSeconds });
+  } catch {
+    // Not persisted: nothing is settled now and the next sweep measures the same jump again.
+    return true;
+  }
+  clock.pauseAnnounced = true;
+  safeEmit(ports.telemetry, { name: "supervisor.clock_paused", jumpSeconds });
+  await emit({ kind: "clock_paused", jumpSeconds, repeat: false });
+  return true;
+}
+
 /** Runs one sweep over every lease in `ports.leases`. */
 export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {}): Promise<SweepReport> {
   const events: SweepEvent[] = [];
@@ -251,6 +386,9 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   const config = options.config ?? DEFAULT_SUPERVISOR_CONFIG;
   const state = options.state ?? createSweepState();
   const entries: readonly LeaseScanEntry[] = await ports.leases.scan();
+
+  // Clock guard (SUP-06, D-19): decided once per sweep, before any lease is looked at.
+  const expiryPaused = await clockGate(ports, options, config, state, emit);
 
   const corruptTest = options.isStoreCorrupt ?? isRuntimeStoreCorrupt;
   const looksCorrupt = (error: unknown): boolean => {
@@ -445,6 +583,11 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
       let lease = entry.lease;
       let action = route(lease, ports.clock());
       if (lease.state !== "active") state.probes.delete(leaseId);
+      if (action === "settle_then_teardown" && expiryPaused) {
+        // A lease only the clock says is past its expiry: leave it exactly as it is until the operator confirms.
+        safeEmit(ports.telemetry, { name: "supervisor.expiry_paused", leaseId });
+        continue;
+      }
       if (action === "settle_then_teardown") {
         const settled = await settleExpired(ports, leaseId);
         lease = settled.lease;

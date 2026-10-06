@@ -90,6 +90,7 @@ describe("DEFAULT_SUPERVISOR_CONFIG", () => {
       probeIntervalSeconds: 900,
       probeTimeoutMs: 15_000,
       corruptRepeatSeconds: 86_400,
+      clockJumpThresholdSeconds: 3600,
     });
   });
 });

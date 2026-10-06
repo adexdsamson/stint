@@ -58,6 +58,16 @@ export type TelemetryEvent =
       /** A lease record or its data could not be read; emitted only when the report is made, never on a deduplicated sweep. */
       readonly name: "supervisor.corrupt_record";
       readonly leaseId: string;
+    }
+  | {
+      /** A forward wall-clock jump was detected, or a persisted pause was found; lease expiry is paused until the operator confirms. */
+      readonly name: "supervisor.clock_paused";
+      readonly jumpSeconds: number;
+    }
+  | {
+      /** A lease past its expiry was left unsettled in this sweep because expiry is paused. */
+      readonly name: "supervisor.expiry_paused";
+      readonly leaseId: string;
     };
 
 /** One synchronous method; a sink that needs I/O must queue internally. */
