@@ -53,6 +53,11 @@ export type TelemetryEvent =
       readonly result: "ok" | "revoked" | "transient" | "not_probeable" | "skipped";
       /** Seconds until the lease is probed again; 0 when it is due on the next sweep or no longer scheduled. */
       readonly nextProbeInSeconds: number;
+    }
+  | {
+      /** A lease record or its data could not be read; emitted only when the report is made, never on a deduplicated sweep. */
+      readonly name: "supervisor.corrupt_record";
+      readonly leaseId: string;
     };
 
 /** One synchronous method; a sink that needs I/O must queue internally. */

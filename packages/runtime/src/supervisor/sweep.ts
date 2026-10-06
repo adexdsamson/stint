@@ -37,11 +37,15 @@
  * waits longer (capped exponential backoff, `Retry-After` honoured). A lease a
  * live `run` serves (fresh `run_heartbeat`) is never probed.
  *
- * Isolation: each lease runs in its own try/catch. A lease another driver
- * holds (`TeardownFencedError`) adds no event; any other failure is reported
- * as a `lease_error` carrying only the lease id, and the sweep continues. A
- * record the store could not read is reported by id and closed reason, never
- * by contents.
+ * Isolation (SUP-05, D-23): each lease runs in its own try/catch. A lease another
+ * driver holds (`TeardownFencedError`) adds no event. A record the store could
+ * not read, and a failure the host's `isStoreCorrupt` predicate calls
+ * corruption (a torn receipt chain, envelope or binding), is reported as
+ * `corrupt_record` by id only; any other failure is a `lease_error` carrying
+ * only the lease id; and the sweep continues with the next lease. Nothing here
+ * writes, renames or deletes a corrupt file. A report repeats only when the
+ * record's fingerprint changes or after `corruptRepeatSeconds`, so a persistent
+ * fault does not flood a log, and a lease that is processed cleanly forgets it.
  */
 
 import { safeEmit } from "@stint/core";
@@ -102,6 +106,16 @@ export interface SweepState {
   readonly announcedStuck: Set<string>;
   /** The probe schedule of each idle active lease, kept for the life of this run (D-15, D-17). */
   readonly probes: Map<string, ProbeSchedule>;
+  /** What was last reported for each lease that is corrupt or failing, for deduplication (D-23). */
+  readonly reports: Map<string, ReportMemory>;
+}
+
+/** The last `corrupt_record` or `lease_error` report made for a lease in this run. */
+export interface ReportMemory {
+  /** The store's file fingerprint for an unreadable record, or a fixed marker for a failure inside the lease's data. */
+  readonly fingerprint: string;
+  /** Epoch seconds. */
+  readonly reportedAt: number;
 }
 
 /** When a lease is next probed and how many probes in a row failed transiently. */
@@ -112,7 +126,11 @@ export interface ProbeSchedule {
 }
 
 export function createSweepState(): SweepState {
-  return { announcedStuck: new Set<string>(), probes: new Map<string, ProbeSchedule>() };
+  return {
+    announcedStuck: new Set<string>(),
+    probes: new Map<string, ProbeSchedule>(),
+    reports: new Map<string, ReportMemory>(),
+  };
 }
 
 /** The later of the grant time and the newest `call` receipt: the lease's last activity (D-16). */
@@ -141,6 +159,15 @@ function isManifestInvalid(error: unknown): boolean {
   return error instanceof RuntimeError && error.code === "manifest_invalid";
 }
 
+/** The default corruption test: the runtime's own `store_corrupt` error. A host adds its own store's error. */
+function isRuntimeStoreCorrupt(error: unknown): boolean {
+  return error instanceof RuntimeError && error.code === "store_corrupt";
+}
+
+// Fingerprints for a failure found inside a lease's data (there is no file fingerprint at the port level).
+const DATA_CORRUPT = "data:store_corrupt";
+const DATA_ERROR = "data:lease_error";
+
 export interface SweepReport {
   readonly events: readonly SweepEvent[];
   /** How many store entries the sweep looked at (readable or not). */
@@ -154,6 +181,12 @@ export interface RunSweepOptions {
   readonly fenceTtlSeconds?: number;
   /** Retry timing; defaults to `DEFAULT_SUPERVISOR_CONFIG`. */
   readonly config?: SupervisorConfig;
+  /**
+   * Tells the sweep which thrown errors mean a lease's stored data is corrupt (D-23). The runtime cannot
+   * import a host's store error, so the host supplies the test. Defaults to a `RuntimeError` with code
+   * `store_corrupt`. A predicate that throws counts as "not corrupt".
+   */
+  readonly isStoreCorrupt?: (error: unknown) => boolean;
   /** What this run already announced; a fresh state when absent, so every stuck lease is announced once. */
   readonly state?: SweepState;
   /** Told once per new stuck marking, never for a re-announcement. A failing callback never changes an outcome. */
@@ -204,6 +237,49 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   const config = options.config ?? DEFAULT_SUPERVISOR_CONFIG;
   const state = options.state ?? createSweepState();
   const entries: readonly LeaseScanEntry[] = await ports.leases.scan();
+
+  const corruptTest = options.isStoreCorrupt ?? isRuntimeStoreCorrupt;
+  const looksCorrupt = (error: unknown): boolean => {
+    try {
+      return corruptTest(error);
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * True when a report for `leaseId` should be made now: it is new, its fingerprint changed, or the quiet
+   * period has run out. Records the report when it is made, so the next sweep deduplicates against it.
+   */
+  const shouldReport = (leaseId: string, fingerprint: string, previous: ReportMemory | undefined): boolean => {
+    const at = ports.clock();
+    if (
+      previous !== undefined &&
+      previous.fingerprint === fingerprint &&
+      at - previous.reportedAt < config.corruptRepeatSeconds
+    ) {
+      state.reports.set(leaseId, previous);
+      return false;
+    }
+    state.reports.set(leaseId, { fingerprint, reportedAt: at });
+    return true;
+  };
+
+  /** Reports a corrupt record or a failure of one lease, deduplicated; never carries contents or error text. */
+  const reportFailure = async (
+    leaseId: string,
+    failure: unknown,
+    previous: ReportMemory | undefined,
+  ): Promise<void> => {
+    if (looksCorrupt(failure)) {
+      if (!shouldReport(leaseId, DATA_CORRUPT, previous)) return;
+      safeEmit(ports.telemetry, { name: "supervisor.corrupt_record", leaseId });
+      await emit({ kind: "corrupt_record", leaseId, unreadable: "corrupt" });
+      return;
+    }
+    if (!shouldReport(leaseId, DATA_ERROR, previous)) return;
+    await emit({ kind: "lease_error", leaseId });
+  };
 
   /** Tells the host a lease is stuck; a failing host never changes an outcome. */
   const notifyHost = async (leaseId: string, reason: TeardownStuckReason): Promise<void> => {
@@ -332,11 +408,23 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
     await emit({ kind: "stuck", leaseId, reason, attempts, repeat: true });
   };
 
+  // A lease no longer in the store has nothing left to deduplicate.
+  const present = new Set(entries.map((entry) => entry.id));
+  for (const id of [...state.reports.keys()]) {
+    if (!present.has(id)) state.reports.delete(id);
+  }
+
   for (const entry of entries) {
+    // What was reported last time; a lease processed cleanly this time forgets it (D-23).
+    const previous = state.reports.get(entry.id);
     if ("unreadable" in entry) {
-      await emit({ kind: "corrupt_record", leaseId: entry.id, unreadable: entry.unreadable });
+      if (shouldReport(entry.id, `file:${entry.fingerprint}`, previous)) {
+        safeEmit(ports.telemetry, { name: "supervisor.corrupt_record", leaseId: entry.id });
+        await emit({ kind: "corrupt_record", leaseId: entry.id, unreadable: entry.unreadable });
+      }
       continue;
     }
+    state.reports.delete(entry.id);
     const leaseId = entry.id;
     try {
       let lease = entry.lease;
@@ -434,6 +522,7 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
       }
     } catch (error) {
       if (error instanceof TeardownFencedError) continue;
+      let failure: unknown = error;
       try {
         if (error instanceof TeardownBlockedError) {
           await markAndAnnounce(leaseId, "credentials_unavailable", await failedPassesOf(leaseId));
@@ -443,10 +532,11 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
           await markAndAnnounce(leaseId, "manifest_invalid", await failedPassesOf(leaseId));
           continue;
         }
-      } catch {
-        // the marker could not be written; report the lease below
+      } catch (markError) {
+        // The marker could not be written (its own read may hit the corruption); report that failure below.
+        failure = markError;
       }
-      await emit({ kind: "lease_error", leaseId });
+      await reportFailure(leaseId, failure, previous);
     }
   }
 
