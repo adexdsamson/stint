@@ -5,8 +5,8 @@ import type { TeardownStep } from "@stint/proxy";
 import type { ReceiptEntry } from "@stint/spec";
 import { describe, expect, it } from "vitest";
 
-import { markStuck, resolveTeardown, runSweep, seedLeaseCredentials } from "../src/index.js";
-import type { RuntimePorts, SupervisorConfig, SweepEvent } from "../src/index.js";
+import { createSweepState, markStuck, resolveTeardown, runSweep, seedLeaseCredentials } from "../src/index.js";
+import type { RuntimePorts, SupervisorConfig, SweepEvent, SweepState } from "../src/index.js";
 import { buildRig, delegatedManifest, oauthCredential } from "./helpers.js";
 
 const LEASE = "lease-retry-1";
@@ -16,6 +16,8 @@ interface Harness {
   readonly ports: RuntimePorts;
   readonly now: { value: number };
   readonly telemetry: TelemetryEvent[];
+  /** One state for every sweep of a test, like one supervisor process. */
+  readonly state: SweepState;
   /** How many more times `cleanup_hook` fails; `Infinity` fails every time. */
   readonly hook: { failures: number; calls: number };
   readonly decorateSteps: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
@@ -51,7 +53,7 @@ async function setup(initialState: "expired" | "cleanup_incomplete" = "expired")
         },
       }),
     );
-  return { ports, now, telemetry, hook, decorateSteps };
+  return { ports, now, telemetry, hook, decorateSteps, state: createSweepState() };
 }
 
 async function verified(h: Harness): Promise<readonly ReceiptEntry[]> {
@@ -71,6 +73,7 @@ async function sweepAt(h: Harness, at: number, config?: SupervisorConfig): Promi
   h.now.value = at;
   const report = await runSweep(h.ports, {
     decorateSteps: h.decorateSteps,
+    state: h.state,
     ...(config === undefined ? {} : { config }),
   });
   return report.events;
@@ -146,7 +149,7 @@ describe("supervisor retry (SUP-02)", () => {
     const retried = all.filter((e) => e.kind === "retried");
     expect(retried.map((e) => (e as { attempt: number }).attempt)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     const stuck = all.filter((e) => e.kind === "stuck");
-    expect(stuck).toEqual([{ kind: "stuck", leaseId: LEASE, reason: "retries_exhausted", attempts: 9 }]);
+    expect(stuck).toEqual([{ kind: "stuck", leaseId: LEASE, reason: "retries_exhausted", attempts: 9, repeat: false }]);
     expect((await h.ports.leases.load(LEASE))?.state).toBe("cleanup_incomplete");
     expect(h.telemetry).toContainEqual({ name: "supervisor.action", leaseId: LEASE, action: "stuck" });
 
@@ -208,7 +211,7 @@ describe("supervisor retry (SUP-02)", () => {
 
     const events = await sweepAt(h, T0 + 100_000, config);
 
-    expect(events).toEqual([{ kind: "stuck", leaseId: LEASE, reason: "retries_exhausted", attempts: 2 }]);
+    expect(events).toEqual([{ kind: "stuck", leaseId: LEASE, reason: "retries_exhausted", attempts: 2, repeat: false }]);
     expect(h.hook.calls).toBe(0);
     expect((await verified(h)).filter((e) => e.type === "teardown_stuck")).toHaveLength(1);
     expect(await sweepAt(h, T0 + 200_000, config)).toEqual([]);
