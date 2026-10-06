@@ -189,6 +189,24 @@ export function createLeaseStoreContractTests(makeStore: () => LeaseStore): void
       ]);
     });
 
+    it("SCAN: scan() shows the result of a transaction()", async () => {
+      const store = makeStore();
+      await store.save(makeTestLease("lease-t", { version: 0 }));
+      await store.transaction("lease-t", (current) => ({ ...current, version: current.version + 1 }));
+      const scanned = await store.scan();
+      expect(scanned).toHaveLength(1);
+      const [entry] = scanned;
+      expect(entry !== undefined && "lease" in entry ? entry.lease.version : undefined).toBe(1);
+    });
+
+    it("SCAN: a deleted lease is absent from scan()", async () => {
+      const store = makeStore();
+      await store.save(makeTestLease("lease-keep"));
+      await store.save(makeTestLease("lease-gone"));
+      await store.delete("lease-gone");
+      expect((await store.scan()).map((entry) => entry.id)).toEqual(["lease-keep"]);
+    });
+
     it("CRUD: after delete(id), load(id) returns undefined", async () => {
       const store = makeStore();
       const lease = makeTestLease("lease-del");
