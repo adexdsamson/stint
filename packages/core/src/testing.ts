@@ -782,7 +782,7 @@ export function createInMemoryLeaseArtifactStore(): LeaseArtifactStore {
  */
 export function createLeaseArtifactStoreContractTests(makeStore: () => LeaseArtifactStore): void {
   describe("LeaseArtifactStore contract", () => {
-    const names: readonly LeaseArtifactName[] = ["envelope", "publisher", "grants"];
+    const names: readonly LeaseArtifactName[] = ["envelope", "publisher", "grants", "run_heartbeat"];
 
     it("ABSENT: get of an absent artifact resolves undefined", async () => {
       const store = makeStore();
