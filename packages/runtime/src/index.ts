@@ -36,3 +36,9 @@ export { createLeaseRuntime, LICENSE_REFRESH_BEFORE_SECONDS } from "./lease-runt
 export type { LeaseRuntimeOptions, RunningLease } from "./lease-runtime.js";
 export { enrichFromProfile } from "./profile.js";
 export type { RunProfile } from "./profile.js";
+export {
+  RUN_HEARTBEAT_INTERVAL_SECONDS,
+  RUN_LIVE_WINDOW_SECONDS,
+  isRunLive,
+  writeRunHeartbeat,
+} from "./supervisor/heartbeat.js";

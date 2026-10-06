@@ -80,8 +80,14 @@ export {
 } from "./ports/secret-store.js";
 export type { SecretStore } from "./ports/secret-store.js";
 export type { KeyProvider, RuntimeKey, RuntimePublicJwk, RuntimeVerificationKey } from "./ports/key-provider.js";
-export { parseGrantsArtifact } from "./ports/lease-artifact-store.js";
-export type { LeaseArtifactStore, LeaseArtifactName, GrantRecord, GrantsArtifact } from "./ports/lease-artifact-store.js";
+export { parseGrantsArtifact, parseRunHeartbeat } from "./ports/lease-artifact-store.js";
+export type {
+  LeaseArtifactStore,
+  LeaseArtifactName,
+  GrantRecord,
+  GrantsArtifact,
+  RunHeartbeat,
+} from "./ports/lease-artifact-store.js";
 
 // License public surface (LIC-01, LIC-02, LIC-03, D-11, D-13, D-15). The
 // reference `issueLicense` secret-signing path and `@stint/core/testing`'s

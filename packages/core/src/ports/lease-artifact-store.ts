@@ -8,8 +8,12 @@
  * kinds only) so teardown can fail closed when a credential is unavailable.
  */
 
-/** The three artifacts a lease carries. */
-export type LeaseArtifactName = "envelope" | "publisher" | "grants";
+/**
+ * The artifacts a lease carries. `run_heartbeat` is written lock-free by a live
+ * `run` every few seconds so a supervisor can tell a run is serving the lease
+ * and must not refresh its grant (Phase 9 D-18). It holds timestamps only.
+ */
+export type LeaseArtifactName = "envelope" | "publisher" | "grants" | "run_heartbeat";
 
 /** Per-lease artifact storage. */
 export interface LeaseArtifactStore {
@@ -60,4 +64,32 @@ export function parseGrantsArtifact(raw: unknown): GrantsArtifact | undefined {
     grants.push(grant);
   }
   return { version: 1, grants };
+}
+
+/**
+ * The live-run heartbeat (D-18). `beatAt` is the last time a run proved it is
+ * alive, in whole epoch seconds; `endedAt` is set when the run ended cleanly.
+ * No secret, no identifier beyond the lease it is stored under.
+ */
+export interface RunHeartbeat {
+  readonly v: 1;
+  readonly beatAt: number;
+  readonly endedAt?: number;
+}
+
+function isEpochSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Strictly validates a stored `run_heartbeat` artifact. Returns `undefined` for
+ * a wrong version, a missing or non-integer or negative `beatAt` or `endedAt`,
+ * and a non-object, so a caller can treat anything it does not recognise as a
+ * live run (probing next to a live run is the dangerous direction).
+ */
+export function parseRunHeartbeat(raw: unknown): RunHeartbeat | undefined {
+  if (!isRecord(raw) || raw.v !== 1 || !isEpochSeconds(raw.beatAt)) return undefined;
+  if (raw.endedAt === undefined) return { v: 1, beatAt: raw.beatAt };
+  if (!isEpochSeconds(raw.endedAt)) return undefined;
+  return { v: 1, beatAt: raw.beatAt, endedAt: raw.endedAt };
 }

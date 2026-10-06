@@ -24,6 +24,7 @@ const FILE_NAMES: Readonly<Record<LeaseArtifactName, string>> = {
   envelope: "envelope.json",
   publisher: "publisher.json",
   grants: "grants.json",
+  run_heartbeat: "run-heartbeat.json",
 };
 
 export function createFileLeaseArtifactStore(opts: FileLeaseArtifactStoreOptions): LeaseArtifactStore {
