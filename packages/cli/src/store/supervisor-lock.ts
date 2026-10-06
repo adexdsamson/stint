@@ -34,6 +34,10 @@ const DEFAULT_STALE_MS = 10_000;
 /** How long past the stale time a restart keeps trying before it refuses (T-09-44). */
 const ACQUIRE_SLACK_MS = 2000;
 const RETRY_EVERY_MS = 250;
+/** Windows can fail a directory operation transiently while a scanner or another reader holds it (as `withFileLock` already allows for). */
+const TRANSIENT = new Set(["EPERM", "EBUSY", "EACCES"]);
+const RELEASE_ATTEMPTS = 5;
+const RELEASE_RETRY_MS = 50;
 
 function errnoCode(error: unknown): string | undefined {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
@@ -64,7 +68,6 @@ export async function acquireSupervisorLock(root: string, opts: SupervisorLockOp
   const staleMs = Math.max(MIN_STALE_MS, opts.staleMs ?? DEFAULT_STALE_MS);
   const windowMs = opts.acquireWindowMs ?? staleMs + ACQUIRE_SLACK_MS;
   const dir = supervisorDir(root);
-  await mkdir(dir, { recursive: true });
   const target = path.join(dir, "supervisor");
 
   let markCompromised: () => void = () => undefined;
@@ -76,6 +79,7 @@ export async function acquireSupervisorLock(root: string, opts: SupervisorLockOp
   let release: () => Promise<void>;
   for (;;) {
     try {
+      await mkdir(dir, { recursive: true });
       release = await lockfile.lock(target, {
         realpath: false, // the target is never created, only its `.lock` directory
         stale: staleMs,
@@ -86,7 +90,8 @@ export async function acquireSupervisorLock(root: string, opts: SupervisorLockOp
       });
       break;
     } catch (error) {
-      if (errnoCode(error) !== "ELOCKED") throw error;
+      const code = errnoCode(error);
+      if (code !== "ELOCKED" && !TRANSIENT.has(code ?? "")) throw error;
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw new CliError(EXIT_CODES.leaseBusy, supervisorBusyMessage());
       await delay(Math.min(RETRY_EVERY_MS, remaining));
@@ -99,10 +104,15 @@ export async function acquireSupervisorLock(root: string, opts: SupervisorLockOp
     release: async () => {
       if (released) return;
       released = true;
-      try {
-        await release();
-      } catch {
-        // already lost or removed: nothing left to release
+      for (let attempt = 1; attempt <= RELEASE_ATTEMPTS; attempt++) {
+        try {
+          await release();
+          return;
+        } catch (error) {
+          // Only a transient failure is worth another try; a lock already lost or removed has nothing left to release.
+          if (!TRANSIENT.has(errnoCode(error) ?? "")) return;
+          await delay(RELEASE_RETRY_MS);
+        }
       }
     },
   };

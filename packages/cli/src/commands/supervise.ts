@@ -27,19 +27,28 @@
  * `--once` then exits 10, which takes precedence over the 7 of a stuck lease
  * (SUP-05, D-23).
  *
- * Without `--once` the command refuses: the long-running loop arrives in a
- * later plan (D-21).
+ * Without `--once` the command is a long-running loop (SUP-07, D-21, D-22):
+ * it sweeps, sleeps `--sweep-interval` seconds (default 30) and repeats until it
+ * is told to stop. A stop request (Ctrl-C) lets the pass in flight finish its
+ * current step, starts nothing new, releases the pass's fence and the store lock
+ * and exits 0; a second signal terminates at once. An idle sweep prints nothing and
+ * the loop prints no startup or heartbeat line. In either mode a second supervisor
+ * on the same store is refused with exit 8, and a supervisor whose lock is lost
+ * stops sweeping and exits 8. Signals reach this file only through the injected
+ * `deps.supervise.shutdown` seam; it never reads the host runtime directly.
  */
 
 import { RuntimeError, createSweepState, runSweep } from "@stint/runtime";
 import type { Lease } from "@stint/core";
-import type { RuntimePorts, SupervisorConfig, SweepEvent } from "@stint/runtime";
+import type { RunSweepOptions, RuntimePorts, SupervisorConfig, SweepEvent, SweepState } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import {
   sweepCorruptLine,
+  supervisorLockLostMessage,
   sweepExpiredLine,
+  sweepFailedLine,
   sweepGrantRevokedLine,
   sweepLeaseErrorLine,
   sweepRetriedLine,
@@ -51,7 +60,9 @@ import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { StoreCorruptError } from "../store/atomic-file.js";
 import { acquireSupervisorLock } from "../store/supervisor-lock.js";
-import { parseSupervisorConfig } from "./supervise-options.js";
+import type { SupervisorLock } from "../store/supervisor-lock.js";
+import { abortableSleep } from "../supervise-timing.js";
+import { parseSupervisorConfig, parseSweepInterval } from "./supervise-options.js";
 
 export interface SuperviseOpts extends GlobalOpts {
   readonly once?: boolean | undefined;
@@ -63,6 +74,8 @@ export interface SuperviseOpts extends GlobalOpts {
   readonly probeInterval?: string | undefined;
   /** Seconds before an unchanged corrupt record is reported again; validated by `parseSupervisorConfig`. */
   readonly corruptRepeat?: string | undefined;
+  /** Seconds between sweeps in the long-running mode; validated by `parseSweepInterval`. */
+  readonly sweepInterval?: string | undefined;
 }
 
 /** What the sweep counts as corrupt stored data: this CLI's store error or the runtime's `store_corrupt`. */
@@ -144,28 +157,29 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
   }
 }
 
-async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
-  if (opts.once !== true) {
-    throw new CliError(EXIT_CODES.usage, "Pass --once to run a single sweep.");
-  }
-  // Validate every flag before any store access.
-  const config = parseSupervisorConfig(opts);
-  const root = resolveStoreRoot(opts);
-  const ports = buildRuntimePorts(deps, root);
-  const json = opts.json === true;
+/** What every sweep, in either mode, is given besides the event sink and the stop signal. */
+function sweepOptions(deps: CliDeps, config: SupervisorConfig, state: SweepState): RunSweepOptions {
+  return {
+    config,
+    state,
+    isStoreCorrupt,
+    // The stuck line already names the lease, the reason and the fix. A second generic terminal line
+    // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
+    notify: () => Promise.resolve(),
+    ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
+  };
+}
 
-  // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
-  const lock = await acquireSupervisorLock(root, {
-    staleMs: deps.supervise?.lockStaleMs,
-    acquireWindowMs: deps.supervise?.lockAcquireWindowMs,
-  });
-  try {
-    return await sweepOnceLocked(deps, config, root, ports, json);
-  } finally {
-    await lock.release();
+/** Renders one event: a JSON object on stdout under `--json`, else the fixed human line(s) on stderr. */
+async function renderEvent(deps: CliDeps, root: string, json: boolean, event: SweepEvent): Promise<void> {
+  if (json) {
+    deps.io.out(`${JSON.stringify(await jsonFor(deps, root, event))}\n`);
+  } else {
+    await renderHuman(deps, root, event);
   }
 }
 
+/** One sweep, then the exit code cron reads: 10 for a corrupt record, ahead of 7 for a stuck lease, else 0 (D-23, D-04). */
 async function sweepOnceLocked(
   deps: CliDeps,
   config: SupervisorConfig,
@@ -179,31 +193,110 @@ async function sweepOnceLocked(
   const state = createSweepState();
 
   await runSweep(ports, {
-    config,
-    state,
-    isStoreCorrupt,
-    // The stuck line already names the lease, the reason and the fix. A second generic terminal line
-    // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
-    notify: () => Promise.resolve(),
-    ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
+    ...sweepOptions(deps, config, state),
     onEvent: async (event) => {
       if (event.kind === "stuck") stuckLeases.add(event.leaseId);
       if (event.kind === "corrupt_record") corruptLeases.add(event.leaseId);
-      if (json) {
-        deps.io.out(`${JSON.stringify(await jsonFor(deps, root, event))}\n`);
-      } else {
-        await renderHuman(deps, root, event);
-      }
+      await renderEvent(deps, root, json, event);
     },
   });
-  // Exit 10 when any record was corrupt, ahead of 7 for a stuck lease, so cron can alert (D-23, D-04).
   if (corruptLeases.size > 0) return EXIT_CODES.storeCorrupt;
   return stuckLeases.size > 0 ? EXIT_CODES.cleanupIncomplete : EXIT_CODES.ok;
 }
 
+/**
+ * The long-running mode (SUP-07, D-21, D-22): sweep, sleep one bounded interval, repeat until told to
+ * stop. One `SweepState` spans the whole loop so a stuck lease is re-announced once, the probe schedule
+ * survives and a corrupt record is reported once per change or quiet period. A stop request (`stop`) or
+ * a lost lock ends the loop: the pass in flight stops between steps and no new lease is started. A
+ * sweep that fails as a whole is told once per failure streak and retried at the next interval.
+ */
+async function sweepForever(
+  deps: CliDeps,
+  config: SupervisorConfig,
+  root: string,
+  ports: RuntimePorts,
+  json: boolean,
+  intervalSeconds: number,
+  stop: AbortSignal,
+  lock: SupervisorLock,
+): Promise<number> {
+  const sleep = deps.supervise?.sleep ?? abortableSleep;
+  const state = createSweepState();
+
+  // One signal for everything the loop awaits: the operator's stop request or a lost lock.
+  const halt = new AbortController();
+  let lockLost = false;
+  // Read through functions: a bare read after an await or in a loop is narrowed by control-flow analysis.
+  const lost = (): boolean => lockLost;
+  const halted = (): boolean => halt.signal.aborted;
+  const onStop = (): void => {
+    halt.abort();
+  };
+  if (stop.aborted) onStop();
+  else stop.addEventListener("abort", onStop, { once: true });
+  void lock.compromised.then(() => {
+    lockLost = true;
+    halt.abort();
+  });
+
+  let failing = false;
+  try {
+    while (!halted()) {
+      try {
+        await runSweep(ports, {
+          ...sweepOptions(deps, config, state),
+          onEvent: (event) => renderEvent(deps, root, json, event),
+          signal: halt.signal,
+        });
+        failing = false;
+      } catch {
+        if (!failing) {
+          if (json) deps.io.out(`${JSON.stringify({ event: "sweep_failed" })}\n`);
+          else deps.io.err(`stint: ${sweepFailedLine()}\n`);
+        }
+        failing = true;
+      }
+      if (halted()) break;
+      await sleep(intervalSeconds * 1000, halt.signal);
+    }
+  } finally {
+    stop.removeEventListener("abort", onStop);
+  }
+  if (lost() && !stop.aborted) throw new CliError(EXIT_CODES.leaseBusy, supervisorLockLostMessage());
+  return EXIT_CODES.ok;
+}
+
+async function runSupervise(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
+  // Validate every flag before any store access.
+  const config = parseSupervisorConfig(opts);
+  const intervalSeconds = parseSweepInterval(opts);
+  const root = resolveStoreRoot(opts);
+  const ports = buildRuntimePorts(deps, root);
+  const json = opts.json === true;
+
+  // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
+  const lock = await acquireSupervisorLock(root, {
+    staleMs: deps.supervise?.lockStaleMs,
+    acquireWindowMs: deps.supervise?.lockAcquireWindowMs,
+  });
+  try {
+    if (opts.once === true) return await sweepOnceLocked(deps, config, root, ports, json);
+    // Signals are listened for only in the long-running mode; a host without the seam never aborts.
+    const shutdown = deps.supervise?.shutdown?.() ?? { signal: new AbortController().signal, dispose: () => undefined };
+    try {
+      return await sweepForever(deps, config, root, ports, json, intervalSeconds, shutdown.signal, lock);
+    } finally {
+      shutdown.dispose();
+    }
+  } finally {
+    await lock.release();
+  }
+}
+
 export async function superviseCommand(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   try {
-    return await sweepOnce(deps, opts);
+    return await runSupervise(deps, opts);
   } catch (error) {
     // stderr only, like `run`: a supervisor's output may be piped to a log shipper.
     if (error instanceof CliError) {

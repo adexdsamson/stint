@@ -6,7 +6,9 @@
  * was FROZEN after plan 06-04, and later plans replace only their own
  * `commands/*.ts` bodies and never re-register anything here. The exceptions:
  * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option)
- * and Phase 9 D-21 (an eighth command, `supervise`).
+ * and Phase 9 D-21 (an eighth command, `supervise`: one sweep with `--once`,
+ * otherwise a long-running loop that sweeps every `--sweep-interval` seconds
+ * until it is stopped).
  *
  * No action calls `process.exit`, and library code never touches
  * `process.exitCode`: an action stores its result in an `ExitSink` and `main`
@@ -135,8 +137,9 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
 
   program
     .command("supervise")
-    .description("Settle and tear down ended leases in this store")
-    .option("--once", "run a single sweep and exit")
+    .description("Settle, retry and tear down ended leases in this store (runs until stopped; --once for one sweep)")
+    .option("--once", "run a single sweep and exit (default: keep sweeping until stopped)")
+    .option("--sweep-interval <seconds>", "seconds between sweeps when running until stopped (default 30)")
     .option("--retry-base <seconds>", "first wait before retrying an incomplete teardown (default 60)")
     .option("--retry-max <seconds>", "longest wait between retries (default 3600)")
     .option("--retry-cap <count>", "retries before a lease is marked stuck (default 8)")

@@ -4,6 +4,8 @@
  * largest value a platform timer accepts, in seconds, and the cap within a
  * small count. `--probe-interval` alone accepts 0, which disables probing. A bad value is a usage error with fixed text naming the flag.
  * `--corrupt-repeat` is the quiet period, in seconds, before an unchanged corrupt record is reported again.
+ * `--sweep-interval` is the sleep, in seconds, between sweeps of the long-running mode (1 to 2147483, so the
+ * millisecond value never exceeds the 2^31-1 ms timer limit; T-09-42).
  */
 
 import { DEFAULT_SUPERVISOR_CONFIG } from "@stint/runtime";
@@ -21,7 +23,11 @@ const MAX_MESSAGE = `--retry-max must be a whole number of seconds from 1 to ${S
 const CAP_MESSAGE = `--retry-cap must be a whole number of retries from 1 to ${String(MAX_CAP)}.`;
 const PROBE_MESSAGE = `--probe-interval must be a whole number of seconds from 0 to ${String(MAX_SECONDS)} (0 disables probing).`;
 const CORRUPT_MESSAGE = `--corrupt-repeat must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
+const SWEEP_INTERVAL_MESSAGE = `--sweep-interval must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
 const ORDER_MESSAGE = "--retry-max must not be smaller than --retry-base.";
+
+/** Seconds between sweeps when `--sweep-interval` is not given. */
+export const DEFAULT_SWEEP_INTERVAL_SECONDS = 30;
 
 /** The value as a whole number in `[min, max]`, or a usage error with `message`. An absent flag yields `fallback`. */
 function wholeNumber(value: string | undefined, max: number, fallback: number, message: string, min = 1): number {
@@ -69,4 +75,9 @@ export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
     probeIntervalSeconds,
     corruptRepeatSeconds,
   };
+}
+
+/** Validates `--sweep-interval`; an absent flag yields `DEFAULT_SWEEP_INTERVAL_SECONDS`. */
+export function parseSweepInterval(opts: SuperviseOpts): number {
+  return wholeNumber(opts.sweepInterval, MAX_SECONDS, DEFAULT_SWEEP_INTERVAL_SECONDS, SWEEP_INTERVAL_MESSAGE);
 }

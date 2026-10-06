@@ -58,7 +58,7 @@ export function supervisorDir(root: string): string {
   return path.resolve(root, "supervisor");
 }
 
-/** `<root>/leases`— the directory `list()` scans. */
+/** `<root>/leases` — the directory `list()` scans. */
 export function leasesRoot(root: string): string {
   return path.resolve(root, "leases");
 }

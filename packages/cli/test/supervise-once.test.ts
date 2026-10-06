@@ -166,14 +166,4 @@ describe("supervise --once (SUP-01)", () => {
     expect(stderr).toContain("Lease record torn-lease could not be read (store_corrupt)");
     expect(stderr).not.toContain('"state"');
   });
-
-  it("refuses to run without --once (exit 2) and changes nothing", async () => {
-    const { rig: r, expiresAt } = await setup();
-
-    const code = await main(["--store", r.root, "supervise"], r.withDeps({ clock: () => expiresAt + 1 }));
-
-    expect(code).toBe(EXIT_CODES.usage);
-    expect(stderrOf(r)).toBe("stint: Pass --once to run a single sweep.\n");
-    expect((await r.lease()).state).toBe("active");
-  });
 });
