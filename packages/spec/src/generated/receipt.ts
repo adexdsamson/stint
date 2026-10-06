@@ -6,7 +6,13 @@
  */
 
 export type ReceiptEntry =
-  CallEntry | TransitionEntry | TeardownStepEntry | TeardownBlockedEntry | TeardownTakeoverEntry | AttestedClaimEntry;
+  | CallEntry
+  | TransitionEntry
+  | TeardownStepEntry
+  | TeardownBlockedEntry
+  | TeardownTakeoverEntry
+  | TeardownStuckEntry
+  | AttestedClaimEntry;
 export type ReceiptChain = "verified" | "attested";
 export type ContentHash = string;
 
@@ -86,6 +92,18 @@ export interface TeardownTakeoverPayload {
   previousEpoch: number;
   epoch: number;
   reason: "fence_expired";
+}
+export interface TeardownStuckEntry {
+  seq: number;
+  ts: number;
+  chain: ReceiptChain;
+  type: "teardown_stuck";
+  prevHash: ContentHash;
+  payload: TeardownStuckPayload;
+}
+export interface TeardownStuckPayload {
+  reason: "credentials_unavailable" | "retries_exhausted" | "revocation_failed" | "manifest_invalid";
+  attempts: number;
 }
 export interface AttestedClaimEntry {
   seq: number;

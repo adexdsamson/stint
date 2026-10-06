@@ -12,6 +12,7 @@ import type {
 import type {
   TeardownBlockedPayload,
   TeardownStepPayload,
+  TeardownStuckPayload,
   TeardownTakeoverPayload,
 } from "../src/generated/receipt.js";
 import { receiptSchema } from "../src/generated/schemas.js";
@@ -251,5 +252,49 @@ describe("TeardownTakeoverEntry (Phase 9 D-11)", () => {
     expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 0, epoch: 2, reason: "fence_expired" }))).toBe(false);
     expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1, epoch: 1, reason: "fence_expired" }))).toBe(false);
     expect(validateReceiptEntry(takeoverEntry({ previousEpoch: 1.5, epoch: 2, reason: "fence_expired" }))).toBe(false);
+  });
+});
+
+describe("TeardownStuckEntry (Phase 9 D-01)", () => {
+  const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  const validateReceiptEntry = ajv.compile(receiptSchema);
+  const reasons = ["credentials_unavailable", "retries_exhausted", "revocation_failed", "manifest_invalid"] as const;
+
+  function stuckEntry(payload: Record<string, unknown>): unknown {
+    return {
+      seq: 6,
+      ts: 1000,
+      chain: "verified",
+      type: "teardown_stuck",
+      prevHash: `jcs-sha256:${"0".repeat(64)}`,
+      payload,
+    };
+  }
+
+  it("type-checks a TeardownStuckPayload", () => {
+    const payload: TeardownStuckPayload = { reason: "retries_exhausted", attempts: 8 };
+    expect(payload.attempts).toBe(8);
+  });
+
+  it.each(reasons)("accepts the reason %s", (reason) => {
+    expect(validateReceiptEntry(stuckEntry({ reason, attempts: 0 })), JSON.stringify(validateReceiptEntry.errors)).toBe(
+      true,
+    );
+    expect(validateReceiptEntry(stuckEntry({ reason, attempts: 8 }))).toBe(true);
+  });
+
+  it("rejects an unknown reason", () => {
+    expect(validateReceiptEntry(stuckEntry({ reason: "other", attempts: 1 }))).toBe(false);
+  });
+
+  it("rejects a negative or fractional attempts count", () => {
+    expect(validateReceiptEntry(stuckEntry({ reason: "retries_exhausted", attempts: -1 }))).toBe(false);
+    expect(validateReceiptEntry(stuckEntry({ reason: "retries_exhausted", attempts: 1.5 }))).toBe(false);
+  });
+
+  it("rejects a missing field and an extra field", () => {
+    expect(validateReceiptEntry(stuckEntry({ reason: "retries_exhausted" }))).toBe(false);
+    expect(validateReceiptEntry(stuckEntry({ attempts: 1 }))).toBe(false);
+    expect(validateReceiptEntry(stuckEntry({ reason: "retries_exhausted", attempts: 1, extra: "x" }))).toBe(false);
   });
 });

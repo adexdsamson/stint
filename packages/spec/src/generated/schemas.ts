@@ -826,6 +826,30 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownStuckPayload": {
+      "title": "TeardownStuckPayload",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "credentials_unavailable",
+            "retries_exhausted",
+            "revocation_failed",
+            "manifest_invalid"
+          ]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "reason",
+        "attempts"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimPayload": {
       "title": "AttestedClaimPayload",
       "type": "object",
@@ -1037,6 +1061,41 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownStuckEntry": {
+      "title": "TeardownStuckEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_stuck"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownStuckPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimEntry": {
       "title": "AttestedClaimEntry",
       "type": "object",
@@ -1088,6 +1147,9 @@ export const receiptSchema = {
     },
     {
       "$ref": "#/definitions/TeardownTakeoverEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownStuckEntry"
     },
     {
       "$ref": "#/definitions/AttestedClaimEntry"

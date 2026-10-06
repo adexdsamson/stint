@@ -391,7 +391,7 @@ Rationale: implementations SHOULD derive their state-machine reducer directly fr
 
 ### 7.5 Expiry, Extension and License Refresh
 
-A lease's `expires_at` equals the time it was granted plus the manifest's `lease.max_duration_seconds`. The runtime MUST evaluate expiry on every tool call against its own clock; correctness MUST NOT depend on a timer that fires independently of calls (Section 13 documents the corresponding trust limit around detection latency).
+A lease's `expires_at` equals the time it was granted plus the manifest's `lease.max_duration_seconds`. The runtime MUST evaluate expiry on every tool call against its own clock; correctness MUST NOT depend on a timer that fires independently of calls (Section 13 documents the corresponding trust limit around detection latency). A supervisor's sweep may trigger settling and teardown for a lease whose time has run out, but enforcement never depends on it: the per-call check is what denies a call after `expires_at`.
 
 `extend` is the only transition that moves `expires_at`, and it requires fresh user consent through the HostAdapter; a runtime MUST NOT extend a lease on the agent's request alone. The shape and bounds of an extension request are `[OPEN: Phase 2]`.
 
@@ -494,6 +494,8 @@ A failing step does not stop the remaining steps from running. If every step rea
 
 Teardown fails closed when a recorded credential cannot be produced. Before any teardown step runs, a runtime MUST check that it can produce every credential the lease recorded at grant time. If any is unavailable and the revocation step has not yet been attempted, the runtime MUST NOT run any step, MUST NOT change the lease state, and MUST append a `teardown_blocked` receipt with reason `credentials_unavailable` naming the missing resources. The lease stays in its ended state until the credentials are supplied again. A runtime MUST NOT record `not_applicable` for the revocation step while a recorded credential is unavailable: `not_applicable` is only for a lease that recorded no credential. A repeated attempt that finds the same credentials missing SHOULD NOT append a second identical receipt. A runtime MUST NOT leave a stored credential behind after teardown: if stored secrets cannot be deleted, or are still present once deleted, the delete step is `failed` and the lease moves to `cleanup_incomplete`.
 
+Teardown has at most one driver at a time. A driver is any process that runs teardown for a lease: a supervisor, the runtime serving the lease, or a user command. At most one driver runs a teardown step at a time. Before running steps a driver MUST hold the lease's teardown fence, an epoch number with an expiry that is changed only together with the lease record, so that a step's outcome and the fence that guards it are committed in one write. A driver MUST renew the fence while it works and MUST release it when the pass lands. A driver holding a stale fence, one whose epoch no longer matches the lease record, MUST NOT run steps. A driver MAY take over a fence that has expired, and a fence takeover MUST be receipted with a `teardown_takeover` entry recording the previous epoch, the new epoch and the reason `fence_expired`. The new driver resumes from the recorded step outcomes and MUST NOT repeat a step that already completed, while a step that was in flight when the previous driver stopped may run again. Where a supervisor is deployed, an ended lease MUST be torn down without user action. A runtime that stops retrying a lease in `cleanup_incomplete`, or that cannot start teardown, SHOULD append a `teardown_stuck` entry with the reason and the number of failed attempts. That entry changes no lease state, and a user retry stays possible.
+
 ```mermaid
 sequenceDiagram
     participant Runtime
@@ -516,13 +518,17 @@ Every tool call, allowed or denied, and every state transition and teardown step
 
 The runtime signs a checkpoint with Ed25519 at least at every lease-ending event, plus a final signed receipt at teardown. The entry format for a receipt and a checkpoint is defined normatively by [spec/receipt.schema.json](receipt.schema.json) and [spec/checkpoint.schema.json](checkpoint.schema.json) (JSON Schema draft-07); this section explains the shape in prose and does not duplicate the schema.
 
-A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, `teardown_blocked`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
+A receipt entry carries `seq`, `ts`, `chain` (`verified` or `attested`), `type` (`call`, `transition`, `teardown_step`, `teardown_blocked`, `teardown_takeover`, `teardown_stuck`, or `attested_claim`), `prevHash`, and a `payload` whose shape is a discriminated union keyed by `type`. Entry N's `prevHash` is the canonical hash (Section 5) of entry N-1 in its entirety; the first entry in a chain (`seq` 0) links instead to a fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. A receipt entry never stores its own hash: verifying a chain recomputes each entry's hash from its canonical bytes and compares it against the next entry's `prevHash`, so a stale or forged stored hash can never be trusted as ground truth.
 
 A checkpoint carries `chain`, `count`, `headHash`, `ts`, and `sig`, where `headHash` is the canonical hash of the chain's last entry (or the genesis constant, for an empty chain) and `sig` is the runtime's Ed25519 signature over the canonical serialization of the other four fields.
 
 A `teardown_step` payload MAY carry a `resource` field naming the credential's resource, so a timeline can say which credential an outcome belongs to.
 
 A `teardown_blocked` entry records that teardown could not start and why: its payload carries a `reason` and the names of the missing `resources`. It is written on the verified chain.
+
+A `teardown_takeover` entry records that a driver took over an expired teardown fence (Section 10): its payload carries the `previousEpoch`, the new `epoch` and the `reason`, which is `fence_expired`. It is written on the verified chain, in the same write as the fence change.
+
+A `teardown_stuck` entry records that a runtime stopped retrying a teardown or could not start it: its payload carries a `reason` (`credentials_unavailable`, `retries_exhausted`, `revocation_failed` or `manifest_invalid`) and `attempts`, the number of failed attempts. It is written on the verified chain and changes no lease state.
 
 A call receipt holds an args hash and a binding-redacted summary; it never holds raw arguments, tokens or the license. Verifying a tampered or truncated chain MUST report the exact point the chain broke, relative to the last valid checkpoint, rather than a generic failure.
 
