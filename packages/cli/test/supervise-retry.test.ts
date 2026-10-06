@@ -97,7 +97,7 @@ describe("supervise --once retry (SUP-02)", () => {
   it("marks the lease stuck in the same run when --retry-cap 1 is spent, naming the reason and the exact cleanup command", async () => {
     const { rig: r, landing, run } = await setup(Number.POSITIVE_INFINITY);
 
-    expect(await run(landing + 60, ["--retry-cap", "1"])).toBe(EXIT_CODES.ok);
+    expect(await run(landing + 60, ["--retry-cap", "1"])).toBe(EXIT_CODES.cleanupIncomplete);
 
     expect((await r.lease()).state).toBe("cleanup_incomplete");
     const stderr = stderrOf(r);
@@ -110,17 +110,19 @@ describe("supervise --once retry (SUP-02)", () => {
     expect(stuck).toHaveLength(1);
     expect(stuck[0]?.payload).toEqual({ reason: "retries_exhausted", attempts: 2 });
 
-    // Nothing more happens on a later sweep: the lease is stuck and stays cleanup_incomplete.
+    // A later run is a new process: it announces the stuck lease again and exit 7 keeps cron alerted,
+    // but it retries nothing and adds no receipt: the lease stays cleanup_incomplete.
     r.clearOutput();
     const snapshot = await r.allReceiptsJson();
-    expect(await run(landing + 1_000_000, ["--retry-cap", "1"])).toBe(EXIT_CODES.ok);
-    expect(stderrOf(r)).toBe("");
+    expect(await run(landing + 1_000_000, ["--retry-cap", "1"])).toBe(EXIT_CODES.cleanupIncomplete);
+    expect(stderrOf(r)).toContain(`stint: Lease ${r.leaseId} is stuck (retries_exhausted).`);
+    expect(stderrOf(r)).not.toContain("retried");
     expect(await r.allReceiptsJson()).toBe(snapshot);
   });
 
   it("shows the stuck marker in stint-cli receipts", async () => {
     const { rig: r, landing, run } = await setup(Number.POSITIVE_INFINITY);
-    expect(await run(landing + 60, ["--retry-cap", "1"])).toBe(EXIT_CODES.ok);
+    expect(await run(landing + 60, ["--retry-cap", "1"])).toBe(EXIT_CODES.cleanupIncomplete);
     r.clearOutput();
 
     expect(await main(["--store", r.root, "receipts", r.leaseId], r.withDeps({}))).toBe(EXIT_CODES.ok);
@@ -132,12 +134,12 @@ describe("supervise --once retry (SUP-02)", () => {
   it("under --json prints retried and stuck objects with only the listed scalar fields and no human line", async () => {
     const { rig: r, landing, run } = await setup(Number.POSITIVE_INFINITY);
 
-    expect(await run(landing + 60, ["--retry-cap", "1"], ["--json"])).toBe(EXIT_CODES.ok);
+    expect(await run(landing + 60, ["--retry-cap", "1"], ["--json"])).toBe(EXIT_CODES.cleanupIncomplete);
 
     const lines = stdoutOf(r).trim().split("\n");
     expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
       { event: "retried", leaseId: r.leaseId, attempt: 1, state: "cleanup_incomplete" },
-      { event: "stuck", leaseId: r.leaseId, reason: "retries_exhausted", attempts: 2 },
+      { event: "stuck", leaseId: r.leaseId, reason: "retries_exhausted", attempts: 2, repeat: false },
     ]);
     expect(stderrOf(r)).toBe("");
   });

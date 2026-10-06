@@ -6,8 +6,10 @@ import type { ReceiptEntry } from "@stint/spec";
 import {
   UNREVOKED_STATE_SUFFIX,
   isUnrevokedCleanup,
+  leaseLabel,
   rotateCaveat,
   stateLabel,
+  stuckReason,
   unrevokedResources,
 } from "../src/render/caveat.js";
 
@@ -98,5 +100,77 @@ describe("rotateCaveat", () => {
     expect(out).not.toContain(BIDI);
     expect(out).not.toContain("\n");
     expect(out).toContain("ab");
+  });
+});
+
+describe("stuckReason", () => {
+  const stuck = (reason: unknown): ReceiptEntry => step({ reason, attempts: 0 }, "teardown_stuck");
+  const incomplete = (): ReceiptEntry =>
+    step({ from: "tearing_down", event: "teardown_incomplete", actor: "runtime", to: "cleanup_incomplete" }, "transition");
+  const blocked = (): ReceiptEntry =>
+    step({ reason: "credentials_unavailable", resources: ["sheets.orders"] }, "teardown_blocked");
+
+  it("returns the reason of a trailing teardown_stuck", () => {
+    expect(stuckReason([incomplete(), stuck("retries_exhausted")])).toBe("retries_exhausted");
+    for (const reason of ["credentials_unavailable", "retries_exhausted", "revocation_failed", "manifest_invalid"]) {
+      expect(stuckReason([stuck(reason)])).toBe(reason);
+    }
+  });
+
+  it("returns undefined for an empty chain", () => {
+    expect(stuckReason([])).toBeUndefined();
+  });
+
+  it("is cleared by a later teardown_incomplete transition", () => {
+    expect(stuckReason([stuck("retries_exhausted"), incomplete()])).toBeUndefined();
+  });
+
+  it("is cleared by a later teardown_blocked entry", () => {
+    expect(stuckReason([stuck("retries_exhausted"), blocked()])).toBeUndefined();
+  });
+
+  it("is set again by a stuck entry that follows a clearing one", () => {
+    expect(stuckReason([stuck("retries_exhausted"), incomplete(), stuck("revocation_failed")])).toBe(
+      "revocation_failed",
+    );
+  });
+
+  it("returns undefined for an unknown reason string, never echoing it", () => {
+    expect(stuckReason([stuck("because I said so")])).toBeUndefined();
+    expect(stuckReason([stuck(42)])).toBeUndefined();
+    expect(stuckReason([stuck("retries_exhausted"), stuck("because I said so")])).toBeUndefined();
+  });
+
+  it("ignores a malformed payload", () => {
+    expect(stuckReason([step({ nope: true } as Record<string, unknown>, "teardown_stuck")])).toBeUndefined();
+    expect(stuckReason([{ ...stuck("retries_exhausted"), payload: null } as unknown as ReceiptEntry])).toBeUndefined();
+  });
+});
+
+describe("leaseLabel", () => {
+  const stuckEntry = (reason: string): ReceiptEntry => step({ reason, attempts: 0 }, "teardown_stuck");
+
+  it("labels an expired lease with its stuck reason", () => {
+    expect(leaseLabel(lease({ state: "expired", teardownProgress: undefined }), [stuckEntry("credentials_unavailable")])).toBe(
+      "expired (stuck: credentials_unavailable)",
+    );
+  });
+
+  it("labels a cleanup_incomplete lease with its stuck reason", () => {
+    expect(leaseLabel(lease({ state: "cleanup_incomplete" }), [stuckEntry("retries_exhausted")])).toBe(
+      "cleanup_incomplete (stuck: retries_exhausted)",
+    );
+  });
+
+  it("gives a cleaned_up lease the plain state label even with an old stuck entry", () => {
+    expect(leaseLabel(lease(), [stuckEntry("retries_exhausted")])).toBe("cleaned_up (credential not revoked upstream)");
+    expect(leaseLabel(lease({ teardownProgress: { revoke_oauth: "revoked" } }), [stuckEntry("retries_exhausted")])).toBe(
+      "cleaned_up",
+    );
+  });
+
+  it("is the plain state label when nothing is stuck or the reason is unknown", () => {
+    expect(leaseLabel(lease({ state: "expired", teardownProgress: undefined }), [])).toBe("expired");
+    expect(leaseLabel(lease({ state: "expired", teardownProgress: undefined }), [stuckEntry("nope")])).toBe("expired");
   });
 });
