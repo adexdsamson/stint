@@ -35,21 +35,24 @@
  * driver already landed. `lease.transition` and `teardown.step` telemetry is
  * emitted only for work this driver itself performed.
  *
- * Known limit (Phase 8 D-29): without a fence, a second driver joining a pass
- * already in flight cannot be told apart from crash recovery, so it may re-run
- * a step the first driver just recorded as failed. No step ever succeeds twice
- * and the chain never forks. The fence below closes it for every caller that
- * supplies `deps.fence`; plan 09-02 rewrites this paragraph.
- *
- * Fencing (Phase 9 D-09): when `deps.fence` is supplied, a pass acquires a
- * lease-record fence (see `fence.ts`) before its entry transition, renews it
- * inside every step transaction with a live clock, and releases it in the
- * same write as the landing transition. A live fence held by another driver
- * makes the pass throw `TeardownFencedError("held")` before any step runs; a
- * driver whose fence was taken over throws `TeardownFencedError("stale")` and
- * runs no further step. An expired fence is taken over inside one lease
- * transaction that appends a verified `teardown_takeover` receipt. Without
- * `deps.fence` every code path is exactly as before.
+ * Fencing (Phase 9 D-09 to D-11): with `deps.fence` set, exactly one driver
+ * holds a lease's teardown pass. The pass acquires a lease-record fence (see
+ * `fence.ts`) before its entry transition, renews it inside every step
+ * transaction from a live clock, and releases it in the same write as the
+ * landing transition. A second driver is refused while the fence is live: it
+ * throws `TeardownFencedError("held")` before any step runs, so a step that
+ * failed is never re-run by a racing joiner (this closes the Phase 8 D-29
+ * limit for every fenced caller). A crashed driver's fence is taken over once
+ * its TTL has passed, inside one lease transaction that appends a verified
+ * `teardown_takeover` receipt, and the new driver resumes from
+ * `teardownProgress`: no recorded step is repeated. A step that was in flight
+ * at the crash may run again (at-least-once), because its outcome was never
+ * recorded. A driver whose fence was taken over throws
+ * `TeardownFencedError("stale")` and runs no further step. Without
+ * `deps.fence` the Phase 8 joining behaviour applies: a second driver joins the
+ * pass in flight and cannot be told apart from crash recovery, so it may re-run
+ * a step the first driver just recorded as failed (no step ever succeeds twice
+ * and the chain never forks).
  *
  * Fail closed on missing credentials (Phase 8 TEAR-07, D-11): when
  * `deps.credentialCheck` is supplied, both entry points first run a PREFLIGHT
@@ -96,6 +99,7 @@ import type {
   ReceiptEntryInput,
   ReceiptStore,
   Result,
+  TeardownFence,
   TeardownProgress,
   TeardownStepOutcome,
   Telemetry,
@@ -355,9 +359,11 @@ async function runStepAndPersist(
   await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
     // Fenced pass: the holder check is the first statement, so a driver whose
     // fence was taken over never runs a step. Every return below renews the
-    // fence from the live clock, including a skipped step.
+    // fence from the live clock (a skipped step too); the renewal that follows
+    // a step that ran is read AFTER the step finished, so a slow step does not
+    // spend its own lease.
     if (deps.fence !== undefined && token !== undefined) assertFenceHolder(lease, token);
-    const renewed =
+    const renew = (): { fence?: TeardownFence } =>
       deps.fence !== undefined && token !== undefined ? { fence: renewedFence(token, deps.fence) } : {};
     const fresh = lease.teardownProgress ?? {};
     const recorded = fresh[name];
@@ -367,7 +373,7 @@ async function runStepAndPersist(
       (name === "revoke_oauth" && recorded !== undefined) ||
       isSuccessOutcome(recorded)
     ) {
-      return { ...lease, ...renewed };
+      return { ...lease, ...renew() };
     }
     const ran = await runStepOnce(step, lease, now);
     await appendReceipt(
@@ -376,7 +382,7 @@ async function runStepAndPersist(
       now,
     );
     outcome = ran;
-    return { ...lease, ...renewed, teardownProgress: recordStepOutcome(fresh, name, ran) };
+    return { ...lease, ...renew(), teardownProgress: recordStepOutcome(fresh, name, ran) };
   });
 
   if (outcome === undefined) return "skipped";

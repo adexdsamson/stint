@@ -19,8 +19,14 @@ import {
   makeTestLease,
 } from "@stint/core/testing";
 
-import { createDefaultTeardownSteps, retryTeardown, runTeardown, TEARDOWN_STEP_ORDER } from "../src/index.js";
-import type { TeardownDeps, TeardownStep } from "../src/index.js";
+import {
+  createDefaultTeardownSteps,
+  retryTeardown,
+  runTeardown,
+  TEARDOWN_STEP_ORDER,
+  TeardownFencedError,
+} from "../src/index.js";
+import type { TeardownDeps, TeardownFenceConfig, TeardownStep } from "../src/index.js";
 
 const NOW = 1_700_000_000;
 const LEASE_ID = "lease-teardown-concurrent";
@@ -82,7 +88,7 @@ interface Rig {
 
 async function buildRig(
   lease: Lease,
-  options: { failing?: readonly TeardownStepName[]; interleave?: boolean } = {},
+  options: { failing?: readonly TeardownStepName[]; interleave?: boolean; fence?: TeardownFenceConfig } = {},
 ): Promise<Rig> {
   const leaseStore = createInMemoryLeaseStore();
   const rawReceipts = createInMemoryReceiptStore();
@@ -99,6 +105,7 @@ async function buildRig(
       notified.push(event);
       return Promise.resolve();
     },
+    ...(options.fence === undefined ? {} : { fence: options.fence }),
   };
   return { deps, leaseStore, rawReceipts, counted, notified };
 }
@@ -283,5 +290,146 @@ describe("teardown telemetry (TEAR-06)", () => {
 
     expect(lease.state).toBe("cleaned_up");
     expect((await verifyChain(await rig.rawReceipts.load("verified"))).ok).toBe(true);
+  });
+});
+
+const FENCE: TeardownFenceConfig = { clock: () => NOW, ttlSeconds: 120 };
+
+/** Splits settled results into the fulfilled count and the `TeardownFencedError` kinds of the rejected ones; any other rejection fails the test. */
+function fencedOutcome(results: readonly PromiseSettledResult<Lease>[]): { fulfilled: number; held: number } {
+  let fulfilled = 0;
+  let held = 0;
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      fulfilled += 1;
+    } else {
+      expect(result.reason).toBeInstanceOf(TeardownFencedError);
+      expect((result.reason as TeardownFencedError).kind).toBe("held");
+      held += 1;
+    }
+  }
+  return { fulfilled, held };
+}
+
+describe("fenced drivers (Phase 9)", () => {
+  for (const interleave of [false, true]) {
+    it(`two runTeardown drivers: one owns the pass, runs every step once and lands once, the other is held (${interleave ? "interleaving" : "plain"} receipt store)`, async () => {
+      const rig = await buildRig(makeTestLease(LEASE_ID, { state: "expired" }), { interleave, fence: FENCE });
+
+      const results = await Promise.allSettled([runTeardown(rig.deps, NOW), runTeardown(rig.deps, NOW)]);
+
+      expect(fencedOutcome(results)).toEqual({ fulfilled: 1, held: 1 });
+      for (const name of TEARDOWN_STEP_ORDER) expect(rig.counted.runs[name]).toBe(1);
+
+      const lease = await rig.leaseStore.load(LEASE_ID);
+      expect(lease?.state).toBe("cleaned_up");
+      expect(lease?.fence).toEqual({ epoch: 1, expiresAt: 0 });
+      expect(rig.notified).toEqual([{ type: "cleaned_up", leaseId: LEASE_ID, at: NOW }]);
+
+      const chain = await rig.rawReceipts.load("verified");
+      expect((await verifyChain(chain)).ok).toBe(true);
+      expect(chain.filter((e) => e.type === "teardown_step")).toHaveLength(5);
+      expect(chain.filter((e) => e.type === "teardown_takeover")).toHaveLength(0);
+      const events = transitionEvents(chain);
+      expect(events.filter((e) => e === "begin_teardown")).toHaveLength(1);
+      expect(events.filter((e) => e === "teardown_succeeded")).toHaveLength(1);
+    });
+  }
+
+  it("with one step always failing, that step runs exactly once, the lease lands cleanup_incomplete once and the other driver is held", async () => {
+    const rig = await buildRig(makeTestLease(LEASE_ID, { state: "expired" }), {
+      failing: ["cleanup_hook"],
+      fence: FENCE,
+    });
+
+    const results = await Promise.allSettled([runTeardown(rig.deps, NOW), runTeardown(rig.deps, NOW)]);
+
+    expect(fencedOutcome(results)).toEqual({ fulfilled: 1, held: 1 });
+    expect(rig.counted.runs.cleanup_hook).toBe(1);
+    for (const name of TEARDOWN_STEP_ORDER) expect(rig.counted.runs[name]).toBe(1);
+
+    const lease = await rig.leaseStore.load(LEASE_ID);
+    expect(lease?.state).toBe("cleanup_incomplete");
+    expect(rig.notified).toEqual([{ type: "cleanup_incomplete", leaseId: LEASE_ID, at: NOW }]);
+
+    const chain = await rig.rawReceipts.load("verified");
+    expect((await verifyChain(chain)).ok).toBe(true);
+    const events = transitionEvents(chain);
+    expect(events.filter((e) => e === "teardown_incomplete")).toHaveLength(1);
+  });
+
+  it("three drivers on a lease with recorded successes never re-run them and only one is not held", async () => {
+    const rig = await buildRig(
+      makeTearingDownTestLease(LEASE_ID, {
+        teardownProgress: { revoke_oauth: "revoked", invalidate_license: "ok" },
+      }),
+      { fence: FENCE },
+    );
+
+    const results = await Promise.allSettled([
+      runTeardown(rig.deps, NOW),
+      runTeardown(rig.deps, NOW),
+      runTeardown(rig.deps, NOW),
+    ]);
+
+    expect(fencedOutcome(results)).toEqual({ fulfilled: 1, held: 2 });
+    expect(rig.counted.runs.revoke_oauth).toBe(0);
+    expect(rig.counted.runs.invalidate_license).toBe(0);
+    for (const name of ["cleanup_hook", "delete_cached_data", "final_receipt"] as const) {
+      expect(rig.counted.runs[name]).toBe(1);
+    }
+    expect((await rig.leaseStore.load(LEASE_ID))?.state).toBe("cleaned_up");
+  });
+
+  it("two retryTeardown drivers dispatch retry_teardown once, never re-run recorded successes or an attempted revoke_oauth, and the other is held", async () => {
+    const rig = await buildRig(
+      makeTestLease(LEASE_ID, {
+        state: "cleanup_incomplete",
+        teardownProgress: {
+          revoke_oauth: "failed",
+          invalidate_license: "ok",
+          cleanup_hook: "failed",
+          delete_cached_data: "ok",
+          final_receipt: "failed",
+        },
+      }),
+      { fence: FENCE },
+    );
+
+    const results = await Promise.allSettled([
+      retryTeardown(rig.deps, "user", NOW),
+      retryTeardown(rig.deps, "user", NOW),
+    ]);
+
+    expect(fencedOutcome(results)).toEqual({ fulfilled: 1, held: 1 });
+    expect(rig.counted.runs.revoke_oauth).toBe(0);
+    expect(rig.counted.runs.invalidate_license).toBe(0);
+    expect(rig.counted.runs.delete_cached_data).toBe(0);
+    expect(rig.counted.runs.cleanup_hook).toBe(1);
+    expect(rig.counted.runs.final_receipt).toBe(1);
+
+    const lease = await rig.leaseStore.load(LEASE_ID);
+    expect(lease?.state).toBe("cleanup_incomplete");
+    expect(lease?.fence?.expiresAt).toBe(0);
+
+    const chain = await rig.rawReceipts.load("verified");
+    expect((await verifyChain(chain)).ok).toBe(true);
+    const events = transitionEvents(chain);
+    expect(events.filter((e) => e === "retry_teardown")).toHaveLength(1);
+    expect(events.filter((e) => e === "teardown_incomplete")).toHaveLength(1);
+  });
+
+  it("a fenced driver started after the lease is cleaned_up returns it, acquires no fence, runs no step and appends nothing", async () => {
+    const rig = await buildRig(makeTestLease(LEASE_ID, { state: "expired" }), { fence: FENCE });
+    await runTeardown(rig.deps, NOW);
+    const before = await rig.rawReceipts.load("verified");
+    const runsBefore = { ...rig.counted.runs };
+
+    const lease = await runTeardown(rig.deps, NOW + 1);
+
+    expect(lease.state).toBe("cleaned_up");
+    expect(lease.fence).toEqual({ epoch: 1, expiresAt: 0 });
+    expect(rig.counted.runs).toEqual(runsBefore);
+    expect(await rig.rawReceipts.load("verified")).toHaveLength(before.length);
   });
 });
