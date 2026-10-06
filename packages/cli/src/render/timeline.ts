@@ -26,6 +26,12 @@ function field(payload: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? sanitizeForTerminal(value) : "?";
 }
 
+/** A fence epoch from an entry payload: a safe integer renders as itself, anything else as `?`. */
+function epochField(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === "number" && Number.isSafeInteger(value) ? String(value) : "?";
+}
+
 function isoTimestamp(ts: unknown): string {
   if (typeof ts !== "number") return "unknown time";
   const date = new Date(ts * 1000);
@@ -67,6 +73,9 @@ function describe(entry: ReceiptEntry, hasUnrevoked: boolean): string {
         ? "teardown blocked: credentials unavailable"
         : `teardown blocked: credentials unavailable for ${names}`;
     }
+    case "teardown_takeover":
+      // A later driver took over a fence a crashed driver never released (Phase 9 D-10).
+      return `teardown takeover: epoch ${epochField(payload, "previousEpoch")} -> ${epochField(payload, "epoch")} (${field(payload, "reason")})`;
     case "attested_claim":
       return `publisher ${field(payload, "publisherId")} claims ${field(payload, "claimType")} (not verified by the runtime)`;
     default:

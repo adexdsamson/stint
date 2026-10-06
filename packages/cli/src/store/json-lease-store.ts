@@ -15,6 +15,7 @@ import type { Lease, LeaseMutator, LeaseScanEntry, LeaseStore } from "@stint/cor
 import { STATES } from "@stint/core";
 
 import { assertSafeLeaseId, leaseDir, leaseFile, leasesRoot } from "../paths.js";
+import type { FileLockOptions } from "./atomic-file.js";
 import {
   StoreCorruptError,
   atomicWriteJson,
@@ -29,6 +30,12 @@ export interface JsonLeaseStoreOptions {
   readonly root: string;
   /** Total wait for a contended lease lock before `LeaseBusyError` (default 30s). */
   readonly lockTimeoutMs?: number;
+  /**
+   * How long a killed holder's lock is kept before another process may take it
+   * over (default 10000 ms, minimum 5000 ms). A supervisor test lowers it so a
+   * crash-resume run takes seconds.
+   */
+  readonly staleMs?: number;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -105,7 +112,10 @@ async function fingerprintOf(file: string): Promise<string> {
 
 export function createJsonLeaseStore(opts: JsonLeaseStoreOptions): LeaseStore {
   const { root } = opts;
-  const lockOpts = opts.lockTimeoutMs === undefined ? {} : { timeoutMs: opts.lockTimeoutMs };
+  const lockOpts: FileLockOptions = {
+    ...(opts.lockTimeoutMs === undefined ? {} : { timeoutMs: opts.lockTimeoutMs }),
+    ...(opts.staleMs === undefined ? {} : { staleMs: opts.staleMs }),
+  };
   const runSerialized = createKeyedQueue();
 
   return {
