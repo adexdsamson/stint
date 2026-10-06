@@ -45,7 +45,7 @@ export type TelemetryEvent =
   | {
       readonly name: "supervisor.action";
       readonly leaseId: string;
-      readonly action: "expired" | "torn_down";
+      readonly action: "expired" | "torn_down" | "retried" | "stuck";
     };
 
 /** One synchronous method; a sink that needs I/O must queue internally. */
