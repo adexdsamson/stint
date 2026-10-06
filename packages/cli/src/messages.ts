@@ -23,6 +23,14 @@ export function blockedTeardownMessage(leaseId: string, resources: readonly stri
   return `Teardown is blocked: credentials for ${names} are not available. Supply them with: stint-cli cleanup ${leaseId} --credentials <file>`;
 }
 
+/**
+ * The exit-8 message when another driver's teardown fence is still held after the
+ * bounded wait (D-13, user resolution 5). Fixed text; `leaseId` is already validated.
+ */
+export function teardownBusyMessage(leaseId: string): string {
+  return `Another process is tearing down this lease. Wait for it to finish, then run: stint-cli cleanup ${leaseId}`;
+}
+
 /** Shown once in the consent Credentials section when the lease will hold credentials (D-09). */
 export const CONSENT_PLAINTEXT_LINE =
   "Credentials are stored unencrypted on this machine until the lease ends.";

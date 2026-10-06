@@ -17,7 +17,7 @@ import { seedFromCredentials } from "../custody.js";
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
-import { confirmOrDecline, reportTeardown, resolveLeaseTeardown } from "./teardown-support.js";
+import { confirmOrDecline, reportTeardown, resolveLeaseTeardown, withFenceWait } from "./teardown-support.js";
 import type { TeardownCommandOpts } from "./teardown-support.js";
 
 export type RevokeOpts = TeardownCommandOpts;
@@ -85,6 +85,7 @@ export async function revokeCommand(
     return result.value.lease;
   });
 
-  const finished = await resolved.run(deps.clock());
+  // D-13: a live fence held by another driver is waited out (bounded); the revoke above stays recorded.
+  const finished = await withFenceWait(deps, store, leaseId, () => resolved.run(deps.clock()));
   return reportTeardown(deps, opts, root, finished);
 }

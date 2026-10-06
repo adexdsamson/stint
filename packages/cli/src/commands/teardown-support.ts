@@ -12,12 +12,16 @@
  * preflight block the teardown honestly instead of receipting a false success.
  */
 
-import type { Lease } from "@stint/core";
+import { setTimeout as delay } from "node:timers/promises";
+
+import type { Lease, LeaseStore } from "@stint/core";
+import { DEFAULT_FENCE_TTL_SECONDS, TeardownFencedError } from "@stint/proxy";
 import { resolveTeardown } from "@stint/runtime";
 import type { ResolvedTeardown, RuntimePorts } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
+import { teardownBusyMessage } from "../messages.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import type { LoadedCredential } from "../run/credentials.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
@@ -59,6 +63,71 @@ export async function resolveLeaseTeardown(
     return { ports, resolved, fileCredentials };
   } catch (error) {
     throw toCliError(error);
+  }
+}
+
+/** One poll of the fence wait: a second, matching the one-second granularity of lease time. */
+const FENCE_POLL_MS = 1000;
+/** Total wait for another driver's live fence: the same budget as the lease lock (user resolution 5). */
+const DEFAULT_FENCE_WAIT_MS = 30_000;
+
+/**
+ * Runs one teardown attempt for a user's `revoke` or `cleanup` (D-13). When
+ * another driver (a supervisor, a live `run`, another command) holds a live
+ * teardown fence the attempt is refused with `TeardownFencedError("held")` before
+ * any step runs; this waits for that driver quietly, polling once a second for
+ * at most 30 s, and then:
+ *
+ * - the other driver landed the lease (fence released, state `cleaned_up` or
+ *   `cleanup_incomplete`): that lease is returned, so the user sees one honest
+ *   outcome and no step ran here;
+ * - the fence was released without landing, or expired (a crashed holder): the
+ *   attempt runs again, taking the fence over with a receipt;
+ * - the fence is still live when the wait runs out: exit 8 with the fixed
+ *   `teardownBusyMessage` naming `stint-cli cleanup <id>`.
+ *
+ * A `stale` fence error and every other error propagate unchanged. Nothing is
+ * printed while waiting.
+ */
+export async function withFenceWait(
+  deps: CliDeps,
+  store: LeaseStore,
+  leaseId: string,
+  attempt: () => Promise<Lease>,
+): Promise<Lease> {
+  const sleep = deps.teardown?.sleep ?? ((ms: number) => delay(ms));
+  const budgetMs = deps.teardown?.fenceWaitMs ?? DEFAULT_FENCE_WAIT_MS;
+  let waitedMs = 0;
+
+  for (;;) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof TeardownFencedError) || error.kind !== "held") throw error;
+    }
+
+    // Wait until the other driver lets go, lands the lease, or its fence lapses.
+    for (;;) {
+      if (waitedMs >= budgetMs) {
+        throw new CliError(EXIT_CODES.leaseBusy, teardownBusyMessage(leaseId));
+      }
+      await sleep(FENCE_POLL_MS);
+      waitedMs += FENCE_POLL_MS;
+
+      const current = await store.load(leaseId);
+      if (current === undefined) throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
+      const fence = current.fence;
+      const at = deps.clock();
+      // Mirrors the proxy's rule: live means in the future and no more than one TTL ahead.
+      const live =
+        fence !== undefined && fence.expiresAt > at && fence.expiresAt - at <= DEFAULT_FENCE_TTL_SECONDS;
+      if (live) continue;
+      const released = fence === undefined || fence.expiresAt === 0;
+      if (released && (current.state === "cleaned_up" || current.state === "cleanup_incomplete")) {
+        return current;
+      }
+      break;
+    }
   }
 }
 

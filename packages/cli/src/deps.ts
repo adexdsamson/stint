@@ -57,6 +57,16 @@ export interface RunSeams {
  */
 export interface TeardownSeams {
   readonly decorateSteps?: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
+  /**
+   * Test seam for the bounded fence wait of `revoke` and `cleanup` (D-13): one
+   * poll interval. Production leaves it unset and a real timer is used.
+   */
+  readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Test seam: the total milliseconds `revoke` and `cleanup` wait for another
+   * driver's live fence before exiting 8. Production leaves it unset (30000).
+   */
+  readonly fenceWaitMs?: number;
 }
 
 export interface CliDeps {

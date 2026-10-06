@@ -28,7 +28,7 @@ import { CliError, EXIT_CODES } from "../exit.js";
 import { blockedTeardownMessage } from "../messages.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
 import { toCliError } from "../runtime-errors.js";
-import { confirmOrDecline, reportTeardown, resolveLeaseTeardown } from "./teardown-support.js";
+import { confirmOrDecline, reportTeardown, resolveLeaseTeardown, withFenceWait } from "./teardown-support.js";
 import type { TeardownCommandOpts } from "./teardown-support.js";
 
 export type CleanupOpts = TeardownCommandOpts;
@@ -137,10 +137,10 @@ export async function cleanupCommand(
 
   let finished: Lease;
   try {
-    finished =
-      next === "retry"
-        ? await resolved.retry("user", deps.clock())
-        : await resolved.run(deps.clock());
+    // D-13: another driver's live fence is waited out (bounded), never torn down underneath.
+    finished = await withFenceWait(deps, store, leaseId, () =>
+      next === "retry" ? resolved.retry("user", deps.clock()) : resolved.run(deps.clock()),
+    );
   } catch (err) {
     if (err instanceof TeardownBlockedError) {
       throw new CliError(EXIT_CODES.usage, blockedTeardownMessage(leaseId, err.resources));
