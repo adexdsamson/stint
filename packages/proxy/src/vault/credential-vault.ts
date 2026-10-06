@@ -114,6 +114,24 @@ export function parseStoredCredential(raw: string): SeededCredential | undefined
   };
 }
 
+/**
+ * What {@link CredentialVault.probeGrant} reports about one grant. It carries
+ * only a kind and an optional integer: never a token, a response body or
+ * upstream error text (T-09-26).
+ *
+ * - `ok`: the provider accepted the refresh grant; the grant is alive.
+ * - `provider_revoked`: a definitive 4xx revocation signal (D-17).
+ * - `transient`: anything else (5xx, 429, network, timeout, unexpected body);
+ *   `retryAfterSeconds` is the provider's `Retry-After`, clamped to 0..3600.
+ * - `not_probeable`: there is nothing to refresh (an API key, an empty refresh
+ *   token, a credential the store does not hold); no network request was made.
+ */
+export type ProbeGrantResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "provider_revoked" }
+  | { readonly kind: "transient"; readonly retryAfterSeconds?: number }
+  | { readonly kind: "not_probeable" };
+
 /** The vault's public surface (D-04). No method returns the raw store; only `resolveAccessToken` reads a token out. */
 export interface CredentialVault {
   /** Seeds (or replaces) the credential stored for `leaseId:resource`. */
@@ -128,6 +146,26 @@ export interface CredentialVault {
    * stale "success."
    */
   resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string>;
+  /**
+   * The idle-lease probe (D-14, D-16): asks the provider whether the grant for
+   * `leaseId:resource` is still alive by performing one real refresh-token
+   * grant, even while the cached access token is still valid (a lease that sits
+   * idle never refreshes on its own, so a revocation would otherwise go
+   * unnoticed). It runs inside the same per-credential single flight as
+   * {@link resolveAccessToken}, and a rotated refresh token is updated in memory
+   * first and then written through to the SecretStore, so the probe can never
+   * lose the only valid token. The caller must hold the lease lock while it
+   * probes. Returns `not_probeable`, with no network request, for an API key, a
+   * credential with an empty refresh token, or one the vault and store do not
+   * hold. Only a definitive 4xx signal maps to `provider_revoked` (D-17); a
+   * failed probe never throws and never carries a token or provider text.
+   */
+  probeGrant(
+    leaseId: string,
+    resource: string,
+    now: number,
+    opts?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+  ): Promise<ProbeGrantResult>;
   /**
    * Teardown step 1 (D-22, D-23): for every credential currently seeded
    * under `leaseId`, calls {@link revokeCredential} internally with the
@@ -360,6 +398,72 @@ export function createCredentialVault(
           throw new CredentialRefreshError(key, "provider_revoked");
         }
         throw new CredentialRefreshError(key, "transient_error", result.cause);
+      });
+    },
+
+    async probeGrant(
+      leaseId: string,
+      resource: string,
+      now: number,
+      probeOpts?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+    ): Promise<ProbeGrantResult> {
+      const key = keyFor(leaseId, resource);
+      const record = credentials.get(key) ?? (await loadThrough(leaseId, resource, key));
+      if (record === undefined || isApiKeyCredential(record) || record.refreshToken === "") {
+        return { kind: "not_probeable" };
+      }
+
+      return runSingleFlight(key, async (): Promise<ProbeGrantResult> => {
+        // Re-read: a call ahead in this same-key chain may have refreshed (or a
+        // teardown discarded) the credential while this probe was queued.
+        const current = credentials.get(key);
+        if (current === undefined || isApiKeyCredential(current) || current.refreshToken === "") {
+          return { kind: "not_probeable" };
+        }
+
+        // A pending write-through lands first: memory holds the only valid
+        // refresh token, and a probe must not rotate it again before it is safe.
+        if (dirty.has(key)) {
+          try {
+            await persist(leaseId, resource, key, current);
+          } catch {
+            return { kind: "transient" };
+          }
+        }
+
+        // No expiry short-circuit: reaching the token endpoint is the point.
+        const { oauthClient, requestOpts } = clientFor(resource, current);
+        const result = await refreshAccessToken(oauthClient, current, now, {
+          ...requestOpts,
+          ...(probeOpts?.signal === undefined ? {} : { signal: probeOpts.signal }),
+          ...(probeOpts?.timeoutMs === undefined ? {} : { timeoutMs: probeOpts.timeoutMs }),
+        });
+
+        if (result.kind === "ok") {
+          const updated: OAuthSeededCredential = {
+            ...current,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken ?? current.refreshToken,
+            expiry: result.expiry,
+          };
+          // Memory first (the old refresh token is spent), then write through.
+          credentials.set(key, updated);
+          try {
+            await persist(leaseId, resource, key, updated);
+          } catch {
+            // The grant is alive, which is what the probe reports. The key is
+            // left dirty, so the next resolve or probe retries the write-through
+            // before it hands out a token or rotates again.
+          }
+          return { kind: "ok" };
+        }
+
+        if (result.kind === "provider_revoked") {
+          return { kind: "provider_revoked" };
+        }
+        return result.retryAfterSeconds === undefined
+          ? { kind: "transient" }
+          : { kind: "transient", retryAfterSeconds: result.retryAfterSeconds };
       });
     },
 

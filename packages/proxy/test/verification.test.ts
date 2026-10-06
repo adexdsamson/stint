@@ -52,6 +52,9 @@ function fakeVault(accessToken = "test-access-token"): CredentialVault & { resol
       resolveCalls += 1;
       return Promise.resolve(accessToken);
     },
+    probeGrant(): Promise<{ readonly kind: "not_probeable" }> {
+      return Promise.resolve({ kind: "not_probeable" });
+    },
     revokeAndDiscardLeaseCredentials(): Promise<readonly never[]> {
       return Promise.resolve([]);
     },

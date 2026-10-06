@@ -113,6 +113,15 @@ export interface MockAuthHarness {
   /** Arms a ONE-SHOT override: the next token-endpoint response body becomes `{ error: errorCode }` with HTTP 400. */
   forceNextTokenError(errorCode: string): void;
   /**
+   * Arms a ONE-SHOT override: the next token-endpoint response carries HTTP
+   * `status` and the JSON `body`, then the override clears itself. Unlike
+   * {@link forceNextTokenError} (always status 400) it reaches the status-keyed
+   * branches of the classifier, such as a 503 or 403 `invalid_grant` (D-17). It
+   * takes precedence over a pending `forceNextTokenError`. The mock can set a
+   * status and a body only, not headers.
+   */
+  forceNextTokenResponse(status: number, body: Record<string, unknown>): void;
+  /**
    * Arms a ONE-SHOT override: the next successful token-endpoint response
    * carries `expires_in: seconds`, then the override clears itself. Forces a
    * real vault refresh (PRXY-08, LIFE-05) without moving the injected clock.
@@ -128,7 +137,7 @@ export interface MockAuthHarness {
  * serves `/.well-known/openid-configuration`, not the plain-OAuth2 RFC 8414
  * path `algorithm: 'oauth2'` would request), and wires the
  * `Events.BeforeResponse` hook that backs `tokenEndpointHits`,
- * `lastTokenRequestBody`, `forceNextTokenError`, and `forceNextExpiresIn`; an
+ * `lastTokenRequestBody`, `forceNextTokenError`, `forceNextTokenResponse`, and `forceNextExpiresIn`; an
  * `Events.BeforeRevoke` hook backs `revokeHits`. Every `oauth4webapi`
  * call this harness makes (discovery included) passes
  * `[oauth.allowInsecureRequests]: true`, since the mock only ever serves
@@ -147,13 +156,18 @@ export async function startMockAuthServer(): Promise<MockAuthHarness> {
   let tokenEndpointHits = 0;
   let lastTokenRequestBody: Record<string, unknown> | undefined;
   let forcedError: string | undefined;
+  let forcedResponse: { readonly status: number; readonly body: Record<string, unknown> } | undefined;
   let forcedExpiresIn: number | undefined;
   let revokeHits = 0;
 
   server.service.on(Events.BeforeResponse, (response: MutableResponse, req: TokenRequestIncomingMessage) => {
     tokenEndpointHits += 1;
     lastTokenRequestBody = { ...(req.body as unknown as Record<string, unknown>) };
-    if (forcedError !== undefined) {
+    if (forcedResponse !== undefined) {
+      response.statusCode = forcedResponse.status;
+      response.body = forcedResponse.body;
+      forcedResponse = undefined;
+    } else if (forcedError !== undefined) {
       response.statusCode = 400;
       response.body = { error: forcedError };
       forcedError = undefined;
@@ -201,6 +215,9 @@ export async function startMockAuthServer(): Promise<MockAuthHarness> {
     },
     forceNextTokenError(errorCode: string): void {
       forcedError = errorCode;
+    },
+    forceNextTokenResponse(status: number, body: Record<string, unknown>): void {
+      forcedResponse = { status, body };
     },
     forceNextExpiresIn(seconds: number): void {
       forcedExpiresIn = seconds;

@@ -77,9 +77,11 @@ export { appendReceiptEntry, RECEIPT_APPEND_ATTEMPTS } from "./receipts/append.j
 // revocation wiring consumes.
 export {
   classifyTokenError,
+  DEFAULT_OAUTH_TIMEOUT_MS,
   isApiKeyCredential,
   oauthClientFromCredential,
   refreshAccessToken,
+  retryAfterFromError,
 } from "./vault/oauth-client.js";
 export type {
   ApiKeySeededCredential,
@@ -96,7 +98,7 @@ export {
   parseStoredCredential,
   serializeStoredCredential,
 } from "./vault/credential-vault.js";
-export type { CredentialVault, CredentialVaultOptions } from "./vault/credential-vault.js";
+export type { CredentialVault, CredentialVaultOptions, ProbeGrantResult } from "./vault/credential-vault.js";
 
 // Downstream execution port + credential scrubber (D-01, D-02, PRXY-06,
 // LIC-05). `OutboundConnector` is the injected downstream-execution port --

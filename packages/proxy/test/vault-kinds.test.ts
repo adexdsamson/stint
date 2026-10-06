@@ -93,10 +93,11 @@ describe("credential kinds (D-05)", () => {
     expect(harness.tokenEndpointHits).toBe(2);
   });
 
-  it("keeps exactly the four vault keys", () => {
+  it("keeps exactly the five vault keys", () => {
     const vault = createCredentialVault(harness.oauthClient, () => NOW);
     expect(Object.keys(vault).sort()).toEqual([
       "discardLeaseCredentials",
+      "probeGrant",
       "resolveAccessToken",
       "revokeAndDiscardLeaseCredentials",
       "seedCredential",
