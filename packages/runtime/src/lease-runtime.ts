@@ -473,10 +473,12 @@ export async function createLeaseRuntime(
     return enqueueBeat({ v: 1, beatAt: beats.lastAt, endedAt: Math.floor(clock()) });
   };
 
+  // A transport that closes on its own (the agent went away) only stops the watcher: the final
+  // heartbeat is written by `close()` or by the end sequence, which a host awaits before it exits.
   const closed = new Promise<void>((resolve) => {
     server.onclose = () => {
       stopWatching();
-      void writeFinalBeat().then(resolve);
+      resolve();
     };
   });
   await server.connect(transport);

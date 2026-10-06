@@ -371,15 +371,21 @@ describe("the run heartbeat (D-18)", () => {
     await running.closed;
   });
 
-  it("writes endedAt when the agent disconnects", async () => {
+  it("stops the watcher when the agent disconnects, and the host's close() then writes endedAt", async () => {
     const live = await setup();
     const { client, running } = await live.start();
 
     await client.close();
     await running.closed;
+    const writesAfterDisconnect = live.writes.length;
+    live.now.value = 2500;
+    await sleep(150);
 
-    expect(await heartbeat(live)).toEqual({ v: 1, beatAt: 2000, endedAt: 2000 });
+    expect(live.writes.length).toBe(writesAfterDisconnect);
     expect(await pendingFor(running.ended, 10)).toBe("pending");
+
+    await running.close();
+    expect(await heartbeat(live)).toEqual({ v: 1, beatAt: 2000, endedAt: 2500 });
   });
 
   it("a failing artifact write never stops the run", async () => {
