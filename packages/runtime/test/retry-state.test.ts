@@ -82,13 +82,14 @@ function landings(count: number, at = L): readonly Step[] {
 const CONFIG = DEFAULT_SUPERVISOR_CONFIG;
 
 describe("DEFAULT_SUPERVISOR_CONFIG", () => {
-  it("is 60 s base, 3600 s max, a cap of 8 retries (D-22) and a 900 s probe interval (D-15)", () => {
+  it("is 60 s base, 3600 s max, a cap of 8 retries (D-22) and a 900 s probe interval (D-15) and a 86400 s corrupt repeat (D-23)", () => {
     expect(CONFIG).toEqual({
       retryBaseSeconds: 60,
       retryMaxSeconds: 3600,
       retryCap: 8,
       probeIntervalSeconds: 900,
       probeTimeoutMs: 15_000,
+      corruptRepeatSeconds: 86_400,
     });
   });
 });
