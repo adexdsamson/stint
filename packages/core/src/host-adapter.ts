@@ -24,7 +24,7 @@
  */
 
 import type { ConnectorBinding } from "./bindings.js";
-import type { VerifiedManifest } from "@stint/spec";
+import type { TeardownStuckPayload, VerifiedManifest } from "@stint/spec";
 
 /**
  * One credential a lease holds, as the consent screen needs to describe it.
@@ -148,13 +148,21 @@ export type OutcomeConfirmDecision =
   | { readonly decision: "reject"; readonly reason: "user_rejected" | "timeout" };
 
 /**
+ * Why the supervisor stopped retrying a teardown on its own (Phase 9 D-01,
+ * D-04). The same four values the signed `teardown_stuck` receipt carries.
+ */
+export type TeardownStuckReason = TeardownStuckPayload["reason"];
+
+/**
  * Lifecycle notifications a host renders (toast, log line, dashboard row,
  * etc.). Tagged by a literal `type` field so new lifecycle events extend
  * this union rather than growing `HostAdapter`'s method set (D-15). One
  * member per notifiable lease state (`transitions.ts`'s `State` union, minus
  * the non-notifiable `proposed`/`declined`/`granted` states). It also carries
  * one per-call approval notice, `approval_void`, so the "your approval did not
- * take effect" message reaches the user without a new `HostAdapter` method.
+ * take effect" message reaches the user without a new `HostAdapter` method,
+ * and `teardown_stuck`, so a supervisor can tell a host that a lease it cannot
+ * tear down on its own still holds a live credential (Phase 9 D-04).
  */
 export type LifecycleEvent =
   | { readonly type: "activated"; readonly leaseId: string; readonly at: number }
@@ -170,6 +178,12 @@ export type LifecycleEvent =
       readonly leaseId: string;
       readonly at: number;
       readonly reason: ApprovalVoidReason;
+    }
+  | {
+      readonly type: "teardown_stuck";
+      readonly leaseId: string;
+      readonly at: number;
+      readonly reason: TeardownStuckReason;
     };
 
 /**

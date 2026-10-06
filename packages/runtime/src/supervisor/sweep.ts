@@ -15,22 +15,36 @@
  * the retry cap the lease is marked stuck with a receipted reason and left
  * `cleanup_incomplete`, visible, until the user runs `stint-cli cleanup`.
  *
+ * Stuck (SUP-02, D-02, D-03, D-04): when retrying cannot help, the lease gets
+ * one verified `teardown_stuck` receipt with a reason and stays where it is,
+ * visible, until the user fixes the cause. The reasons are missing
+ * credentials (`credentials_unavailable`, marked at once), a failed
+ * revocation (`revocation_failed`, never retried), a stored manifest that no
+ * longer verifies (`manifest_invalid`) and an exhausted retry budget. A
+ * stuck lease is only re-checked cheaply and adds no receipt: missing
+ * credentials through `missingCredentials()`, the manifest through
+ * `resolveTeardown`. When the cause is fixed the lease is torn down or
+ * retried normally. Each new marking tells the host once through `notify`;
+ * the first sweep of each supervisor run (one `SweepState`) announces every
+ * lease that is already stuck, once, so an operator who starts a new
+ * supervisor sees what remains live. There is no way to abandon a stuck lease.
+ *
  * Isolation: each lease runs in its own try/catch. A lease another driver
- * holds (`TeardownFencedError`) or whose credentials are missing
- * (`TeardownBlockedError`, the supervisor's stuck handling is a later plan)
- * adds no event; any other failure is reported as a `lease_error` carrying
- * only the lease id, and the sweep continues. A record the store could not
- * read is reported by id and closed reason, never by contents.
+ * holds (`TeardownFencedError`) adds no event; any other failure is reported
+ * as a `lease_error` carrying only the lease id, and the sweep continues. A
+ * record the store could not read is reported by id and closed reason, never
+ * by contents.
  */
 
 import { safeEmit } from "@stint/core";
-import type { Lease, LeaseScanEntry } from "@stint/core";
+import type { Lease, LeaseScanEntry, LifecycleEvent, TeardownStuckReason } from "@stint/core";
 import { TeardownBlockedError, TeardownFencedError } from "@stint/proxy";
 import type { TeardownStep } from "@stint/proxy";
-import type { TeardownStuckPayload } from "@stint/spec";
 
+import { RuntimeError } from "../errors.js";
 import type { RuntimePorts } from "../ports.js";
 import { resolveTeardown } from "../resolve-teardown.js";
+import type { ResolvedTeardown } from "../resolve-teardown.js";
 import { settleExpired } from "../settle-expired.js";
 import { DEFAULT_SUPERVISOR_CONFIG } from "./config.js";
 import type { SupervisorConfig } from "./config.js";
@@ -51,9 +65,40 @@ export type SweepEvent =
   | {
       readonly kind: "stuck";
       readonly leaseId: string;
-      readonly reason: TeardownStuckPayload["reason"];
+      readonly reason: TeardownStuckReason;
       readonly attempts: number;
+      /** True for a re-announcement of a lease that was already stuck, with no new receipt. */
+      readonly repeat: boolean;
     };
+
+/**
+ * What one supervisor run has already told the operator. Pass the same state
+ * to every sweep of a loop; a new run (a `--once` invocation, a restarted
+ * supervisor) starts with a fresh one and so announces every stuck lease once.
+ */
+export interface SweepState {
+  /** Lease ids announced as stuck in this run; cleared for a lease once it is torn down or retried. */
+  readonly announcedStuck: Set<string>;
+}
+
+export function createSweepState(): SweepState {
+  return { announcedStuck: new Set<string>() };
+}
+
+const STUCK_REASONS: ReadonlySet<string> = new Set<TeardownStuckReason>([
+  "credentials_unavailable",
+  "retries_exhausted",
+  "revocation_failed",
+  "manifest_invalid",
+]);
+
+function isStuckReason(value: string): value is TeardownStuckReason {
+  return STUCK_REASONS.has(value);
+}
+
+function isManifestInvalid(error: unknown): boolean {
+  return error instanceof RuntimeError && error.code === "manifest_invalid";
+}
 
 export interface SweepReport {
   readonly events: readonly SweepEvent[];
@@ -68,6 +113,10 @@ export interface RunSweepOptions {
   readonly fenceTtlSeconds?: number;
   /** Retry timing; defaults to `DEFAULT_SUPERVISOR_CONFIG`. */
   readonly config?: SupervisorConfig;
+  /** What this run already announced; a fresh state when absent, so every stuck lease is announced once. */
+  readonly state?: SweepState;
+  /** Told once per new stuck marking, never for a re-announcement. A failing callback never changes an outcome. */
+  readonly notify?: (event: LifecycleEvent) => Promise<void>;
   /** Called for each event as it happens and awaited before the sweep moves on. A failing callback never stops the sweep. */
   readonly onEvent?: (event: SweepEvent) => void | Promise<void>;
 }
@@ -112,19 +161,41 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   };
 
   const config = options.config ?? DEFAULT_SUPERVISOR_CONFIG;
+  const state = options.state ?? createSweepState();
   const entries: readonly LeaseScanEntry[] = await ports.leases.scan();
 
-  /** Marks `leaseId` stuck after the retry cap; emits only when a receipt was written. */
-  const markExhausted = async (leaseId: string, failedPasses: number): Promise<void> => {
-    const wrote = await markStuck(
-      ports,
-      leaseId,
-      { reason: "retries_exhausted", attempts: failedPasses },
-      ports.clock(),
-    );
+  /** Tells the host a lease is stuck; a failing host never changes an outcome. */
+  const notifyHost = async (leaseId: string, reason: TeardownStuckReason): Promise<void> => {
+    try {
+      await options.notify?.({ type: "teardown_stuck", leaseId, at: ports.clock(), reason });
+    } catch {
+      // a host that cannot be told must not stop the sweep
+    }
+  };
+
+  /** Writes the verified stuck marker (once) and, when it wrote, announces it: event, telemetry and host. */
+  const markAndAnnounce = async (
+    leaseId: string,
+    reason: TeardownStuckReason,
+    attempts: number,
+  ): Promise<void> => {
+    const wrote = await markStuck(ports, leaseId, { reason, attempts }, ports.clock());
     if (!wrote) return;
+    state.announcedStuck.add(leaseId);
     safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "stuck" });
-    await emit({ kind: "stuck", leaseId, reason: "retries_exhausted", attempts: failedPasses });
+    await emit({ kind: "stuck", leaseId, reason, attempts, repeat: false });
+    await notifyHost(leaseId, reason);
+  };
+
+  /** Failed teardown passes since the last stuck marker, from the verified chain. */
+  const failedPassesOf = async (leaseId: string): Promise<number> =>
+    deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock()).failedPasses;
+
+  /** Reports an already stuck lease once per run, with no receipt and no host notice. */
+  const reannounce = async (leaseId: string, reason: TeardownStuckReason, attempts: number): Promise<void> => {
+    if (state.announcedStuck.has(leaseId)) return;
+    state.announcedStuck.add(leaseId);
+    await emit({ kind: "stuck", leaseId, reason, attempts, repeat: true });
   };
 
   for (const entry of entries) {
@@ -145,46 +216,94 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
         }
         action = route(lease, ports.clock());
       }
-      if (action === "retry") {
-        const state = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
-        // A stuck lease is left alone and stays visible; only a user cleanup moves it (D-01, D-03).
-        if (state.stuck !== undefined) continue;
-        if (state.exhausted) {
-          await markExhausted(leaseId, state.failedPasses);
-          continue;
-        }
-        if (!state.due) continue;
+      if (action !== "retry" && action !== "teardown") continue;
 
-        const resolved = await resolveTeardown(ports, {
-          leaseId,
-          ...(options.decorateSteps === undefined ? {} : { decorateSteps: options.decorateSteps }),
-          ...(options.fenceTtlSeconds === undefined ? {} : { fenceTtlSeconds: options.fenceTtlSeconds }),
-        });
-        const finished = await resolved.retry("runtime", ports.clock());
-        safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "retried" });
-        await emit({ kind: "retried", leaseId, attempt: state.failedPasses, lease: finished });
-
-        if (finished.state === "cleanup_incomplete") {
-          const after = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
-          if (after.stuck === undefined && after.exhausted) await markExhausted(leaseId, after.failedPasses);
-        }
-        continue;
-      }
-      if (action !== "teardown") continue;
-
-      const landedBefore = isLanded(lease.state);
-      const resolved = await resolveTeardown(ports, {
+      const resolveInput = {
         leaseId,
         ...(options.decorateSteps === undefined ? {} : { decorateSteps: options.decorateSteps }),
         ...(options.fenceTtlSeconds === undefined ? {} : { fenceTtlSeconds: options.fenceTtlSeconds }),
-      });
+      };
+      let resolved: ResolvedTeardown | undefined;
+
+      const derived = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
+      const stuck = derived.stuck;
+      if (stuck !== undefined) {
+        // Reason text no known version of the supervisor writes: leave the lease alone and name nothing.
+        if (!isStuckReason(stuck.reason)) continue;
+        if (stuck.reason === "credentials_unavailable") {
+          // The cheap re-check: no teardown pass, so nothing is appended while the credentials stay missing (D-02).
+          resolved = await resolveTeardown(ports, resolveInput);
+          if ((await resolved.missingCredentials()).length > 0) {
+            await reannounce(leaseId, stuck.reason, stuck.attempts);
+            continue;
+          }
+        } else if (stuck.reason === "manifest_invalid") {
+          try {
+            resolved = await resolveTeardown(ports, resolveInput);
+          } catch (error) {
+            if (!isManifestInvalid(error)) throw error;
+            await reannounce(leaseId, stuck.reason, stuck.attempts);
+            continue;
+          }
+        } else if (action === "retry") {
+          // revocation_failed and retries_exhausted: only a user cleanup moves the lease (D-01, D-03).
+          // A lease an interrupted pass left tearing_down is still resumed below.
+          await reannounce(leaseId, stuck.reason, stuck.attempts);
+          continue;
+        }
+        // The cause is fixed (credentials back, manifest verifies again): the lease is torn down or
+        // retried at once, not at the end of a backoff the stuck marker reset.
+      } else if (action === "retry") {
+        // A revocation that failed is attempted once and never repeated (D-23): retrying cannot help.
+        if (lease.teardownProgress?.revoke_oauth === "failed") {
+          await markAndAnnounce(leaseId, "revocation_failed", derived.failedPasses);
+          continue;
+        }
+        if (derived.exhausted) {
+          await markAndAnnounce(leaseId, "retries_exhausted", derived.failedPasses);
+          continue;
+        }
+        if (!derived.due) continue;
+      }
+
+      resolved ??= await resolveTeardown(ports, resolveInput);
+
+      if (action === "retry") {
+        const finished = await resolved.retry("runtime", ports.clock());
+        state.announcedStuck.delete(leaseId);
+        safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "retried" });
+        await emit({ kind: "retried", leaseId, attempt: derived.failedPasses, lease: finished });
+
+        if (finished.state === "cleanup_incomplete") {
+          const after = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
+          if (after.stuck === undefined && after.exhausted) {
+            await markAndAnnounce(leaseId, "retries_exhausted", after.failedPasses);
+          }
+        }
+        continue;
+      }
+
+      const landedBefore = isLanded(lease.state);
       const finished = await resolved.run(ports.clock());
+      state.announcedStuck.delete(leaseId);
       if (!landedBefore && isLanded(finished.state)) {
         safeEmit(ports.telemetry, { name: "supervisor.action", leaseId, action: "torn_down" });
         await emit({ kind: "torn_down", leaseId, lease: finished });
       }
     } catch (error) {
-      if (error instanceof TeardownFencedError || error instanceof TeardownBlockedError) continue;
+      if (error instanceof TeardownFencedError) continue;
+      try {
+        if (error instanceof TeardownBlockedError) {
+          await markAndAnnounce(leaseId, "credentials_unavailable", await failedPassesOf(leaseId));
+          continue;
+        }
+        if (isManifestInvalid(error)) {
+          await markAndAnnounce(leaseId, "manifest_invalid", await failedPassesOf(leaseId));
+          continue;
+        }
+      } catch {
+        // the marker could not be written; report the lease below
+      }
       await emit({ kind: "lease_error", leaseId });
     }
   }

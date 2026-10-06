@@ -1,4 +1,3 @@
-import { credentialSecretKey } from "@stint/core";
 import type { LifecycleEvent } from "@stint/core";
 import { makeTestLease } from "@stint/core/testing";
 import { appendReceiptEntry } from "@stint/proxy";
@@ -162,12 +161,18 @@ describe("credentials_unavailable (D-02)", () => {
   });
 
   it("retries a cleanup_incomplete lease that went stuck on credentials as soon as they return, without waiting for the backoff", async () => {
-    const h = await setup();
-    h.hook.failures = 1;
-    expect((await sweep(h)).map((e) => e.kind)).toEqual(["torn_down"]);
-    expect((await h.ports.leases.load(LEASE))?.state).toBe("cleanup_incomplete");
+    // A lease an earlier pass left cleanup_incomplete before revoke_oauth ran, with its credential gone.
+    const h = await setup({ leaseState: "cleanup_incomplete", seed: false });
+    await appendReceiptEntry(
+      h.ports.receipts(LEASE),
+      {
+        chain: "verified",
+        type: "transition",
+        payload: { from: "tearing_down", event: "teardown_incomplete", actor: "runtime", to: "cleanup_incomplete" },
+      },
+      T0,
+    );
 
-    await h.ports.secrets.delete(credentialSecretKey(LEASE, "sheets.orders"));
     const stuck = await sweep(h, T0 + 60);
     expect(stuck).toEqual([
       { kind: "stuck", leaseId: LEASE, reason: "credentials_unavailable", attempts: 1, repeat: false },

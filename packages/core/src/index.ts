@@ -57,6 +57,7 @@ export type {
   ApprovalRequest,
   ApprovalDecision,
   ApprovalVoidReason,
+  TeardownStuckReason,
   OutcomeConfirmRequest,
   OutcomeConfirmDecision,
 } from "./host-adapter.js";
