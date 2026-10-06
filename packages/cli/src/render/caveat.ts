@@ -14,7 +14,7 @@
  * Nothing here reads a secret.
  */
 
-import type { Lease } from "@stint/core";
+import type { Lease, TeardownStuckReason } from "@stint/core";
 import type { ReceiptEntry } from "@stint/spec";
 
 import { sanitizeForTerminal } from "../adapter/sanitize.js";
@@ -63,4 +63,45 @@ export function unrevokedResources(entries: readonly ReceiptEntry[]): readonly s
 /** The instruction for one unrevoked credential; never worded as the credential being safe. */
 export function rotateCaveat(resource: string): string {
   return `The credential for ${sanitizeForTerminal(resource)} was not revoked upstream. Rotate it in the provider dashboard.`;
+}
+
+const STUCK_REASONS: ReadonlySet<string> = new Set<TeardownStuckReason>([
+  "credentials_unavailable",
+  "retries_exhausted",
+  "revocation_failed",
+  "manifest_invalid",
+]);
+
+/**
+ * The reason the supervisor stopped retrying this lease, from its verified
+ * chain: the latest `teardown_stuck` entry, unless a later failed landing
+ * (`teardown_incomplete`) or `teardown_blocked` entry means someone has tried
+ * again since. A reason text outside the four the supervisor writes (a hand
+ * written entry) yields no reason, so it never reaches a terminal (D-01).
+ */
+export function stuckReason(entries: readonly ReceiptEntry[]): TeardownStuckReason | undefined {
+  let reason: TeardownStuckReason | undefined;
+  for (const entry of entries) {
+    const payload: unknown = entry.payload;
+    if (entry.type === "teardown_stuck") {
+      const text = isRecord(payload) ? payload.reason : undefined;
+      reason = typeof text === "string" && STUCK_REASONS.has(text) ? (text as TeardownStuckReason) : undefined;
+    } else if (entry.type === "teardown_blocked") {
+      reason = undefined;
+    } else if (entry.type === "transition" && isRecord(payload) && payload.event === "teardown_incomplete") {
+      reason = undefined;
+    }
+  }
+  return reason;
+}
+
+/**
+ * The state with everything a person needs to read it: the unrevoked caveat for
+ * `cleaned_up`, and `(stuck: <reason>)` for any other lease whose latest
+ * teardown marker says the supervisor gave up on its own (D-01). Display only;
+ * the stored state value is unchanged. Pass entries of the verified chain.
+ */
+export function leaseLabel(lease: Lease, entries: readonly ReceiptEntry[]): string {
+  const reason = lease.state === "cleaned_up" ? undefined : stuckReason(entries);
+  return reason === undefined ? stateLabel(lease) : `${stateLabel(lease)} (stuck: ${reason})`;
 }

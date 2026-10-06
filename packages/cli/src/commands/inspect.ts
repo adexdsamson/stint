@@ -6,12 +6,13 @@
  */
 
 import type { Lease } from "@stint/core";
+import type { ReceiptEntry } from "@stint/spec";
 
 import { sanitizeForTerminal } from "../adapter/sanitize.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
-import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
+import { isUnrevokedCleanup, leaseLabel, rotateCaveat, unrevokedResources } from "../render/caveat.js";
 
 export type InspectOpts = GlobalOpts;
 
@@ -37,12 +38,27 @@ export async function inspectCommand(
     return EXIT_CODES.ok;
   }
 
-  // The caveat names each credential the user must rotate; it comes from the verified receipts.
-  const unrevoked = isUnrevokedCleanup(lease)
-    ? unrevokedResources(await deps.receiptStoreFactory(root, leaseId).load("verified"))
-    : [];
-  deps.io.out(`${renderLease(lease, deps.clock(), deps.style(false), unrevoked)}\n`);
+  // The caveat names each credential the user must rotate, and the stuck label names why the
+  // supervisor gave up; both come from the verified receipts, read once.
+  const chain = await loadChain(deps, root, lease);
+  const unrevoked = isUnrevokedCleanup(lease) ? unrevokedResources(chain) : [];
+  deps.io.out(`${renderLease(lease, deps.clock(), deps.style(false), unrevoked, chain)}\n`);
   return EXIT_CODES.ok;
+}
+
+/**
+ * The verified chain, when something shown depends on it. A chain that cannot be read only costs a
+ * stuck label (inspect stays a read-only view that works); the unrevoked caveat still fails loudly.
+ */
+async function loadChain(deps: CliDeps, root: string, lease: Lease): Promise<readonly ReceiptEntry[]> {
+  const needsCaveat = isUnrevokedCleanup(lease);
+  if (lease.state === "cleaned_up" && !needsCaveat) return [];
+  try {
+    return await deps.receiptStoreFactory(root, lease.id).load("verified");
+  } catch (error) {
+    if (needsCaveat) throw error;
+    return [];
+  }
 }
 
 function renderLease(
@@ -50,6 +66,7 @@ function renderLease(
   now: number,
   style: ReturnType<CliDeps["style"]>,
   unrevoked: readonly string[],
+  chain: readonly ReceiptEntry[],
 ): string {
   const s = sanitizeForTerminal;
   const lines: string[] = [];
@@ -61,7 +78,7 @@ function renderLease(
   };
 
   lines.push(style.header(`Lease ${s(lease.id)}`));
-  row(`state: ${s(stateLabel(lease))}`);
+  row(`state: ${s(leaseLabel(lease, chain))}`);
   row(`version: ${String(lease.version)}`);
   row(`bound manifest hash: ${s(lease.boundHash)}`);
   if (lease.state === "active" && lease.expiresAt > 0 && now >= lease.expiresAt) {

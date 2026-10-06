@@ -142,7 +142,7 @@ describe("stuckReason", () => {
   });
 
   it("ignores a malformed payload", () => {
-    expect(stuckReason([step({ nope: true } as Record<string, unknown>, "teardown_stuck")])).toBeUndefined();
+    expect(stuckReason([step({ nope: true }, "teardown_stuck")])).toBeUndefined();
     expect(stuckReason([{ ...stuck("retries_exhausted"), payload: null } as unknown as ReceiptEntry])).toBeUndefined();
   });
 });

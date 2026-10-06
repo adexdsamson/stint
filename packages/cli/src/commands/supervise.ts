@@ -12,11 +12,15 @@
  * a resource name that passes `sanitizeForTerminal` is ever interpolated, and
  * no secret, token, record content or upstream error text is printed.
  *
+ * A lease that is stuck (D-01, D-04) prints one stuck line naming the reason and
+ * the exact fix, once per run, and makes `--once` exit 7 so cron can alert. No
+ * flag abandons a stuck lease or declares its credential handled (D-03).
+ *
  * Without `--once` the command refuses: the long-running loop arrives in a
  * later plan (D-21).
  */
 
-import { runSweep } from "@stint/runtime";
+import { createSweepState, runSweep } from "@stint/runtime";
 import type { Lease } from "@stint/core";
 import type { SweepEvent } from "@stint/runtime";
 
@@ -62,7 +66,13 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
     case "retried":
       return { event: "retried", leaseId: event.leaseId, attempt: event.attempt, state: event.lease.state };
     case "stuck":
-      return { event: "stuck", leaseId: event.leaseId, reason: event.reason, attempts: event.attempts };
+      return {
+        event: "stuck",
+        leaseId: event.leaseId,
+        reason: event.reason,
+        attempts: event.attempts,
+        repeat: event.repeat,
+      };
   }
 }
 
@@ -116,10 +126,19 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   const ports = buildRuntimePorts(deps, root);
   const json = opts.json === true;
 
+  const stuckLeases = new Set<string>();
+  // One state for the run: a stuck lease is announced once here, never on every event.
+  const state = createSweepState();
+
   await runSweep(ports, {
     config,
+    state,
+    // The stuck line already names the lease, the reason and the fix. A second generic terminal line
+    // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
+    notify: () => Promise.resolve(),
     ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
     onEvent: async (event) => {
+      if (event.kind === "stuck") stuckLeases.add(event.leaseId);
       if (json) {
         deps.io.out(`${JSON.stringify(await jsonFor(deps, root, event))}\n`);
       } else {
@@ -127,7 +146,8 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
       }
     },
   });
-  return EXIT_CODES.ok;
+  // Exit 7 while any lease is stuck, so cron can alert (D-04).
+  return stuckLeases.size > 0 ? EXIT_CODES.cleanupIncomplete : EXIT_CODES.ok;
 }
 
 export async function superviseCommand(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
