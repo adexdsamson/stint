@@ -61,6 +61,7 @@ import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
 import { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+import { TeardownFencedError } from "./teardown/fence.js";
 import { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
 import { CredentialRefreshError } from "./vault/credential-vault.js";
 import type { ProxyDeps } from "./server.js";
@@ -561,15 +562,23 @@ export async function handleCall(
   // callers that don't wire it (every pre-05-03 `ProxyDeps`) keep working
   // unchanged.
   if (deps.teardownSteps !== undefined && TEARDOWN_TRIGGER_STATES.has(finalLease.state)) {
-    await runTeardown(
-      {
-        leaseStore: deps.leaseStore,
-        receiptStore: deps.receiptStore,
-        leaseId: deps.leaseId,
-        steps: deps.teardownSteps,
-      },
-      decidedAt,
-    );
+    try {
+      await runTeardown(
+        {
+          leaseStore: deps.leaseStore,
+          receiptStore: deps.receiptStore,
+          leaseId: deps.leaseId,
+          steps: deps.teardownSteps,
+          ...(deps.teardownFence === undefined ? {} : { fence: deps.teardownFence }),
+        },
+        decidedAt,
+      );
+    } catch (error) {
+      // Another driver (the supervisor, a user command) owns this teardown
+      // pass (D-09). The call's own result is already decided; it is returned
+      // unchanged. Every other error propagates as before.
+      if (!(error instanceof TeardownFencedError)) throw error;
+    }
   }
 
   return result;

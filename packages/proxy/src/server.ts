@@ -26,6 +26,7 @@ import type { ToolCatalog } from "./catalog.js";
 import { resolveCatalogEntry } from "./catalog.js";
 import type { ApprovalStage, CapEnforcer, ExecuteStage } from "./dispatch.js";
 import { handleCall, resolveEffectiveBinding } from "./dispatch.js";
+import type { TeardownFenceConfig } from "./teardown/fence.js";
 import type { TeardownStep } from "./teardown/steps.js";
 
 /**
@@ -58,6 +59,15 @@ export interface ProxyDeps {
   readonly approve: ApprovalStage;
   readonly enforceCaps: CapEnforcer;
   readonly teardownSteps?: readonly TeardownStep[];
+  /**
+   * OPTIONAL (Phase 9 D-09): the teardown fence. Every driver of a teardown
+   * pass is fenced, a live `run` included: when set, the call-triggered
+   * teardown holds the lease-record fence for its pass, and a pass another
+   * driver already owns (`TeardownFencedError`) is left to that driver without
+   * failing or changing the call's own result. Absent keeps the unfenced
+   * Phase 8 behaviour.
+   */
+  readonly teardownFence?: TeardownFenceConfig;
   /** How often, in milliseconds, a call waiting for an approval polls the lease store to notice the lease ending (D-20). Default 1000. */
   readonly approvalWatchMs?: number;
   /** Optional observational sink; one `call.decided` event per call (D-25). */

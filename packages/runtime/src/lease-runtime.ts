@@ -26,6 +26,7 @@ import type {
 } from "@stint/core";
 import type { LicenseIssuerClient } from "@stint/core/license-issuer";
 import {
+  DEFAULT_FENCE_TTL_SECONDS,
   appendTransitionReceipt,
   createApprovalDispatcher,
   createCapEnforcer,
@@ -42,6 +43,7 @@ import type {
   LicenseCustody,
   ProxyDeps,
   SeededCredential,
+  TeardownFenceConfig,
   TeardownStep,
 } from "@stint/proxy";
 import { parsePredicate, resolveAuthMode } from "@stint/spec";
@@ -337,6 +339,11 @@ export async function createLeaseRuntime(
     },
   };
 
+  // Every in-process teardown driver of a live run is fenced (Phase 9 D-09): a call-triggered teardown and
+  // a verifier completion both hold the lease-record fence, so a supervisor or a user command cannot run
+  // the same pass at the same time. The clock is read live for every fence time.
+  const teardownFence: TeardownFenceConfig = { clock, ttlSeconds: DEFAULT_FENCE_TTL_SECONDS };
+
   const { scopes, resources } = flattenScopes(verified);
   const proxyDeps: ProxyDeps = {
     leaseId,
@@ -353,6 +360,7 @@ export async function createLeaseRuntime(
     approve: createApprovalDispatcher(adapter, verified.manifest.approvals.timeout_seconds, clock),
     enforceCaps: createCapEnforcer(),
     teardownSteps,
+    teardownFence,
     ...(ports.telemetry === undefined ? {} : { telemetry: ports.telemetry }),
     ...(options.approvalWatchMs === undefined ? {} : { approvalWatchMs: options.approvalWatchMs }),
   };
@@ -392,6 +400,7 @@ export async function createLeaseRuntime(
         receiptStore,
         leaseId,
         teardownSteps,
+        teardownFence,
         vault,
         connector,
         binding,

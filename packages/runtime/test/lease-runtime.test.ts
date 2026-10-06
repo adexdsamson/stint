@@ -281,6 +281,9 @@ describe("createLeaseRuntime outcome and teardown", () => {
 
     expect(lease.state).toBe("cleaned_up");
     expect(lease.teardownProgress?.revoke_oauth).toBe("revoked");
+    // Every in-process driver is fenced (Phase 9 D-09): the verifier completion acquired epoch 1 and released it at landing.
+    expect(lease.fence).toEqual({ epoch: 1, expiresAt: 0 });
+    expect((await live.rig.ports.leases.load(LEASE))?.fence).toEqual({ epoch: 1, expiresAt: 0 });
     expect(mock.revokeHits).toBe(1);
     expect(await live.rig.ports.secrets.get(credentialSecretKey(LEASE, ORDERS))).toBeUndefined();
     // Nothing remains under the lease's secret prefix: deleting the prefix removes zero keys.
