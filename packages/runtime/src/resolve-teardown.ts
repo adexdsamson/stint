@@ -40,6 +40,8 @@ export interface ResolveTeardownInput {
   readonly decorateSteps?: (steps: readonly TeardownStep[]) => readonly TeardownStep[];
   /** How long a teardown fence this pass writes stays valid; defaults to the proxy's DEFAULT_FENCE_TTL_SECONDS (120). */
   readonly fenceTtlSeconds?: number;
+  /** A graceful-stop request (D-21): a pass stops between steps once it is aborted, releasing its fence. */
+  readonly signal?: AbortSignal;
 }
 
 export interface ResolvedTeardown {
@@ -158,6 +160,7 @@ export async function resolveTeardown(
     credentialCheck: { expected: expectedResources, missing },
     // Phase 9 D-09: every pass assembled here is fenced, with the runtime's own clock.
     fence: { clock: ports.clock, ttlSeconds: input.fenceTtlSeconds ?? DEFAULT_FENCE_TTL_SECONDS },
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   };
 
   return {

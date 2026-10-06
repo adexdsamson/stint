@@ -46,6 +46,12 @@
  * writes, renames or deletes a corrupt file. A report repeats only when the
  * record's fingerprint changes or after `corruptRepeatSeconds`, so a persistent
  * fault does not flood a log, and a lease that is processed cleanly forgets it.
+ *
+ * Stop (SUP-07, D-21): with `signal` set, an aborted signal is checked before
+ * each lease and passed into every teardown pass, which stops between steps
+ * and releases its fence. The sweep then returns `aborted: true` and starts no
+ * further lease; the lease a pass left `tearing_down` is resumed by the next
+ * driver from its receipts.
  */
 
 import { safeEmit } from "@stint/core";
@@ -172,6 +178,8 @@ export interface SweepReport {
   readonly events: readonly SweepEvent[];
   /** How many store entries the sweep looked at (readable or not). */
   readonly scanned: number;
+  /** True when the stop signal was aborted before the sweep finished; no lease was started after that. */
+  readonly aborted: boolean;
 }
 
 export interface RunSweepOptions {
@@ -193,6 +201,8 @@ export interface RunSweepOptions {
   readonly notify?: (event: LifecycleEvent) => Promise<void>;
   /** Called for each event as it happens and awaited before the sweep moves on. A failing callback never stops the sweep. */
   readonly onEvent?: (event: SweepEvent) => void | Promise<void>;
+  /** A graceful-stop request (D-21): checked before each lease and passed into each teardown pass, which stops between steps. */
+  readonly signal?: AbortSignal;
 }
 
 /** What the sweep does with a lease in a given state. Closed so a new state is a compile error. */
@@ -233,6 +243,10 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
       // a failing renderer must not stop the sweep
     }
   };
+
+  // Read through a function: a bare property read after an await is narrowed by control-flow analysis.
+  const stopRequested = (): boolean => options.signal?.aborted === true;
+  if (stopRequested()) return { events, scanned: 0, aborted: true };
 
   const config = options.config ?? DEFAULT_SUPERVISOR_CONFIG;
   const state = options.state ?? createSweepState();
@@ -415,6 +429,7 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   }
 
   for (const entry of entries) {
+    if (stopRequested()) break;
     // What was reported last time; a lease processed cleanly this time forgets it (D-23).
     const previous = state.reports.get(entry.id);
     if ("unreadable" in entry) {
@@ -452,6 +467,7 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
         leaseId,
         ...(options.decorateSteps === undefined ? {} : { decorateSteps: options.decorateSteps }),
         ...(options.fenceTtlSeconds === undefined ? {} : { fenceTtlSeconds: options.fenceTtlSeconds }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
       };
       let resolved: ResolvedTeardown | undefined;
 
@@ -540,5 +556,5 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
     }
   }
 
-  return { events, scanned: entries.length };
+  return { events, scanned: entries.length, aborted: stopRequested() };
 }

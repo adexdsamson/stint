@@ -54,6 +54,13 @@
  * a step the first driver just recorded as failed (no step ever succeeds twice
  * and the chain never forks).
  *
+ * Graceful stop (Phase 9 D-21): with `deps.signal` set, an aborted signal is
+ * checked before each step. The pass starts no further step, releases its fence
+ * (a graceful stop is not a crash, so the next driver acquires it with no
+ * `teardown_takeover` receipt) and returns the lease still `tearing_down`; a
+ * step already in flight finishes and is recorded first. The landing
+ * transition is not a step, so a pass whose last step has run still lands.
+ *
  * Fail closed on missing credentials (Phase 8 TEAR-07, D-11): when
  * `deps.credentialCheck` is supplied, both entry points first run a PREFLIGHT
  * (never a sixth step, D-02). If revoke_oauth has no recorded outcome and the
@@ -165,6 +172,13 @@ export interface TeardownDeps {
    * `now`).
    */
   readonly fence?: TeardownFenceConfig;
+  /**
+   * OPTIONAL (Phase 9 D-21): a graceful-stop request. Checked before each step;
+   * once aborted no further step starts, the pass releases its fence (when it
+   * holds one) and returns the lease still `tearing_down`. A step already in
+   * flight finishes first. Only a check: no timer is armed here.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -390,11 +404,18 @@ async function runStepAndPersist(
   return "ran";
 }
 
+/** A graceful stop between steps (D-21): releases the fence when this pass holds one and returns the lease as it is, still `tearing_down`. Recorded steps stay recorded; the next driver resumes from them. */
+async function stopBetweenSteps(deps: TeardownDeps, token: FenceToken | undefined): Promise<Lease> {
+  if (token !== undefined) await releaseFence(deps, token);
+  return peekLease(deps);
+}
+
 /** Walks every remaining step (in fixed order) from the pass baseline, then lands `teardown_succeeded`/`teardown_incomplete` exactly once and fires `notify` (D-25) only for the driver that landed it. Shared by `runTeardown` and `retryTeardown`. */
 async function landTeardown(deps: TeardownDeps, now: number, token: FenceToken | undefined): Promise<Lease> {
   const baseline = (await peekLease(deps)).teardownProgress ?? {};
 
   for (const name of remainingSteps(baseline)) {
+    if (deps.signal?.aborted === true) return stopBetweenSteps(deps, token);
     await runStepAndPersist(deps, name, baseline, now, token);
   }
 
