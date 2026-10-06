@@ -33,13 +33,17 @@ afterEach(async () => {
   if (current === undefined) return;
   // A never-answering stub keeps sockets open: drop them so close() resolves.
   current.closeAllConnections();
-  await new Promise<void>((resolve) => current.close(() => resolve()));
+  await new Promise<void>((resolve) => current.close(() => {
+      resolve();
+    }));
 });
 
 async function startStub(handler: Handler): Promise<string> {
   const created = createServer(handler);
   server = created;
-  await new Promise<void>((resolve) => created.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => created.listen(0, "127.0.0.1", () => {
+    resolve();
+  }));
   return `http://127.0.0.1:${String((created.address() as AddressInfo).port)}`;
 }
 
@@ -111,7 +115,9 @@ describe("classifyTokenError through refreshAccessToken (D-17)", () => {
     const live = server;
     server = undefined;
     live?.closeAllConnections();
-    await new Promise<void>((resolve) => live?.close(() => resolve()));
+    await new Promise<void>((resolve) => live?.close(() => {
+      resolve();
+    }));
     const result = await refreshVia(origin);
     expect(result.kind).toBe("transient_error");
   });
@@ -221,7 +227,9 @@ describe("revokeCredential timeout (T-09-24)", () => {
     });
     const credential = credentialFor(origin);
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 100);
+    setTimeout(() => {
+      controller.abort();
+    }, 100);
     const started = Date.now();
     const result = await revokeCredential(oauthClientFromCredential(credential), credential.refreshToken, {
       allowInsecureRequests: true,
