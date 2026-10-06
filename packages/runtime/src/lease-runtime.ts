@@ -23,10 +23,14 @@ import type {
   LeaseStore,
   LicenseClaims,
   LicenseIssuer,
+  RunHeartbeat,
 } from "@stint/core";
 import type { LicenseIssuerClient } from "@stint/core/license-issuer";
 import {
   DEFAULT_FENCE_TTL_SECONDS,
+  DEFAULT_OAUTH_TIMEOUT_MS,
+  TeardownBlockedError,
+  TeardownFencedError,
   appendTransitionReceipt,
   createApprovalDispatcher,
   createCapEnforcer,
@@ -36,6 +40,7 @@ import {
   createRestOutboundConnector,
   createVaultExecuteStage,
   runResourceQueryVerification,
+  runTeardown,
 } from "@stint/proxy";
 import type {
   ExecuteStage,
@@ -49,13 +54,16 @@ import type {
 import { parsePredicate, resolveAuthMode } from "@stint/spec";
 import type { Access, AuthMode, VerifiedManifest } from "@stint/spec";
 
-import { expectedCredentialResources, seedLeaseCredentials } from "./custody.js";
+import { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
 import { RuntimeError } from "./errors.js";
 import { licenseClaimsFromManifest } from "./license-http.js";
 import { isLoopbackHttp } from "./loopback.js";
 import type { RuntimePorts } from "./ports.js";
 import { enrichFromProfile } from "./profile.js";
 import type { RunProfile } from "./profile.js";
+import { settleExpired } from "./settle-expired.js";
+import { RUN_HEARTBEAT_INTERVAL_SECONDS, writeRunHeartbeat } from "./supervisor/heartbeat.js";
+import { probeBackoffSeconds, probeLeaseGrants } from "./supervisor/probe.js";
 
 export interface LeaseRuntimeOptions {
   readonly leaseId: string;
@@ -78,12 +86,45 @@ export interface LeaseRuntimeOptions {
   readonly licenseIssuer?: LicenseIssuerClient | undefined;
   /** How often, in milliseconds, a call waiting for an approval checks whether the lease has ended (default 1000). */
   readonly approvalWatchMs?: number | undefined;
+  /**
+   * How often, in milliseconds, the run checks its own lease: heartbeat, expiry, an end by another
+   * process, and the idle probe (default 5000). Tests use a small value.
+   */
+  readonly leaseWatchMs?: number | undefined;
+  /**
+   * How long, in seconds, a lease may sit idle (no call, no probe) before the run asks the provider
+   * whether its grant is still alive (default 900; 0 turns the probe off).
+   */
+  readonly probeIntervalSeconds?: number | undefined;
+}
+
+/** Why a served lease ended, as the run found it. `unavailable` means the record is gone or no reason can be read from it. */
+export type LeaseEndReason = "expired" | "revoked" | "completed" | "failed" | "unavailable";
+
+/** What the run did about the end of its lease. Closed union; carries no secret, token or error text. */
+export interface LeaseEnded {
+  readonly reason: LeaseEndReason;
+  /**
+   * `cleaned_up` and `cleanup_incomplete`: this run tore the lease down. `other_driver`: another
+   * driver holds the pass or already landed it, so this run did nothing. `blocked`: a recorded
+   * credential is unavailable. `not_run`: the lease record is gone or teardown could not start.
+   */
+  readonly teardown: "cleaned_up" | "cleanup_incomplete" | "other_driver" | "blocked" | "not_run";
+  /** The resources whose credentials are unavailable, when `teardown` is `blocked`. */
+  readonly blockedResources?: readonly string[];
 }
 
 export interface RunningLease {
   /** Resolves when the transport closes (agent disconnect or `close()`). */
   readonly closed: Promise<void>;
   readonly close: () => Promise<void>;
+  /**
+   * Resolves once, and never rejects, when the lease ends while this run serves it (expiry, a
+   * revocation, completion or failure by any process): by then the run has torn the lease down (or
+   * left it to the driver that holds it), written its final heartbeat and begun closing the
+   * transport. It stays pending when the transport closes first.
+   */
+  readonly ended: Promise<LeaseEnded>;
   /**
    * HOST-SIDE ONLY: runs the manifest's `resource_query` verifier through the same vault and
    * connector a real call uses. A true predicate completes the lease and auto-chains teardown to its
@@ -95,6 +136,9 @@ export interface RunningLease {
    */
   readonly verifyOutcome: () => Promise<Lease>;
 }
+
+const DEFAULT_LEASE_WATCH_MS = 5000;
+const DEFAULT_PROBE_INTERVAL_SECONDS = 900;
 
 /** Refresh the in-memory license once it is this close to expiring. */
 export const LICENSE_REFRESH_BEFORE_SECONDS = 60;
@@ -248,6 +292,35 @@ function teardownLicense(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isLanded(state: Lease["state"]): boolean {
+  return state === "cleaned_up" || state === "cleanup_incomplete";
+}
+
+/** Whether a lease has run out of time by `now`. */
+function isPastExpiry(lease: Lease, now: number): boolean {
+  return lease.expiresAt > 0 && now >= lease.expiresAt;
+}
+
+/** The `from` state of the newest `begin_teardown` transition in the verified chain, when it is an end reason. */
+async function reasonFromChain(receipts: ReturnType<RuntimePorts["receipts"]>): Promise<LeaseEndReason> {
+  const chain = await receipts.load("verified");
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    const entry = chain[i];
+    if (entry?.type !== "transition") continue;
+    const payload: unknown = entry.payload;
+    if (!isRecord(payload) || payload.event !== "begin_teardown") continue;
+    const from = payload.from;
+    return from === "expired" || from === "revoked" || from === "completed" || from === "failed"
+      ? from
+      : "unavailable";
+  }
+  return "unavailable";
+}
+
 /**
  * Serves one lease as an MCP proxy over `options.transport`, using only the
  * ports: leases, receipts, secrets, artifacts and keys. Credentials the store
@@ -332,8 +405,13 @@ export async function createLeaseRuntime(
   // The license is refreshed best-effort BEFORE an allowed call and is never passed on: the credential
   // the connector receives stays `{ accessToken }`.
   const vaultStage = createVaultExecuteStage(vault, connector);
+  // The run's own idle probe schedule (D-18): a call is activity, so it pushes the next probe out.
+  const probeIntervalSeconds = options.probeIntervalSeconds ?? DEFAULT_PROBE_INTERVAL_SECONDS;
+  const probe = { nextAt: lease.grantedAt + probeIntervalSeconds, failures: 0 };
   const execute: ExecuteStage = {
     async execute(ctx, callNow) {
+      probe.nextAt = callNow + probeIntervalSeconds;
+      probe.failures = 0;
       await license.refresh(callNow);
       return await vaultStage.execute(ctx, callNow);
     },
@@ -366,8 +444,40 @@ export async function createLeaseRuntime(
   };
 
   const server = createLeaseProxyServer(proxyDeps);
+
+  // The watcher (D-06, D-07): one interval for the heartbeat, expiry, an end by another process and
+  // the idle probe. `stopped` is set once the transport closes or the run ends; after it nothing writes.
+  const watch: { timer: ReturnType<typeof setInterval> | undefined; polling: boolean; stopped: boolean } = {
+    timer: undefined,
+    polling: false,
+    stopped: false,
+  };
+  const isStopped = (): boolean => watch.stopped;
+  const stopWatching = (): void => {
+    watch.stopped = true;
+    if (watch.timer !== undefined) clearInterval(watch.timer);
+    watch.timer = undefined;
+  };
+
+  // Heartbeat writes are serialized, so the final one (with `endedAt`) is always the last to land.
+  const beats = { queue: Promise.resolve(), lastAt: Math.floor(clock()), finalWritten: false };
+  const enqueueBeat = (beat: RunHeartbeat): Promise<void> => {
+    beats.queue = beats.queue
+      .then(() => writeRunHeartbeat(ports.artifacts, leaseId, beat))
+      .catch(() => undefined);
+    return beats.queue;
+  };
+  const writeFinalBeat = (): Promise<void> => {
+    if (beats.finalWritten) return beats.queue;
+    beats.finalWritten = true;
+    return enqueueBeat({ v: 1, beatAt: beats.lastAt, endedAt: Math.floor(clock()) });
+  };
+
   const closed = new Promise<void>((resolve) => {
-    server.onclose = resolve;
+    server.onclose = () => {
+      stopWatching();
+      void writeFinalBeat().then(resolve);
+    };
   });
   await server.connect(transport);
 
@@ -413,5 +523,155 @@ export async function createLeaseRuntime(
     return after;
   };
 
-  return { closed, close: () => server.close(), verifyOutcome };
+  const endedBox: { resolve: (value: LeaseEnded) => void } = { resolve: () => undefined };
+  const ended = new Promise<LeaseEnded>((resolve) => {
+    endedBox.resolve = resolve;
+  });
+
+  /** Tears an ended lease down under the fence, or leaves it to the driver that holds it (D-06, D-09). Never throws. */
+  const tearDownEnded = async (current: Lease): Promise<Pick<LeaseEnded, "teardown" | "blockedResources">> => {
+    if (isLanded(current.state)) return { teardown: "other_driver" };
+    try {
+      const finished = await runTeardown(
+        {
+          leaseStore,
+          receiptStore,
+          leaseId,
+          steps: teardownSteps,
+          signingKey: privateKey,
+          ...(ports.telemetry === undefined ? {} : { telemetry: ports.telemetry }),
+          fence: teardownFence,
+          credentialCheck: {
+            expected: expectedResources,
+            missing: () => missingCredentials(ports, leaseId, expectedResources),
+          },
+        },
+        clock(),
+      );
+      if (finished.state === "cleaned_up") return { teardown: "cleaned_up" };
+      if (finished.state === "cleanup_incomplete") return { teardown: "cleanup_incomplete" };
+      return { teardown: "not_run" };
+    } catch (error) {
+      if (error instanceof TeardownFencedError) return { teardown: "other_driver" };
+      if (error instanceof TeardownBlockedError) {
+        return { teardown: "blocked", blockedResources: error.resources };
+      }
+      return { teardown: "not_run" };
+    }
+  };
+
+  const reasonOf = async (current: Lease | undefined): Promise<LeaseEndReason> => {
+    if (current === undefined) return "unavailable";
+    switch (current.state) {
+      case "expired":
+      case "revoked":
+      case "completed":
+      case "failed":
+        return current.state;
+      case "tearing_down":
+      case "cleaned_up":
+      case "cleanup_incomplete":
+        return await reasonFromChain(receiptStore);
+      default:
+        return "unavailable";
+    }
+  };
+
+  /** The end sequence, run once: stop the timer, find the reason, tear down, final heartbeat, resolve, close (D-06 to D-08). */
+  const endRun = async (current: Lease | undefined): Promise<void> => {
+    stopWatching();
+    let reason: LeaseEndReason = "unavailable";
+    try {
+      reason = await reasonOf(current);
+    } catch {
+      // the reason stays unavailable; the teardown below does not depend on it
+    }
+    const outcome = current === undefined ? { teardown: "not_run" as const } : await tearDownEnded(current);
+    await writeFinalBeat();
+    endedBox.resolve({
+      reason,
+      teardown: outcome.teardown,
+      ...(outcome.blockedResources === undefined ? {} : { blockedResources: outcome.blockedResources }),
+    });
+    try {
+      await server.close();
+    } catch {
+      // the transport was already closing
+    }
+  };
+
+  const runTick = async (): Promise<void> => {
+    const at = Math.floor(clock());
+    if (at - beats.lastAt >= RUN_HEARTBEAT_INTERVAL_SECONDS) {
+      beats.lastAt = at;
+      void enqueueBeat({ v: 1, beatAt: at });
+    }
+
+    let current = await leaseStore.load(leaseId);
+    if (isStopped()) return;
+    if (current?.state === "active" && isPastExpiry(current, clock())) {
+      // Nothing else applies the clock's expire event; this run settles it by its own clock (D-07).
+      await settleExpired(ports, leaseId);
+      current = await leaseStore.load(leaseId);
+    }
+    if (current?.state === "active" && probeIntervalSeconds > 0 && clock() >= probe.nextAt) {
+      const outcome = await probeLeaseGrants(ports, leaseId, {
+        vault,
+        resources: expectedResources,
+        timeoutMs: DEFAULT_OAUTH_TIMEOUT_MS,
+        checkLiveRun: false,
+      });
+      const after = clock();
+      switch (outcome.kind) {
+        case "ok":
+        case "not_probeable":
+          probe.failures = 0;
+          probe.nextAt = after + probeIntervalSeconds;
+          break;
+        case "transient":
+          probe.failures += 1;
+          probe.nextAt =
+            after +
+            Math.max(outcome.retryAfterSeconds ?? 0, probeBackoffSeconds(probe.failures, probeIntervalSeconds));
+          break;
+        case "revoked":
+        case "skipped":
+          break;
+      }
+      current = outcome.kind === "revoked" ? outcome.lease : await leaseStore.load(leaseId);
+    }
+    if (isStopped()) return;
+    if (current?.state !== "active") await endRun(current);
+  };
+
+  const tick = async (): Promise<void> => {
+    if (watch.polling || watch.stopped) return;
+    watch.polling = true;
+    try {
+      await runTick();
+    } catch {
+      // A failed tick (store offline, provider unreachable) is retried on the next one; it never leaves the timer.
+    } finally {
+      watch.polling = false;
+    }
+  };
+
+  // First heartbeat before the run reports itself serving, then the one watcher interval.
+  await enqueueBeat({ v: 1, beatAt: beats.lastAt });
+  const watchMs =
+    options.leaseWatchMs !== undefined && options.leaseWatchMs > 0 ? options.leaseWatchMs : DEFAULT_LEASE_WATCH_MS;
+  const handle = setInterval(() => {
+    void tick();
+  }, watchMs);
+  // A browser timer has no unref; a Node one must not keep the process alive on its own.
+  (handle as unknown as { unref?: () => void }).unref?.();
+  watch.timer = handle;
+
+  const close = async (): Promise<void> => {
+    stopWatching();
+    await writeFinalBeat();
+    await server.close();
+  };
+
+  return { closed, close, ended, verifyOutcome };
 }

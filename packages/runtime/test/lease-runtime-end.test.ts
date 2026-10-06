@@ -99,7 +99,7 @@ async function setup(options: SetupOptions = {}): Promise<Live> {
       writes.push([name, value]);
       return inner.put(id, name, value);
     },
-  } as LeaseArtifactStore;
+  };
   const leases = rig.ports.leases;
   const ports: RuntimePorts = {
     ...rig.ports,
@@ -113,7 +113,7 @@ async function setup(options: SetupOptions = {}): Promise<Live> {
         return switches.loads === "missing" ? Promise.resolve(undefined) : leases.load(id);
       },
       transaction: (id, mutator) => leases.transaction(id, mutator),
-    } as RuntimePorts["leases"],
+    },
   };
   await leases.save(
     makeTestLease(LEASE, {
@@ -208,9 +208,10 @@ describe("a run ends and tears down its own lease (D-06, D-07, SUP-01)", () => {
     expect(lease?.fence).toEqual({ epoch: 1, expiresAt: 0 });
     expect(mock.revokeHits).toBe(1);
     await running.closed;
+    // The clock jumped 1000 s, so the tick that noticed the expiry also beat once; the end then stamped endedAt.
     expect(await live.ports.artifacts.get(LEASE, "run_heartbeat")).toEqual({
       v: 1,
-      beatAt: 2000,
+      beatAt: EXPIRES_AT,
       endedAt: EXPIRES_AT,
     });
   });
@@ -500,13 +501,15 @@ describe("the run probes its own idle grant (D-18, SUP-04)", () => {
     expect((await stored(live))?.state).toBe("active");
     expect(await transitionEvents(live)).toEqual([]);
     expect(await pendingFor(running.ended, 10)).toBe("pending");
-    expect((await callRead(client)).isError).not.toBe(true);
 
     live.now.value = GRANTED_AT + 900 + 59;
     await sleep(100);
     expect(mock.tokenEndpointHits).toBe(1);
     live.now.value = GRANTED_AT + 900 + 60;
     await until(() => mock.tokenEndpointHits === 2, "the retry");
+
+    expect((await stored(live))?.state).toBe("active");
+    expect((await callRead(client)).isError).not.toBe(true);
   });
 
   it("probes by default every 900 s", async () => {

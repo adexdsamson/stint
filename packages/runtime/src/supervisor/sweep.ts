@@ -66,7 +66,7 @@ import { settleExpired } from "../settle-expired.js";
 import { DEFAULT_SUPERVISOR_CONFIG } from "./config.js";
 import type { SupervisorConfig } from "./config.js";
 import { isRunLive } from "./heartbeat.js";
-import { probeLeaseGrants } from "./probe.js";
+import { probeBackoffSeconds, probeLeaseGrants } from "./probe.js";
 import { deriveRetryState } from "./retry-state.js";
 import { markStuck } from "./stuck.js";
 
@@ -124,12 +124,6 @@ function lastActivityOf(lease: Lease, chain: readonly ReceiptEntry[]): number {
     if (typeof ts === "number" && Number.isFinite(ts) && ts > latest) latest = ts;
   }
   return latest;
-}
-
-/** Seconds to wait after `failures` consecutive transient probes: `min(60 * 2^(failures-1), interval)`. */
-function probeBackoff(failures: number, intervalSeconds: number): number {
-  const exponent = Math.min(failures, 31) - 1;
-  return Math.min(60 * 2 ** exponent, intervalSeconds);
 }
 
 const STUCK_REASONS: ReadonlySet<string> = new Set<TeardownStuckReason>([
@@ -319,7 +313,7 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
         return undefined;
       case "transient": {
         schedule.failures += 1;
-        const wait = Math.max(outcome.retryAfterSeconds ?? 0, probeBackoff(schedule.failures, interval));
+        const wait = Math.max(outcome.retryAfterSeconds ?? 0, probeBackoffSeconds(schedule.failures, interval));
         schedule.nextProbeAt = at + wait;
         telemetry("transient", wait);
         return undefined;

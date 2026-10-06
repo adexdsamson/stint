@@ -51,6 +51,16 @@ export type ProbeOutcome =
   | { readonly kind: "not_probeable" }
   | { readonly kind: "skipped"; readonly reason: "live_run" | "not_active" };
 
+/**
+ * Seconds to wait after `failures` consecutive transient probes:
+ * `min(60 * 2^(failures-1), interval)`. Shared by the supervisor's sweep and a
+ * run probing its own lease, so the two cannot drift apart.
+ */
+export function probeBackoffSeconds(failures: number, intervalSeconds: number): number {
+  const exponent = Math.min(failures, 31) - 1;
+  return Math.min(60 * 2 ** exponent, intervalSeconds);
+}
+
 function byName(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
