@@ -42,7 +42,7 @@ async function setup(): Promise<{ readonly rig: TeardownRig; readonly grantedAt:
   const tokenEndpoint = mock.oauthClient.as.token_endpoint;
   if (tokenEndpoint === undefined) throw new Error("mock has no token endpoint");
   const base = CREDENTIALS_JSON[ORDERS];
-  if (base === undefined) throw new Error("fixture has no credential");
+  if (base === undefined || "key" in base) throw new Error("fixture has no OAuth credential");
   await seedFromCredentials(rig.deps, buildRuntimePorts(rig.deps, rig.root), rig.leaseId, {
     [ORDERS]: { ...base, tokenEndpoint },
   });

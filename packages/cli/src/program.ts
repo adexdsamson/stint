@@ -140,6 +140,7 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option("--retry-base <seconds>", "first wait before retrying an incomplete teardown (default 60)")
     .option("--retry-max <seconds>", "longest wait between retries (default 3600)")
     .option("--retry-cap <count>", "retries before a lease is marked stuck (default 8)")
+    .option("--probe-interval <seconds>", "seconds between grant probes of an idle lease; 0 disables (default 900)")
     .action(async (_opts: unknown, cmd: Command) => {
       sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
     });

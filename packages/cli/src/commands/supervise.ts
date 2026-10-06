@@ -16,6 +16,10 @@
  * the exact fix, once per run, and makes `--once` exit 7 so cron can alert. No
  * flag abandons a stuck lease or declares its credential handled (D-03).
  *
+ * An idle active lease is probed at its provider every `--probe-interval` seconds
+ * (default 900, 0 disables). A revoked grant prints one line and the lease is torn
+ * down; a probe that fails any other way prints nothing (SUP-04, D-15, D-17).
+ *
  * Without `--once` the command refuses: the long-running loop arrives in a
  * later plan (D-21).
  */
@@ -46,6 +50,8 @@ export interface SuperviseOpts extends GlobalOpts {
   readonly retryBase?: string | undefined;
   readonly retryMax?: string | undefined;
   readonly retryCap?: string | undefined;
+  /** Seconds between grant probes of an idle lease; `0` disables; validated by `parseSupervisorConfig`. */
+  readonly probeInterval?: string | undefined;
 }
 
 /** The JSON object for one event: scalar fields only. */
