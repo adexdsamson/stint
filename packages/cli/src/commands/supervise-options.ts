@@ -4,6 +4,8 @@
  * largest value a platform timer accepts, in seconds, and the cap within a
  * small count. `--probe-interval` alone accepts 0, which disables probing. A bad value is a usage error with fixed text naming the flag.
  * `--corrupt-repeat` is the quiet period, in seconds, before an unchanged corrupt record is reported again.
+ * `--clock-jump-threshold` is how far, in seconds, the wall clock may advance beyond the monotonic clock between two
+ * sweeps before lease expiry is paused (1 to 2147483, default 3600; SUP-06).
  * `--sweep-interval` is the sleep, in seconds, between sweeps of the long-running mode (1 to 2147483, so the
  * millisecond value never exceeds the 2^31-1 ms timer limit; T-09-42).
  */
@@ -24,6 +26,7 @@ const CAP_MESSAGE = `--retry-cap must be a whole number of retries from 1 to ${S
 const PROBE_MESSAGE = `--probe-interval must be a whole number of seconds from 0 to ${String(MAX_SECONDS)} (0 disables probing).`;
 const CORRUPT_MESSAGE = `--corrupt-repeat must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
 const SWEEP_INTERVAL_MESSAGE = `--sweep-interval must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
+const CLOCK_JUMP_MESSAGE = `--clock-jump-threshold must be a whole number of seconds from 1 to ${String(MAX_SECONDS)}.`;
 const ORDER_MESSAGE = "--retry-max must not be smaller than --retry-base.";
 
 /** Seconds between sweeps when `--sweep-interval` is not given. */
@@ -38,7 +41,7 @@ function wholeNumber(value: string | undefined, max: number, fallback: number, m
   return parsed;
 }
 
-/** Validates `--retry-base`, `--retry-max`, `--retry-cap`, `--probe-interval` and `--corrupt-repeat`; absent flags take the defaults. */
+/** Validates `--retry-base`, `--retry-max`, `--retry-cap`, `--probe-interval`, `--corrupt-repeat` and `--clock-jump-threshold`; absent flags take the defaults. */
 export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
   const retryBaseSeconds = wholeNumber(
     opts.retryBase,
@@ -66,6 +69,12 @@ export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
     DEFAULT_SUPERVISOR_CONFIG.corruptRepeatSeconds,
     CORRUPT_MESSAGE,
   );
+  const clockJumpThresholdSeconds = wholeNumber(
+    opts.clockJumpThreshold,
+    MAX_SECONDS,
+    DEFAULT_SUPERVISOR_CONFIG.clockJumpThresholdSeconds,
+    CLOCK_JUMP_MESSAGE,
+  );
   if (retryMaxSeconds < retryBaseSeconds) throw new CliError(EXIT_CODES.usage, ORDER_MESSAGE);
   return {
     ...DEFAULT_SUPERVISOR_CONFIG,
@@ -74,6 +83,7 @@ export function parseSupervisorConfig(opts: SuperviseOpts): SupervisorConfig {
     retryCap,
     probeIntervalSeconds,
     corruptRepeatSeconds,
+    clockJumpThresholdSeconds,
   };
 }
 

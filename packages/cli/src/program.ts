@@ -145,6 +145,8 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option("--retry-cap <count>", "retries before a lease is marked stuck (default 8)")
     .option("--probe-interval <seconds>", "seconds between grant probes of an idle lease; 0 disables (default 900)")
     .option("--corrupt-repeat <seconds>", "seconds before an unchanged corrupt record is reported again (default 86400)")
+    .option("--clock-jump-threshold <seconds>", "forward clock jump, beyond elapsed time, that pauses lease expiry (default 3600)")
+    .option("--confirm-clock", "confirm the system clock after a reported jump; resumes lease expiry")
     .action(async (_opts: unknown, cmd: Command) => {
       sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
     });

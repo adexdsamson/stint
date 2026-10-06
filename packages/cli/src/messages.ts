@@ -127,6 +127,31 @@ export function sweepLeaseErrorLine(leaseId: string): string {
   return `Lease ${leaseId} could not be processed in this sweep.`;
 }
 
+/** One `supervise` line when a forward clock jump paused lease expiry; only the whole-second jump is interpolated (SUP-06, D-19, D-20). */
+export function sweepClockPausedLine(jumpSeconds: number): string {
+  return `The system clock jumped forward by ${String(jumpSeconds)} seconds; lease expiry is paused. If the clock is correct, run: stint-cli supervise --confirm-clock`;
+}
+
+/** One `supervise` line when the operator confirmed the clock and expiry resumed (SUP-06, D-19). */
+export function sweepClockConfirmedLine(): string {
+  return "Clock confirmed; lease expiry resumed.";
+}
+
+/** One `supervise` line when the clock pause marker cannot be read; expiry stays paused and the fix is named (SUP-06, T-09-49). */
+export function sweepClockMarkerUnreadableLine(): string {
+  return "The clock pause marker in the store could not be read, so lease expiry stays paused. If the system clock is correct, remove supervisor/clock-pause.json from the store.";
+}
+
+/** What `supervise --confirm-clock` prints after it wrote the confirmation (SUP-06, D-19). */
+export function confirmClockDoneLine(): string {
+  return "Clock confirmed. The supervisor resumes lease expiry on its next sweep.";
+}
+
+/** What `supervise --confirm-clock` prints when no pause is active; nothing is written (SUP-06). */
+export function confirmClockNoPauseLine(): string {
+  return "No clock pause is active.";
+}
+
 /** The fixed refusal when another supervisor holds the store lock (D-21, exit 8). */
 export function supervisorBusyMessage(): string {
   return "Another supervisor is already running on this store.";

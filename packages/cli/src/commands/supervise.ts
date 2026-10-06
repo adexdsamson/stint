@@ -36,6 +36,16 @@
  * on the same store is refused with exit 8, and a supervisor whose lock is lost
  * stops sweeping and exits 8. Signals reach this file only through the injected
  * `deps.supervise.shutdown` seam; it never reads the host runtime directly.
+ *
+ * Clock guard (SUP-06, D-19): when the wall clock jumps forward by more than
+ * `--clock-jump-threshold` seconds (default 3600) beyond the monotonic time that passed
+ * since the previous sweep, the supervisor prints one line with the jump and the fix,
+ * stops settling lease expiry and keeps retrying, tearing down ended leases and probing.
+ * The pause is a marker file in the store, so a restart and `--once` honour it too.
+ * `stint-cli supervise --confirm-clock`, run from another terminal or a script, writes a
+ * confirmation bound to the current pause; it takes no lock and asks nothing. The running
+ * supervisor accepts it on its next sweep and resumes expiry. A marker that cannot be read
+ * keeps expiry paused, `--once` exits 10 for it and `--confirm-clock` refuses it (exit 10).
  */
 
 import { RuntimeError, createSweepState, runSweep } from "@stint/runtime";
@@ -45,6 +55,11 @@ import type { RunSweepOptions, RuntimePorts, SupervisorConfig, SweepEvent, Sweep
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import {
+  confirmClockDoneLine,
+  confirmClockNoPauseLine,
+  sweepClockConfirmedLine,
+  sweepClockMarkerUnreadableLine,
+  sweepClockPausedLine,
   sweepCorruptLine,
   supervisorLockLostMessage,
   sweepExpiredLine,
@@ -59,6 +74,7 @@ import { resolveStoreRoot } from "../paths.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { StoreCorruptError } from "../store/atomic-file.js";
+import { createFileSupervisorControl } from "../store/supervisor-control.js";
 import { acquireSupervisorLock } from "../store/supervisor-lock.js";
 import type { SupervisorLock } from "../store/supervisor-lock.js";
 import { abortableSleep } from "../supervise-timing.js";
@@ -76,6 +92,10 @@ export interface SuperviseOpts extends GlobalOpts {
   readonly corruptRepeat?: string | undefined;
   /** Seconds between sweeps in the long-running mode; validated by `parseSweepInterval`. */
   readonly sweepInterval?: string | undefined;
+  /** Seconds of forward clock jump that pause lease expiry; validated by `parseSupervisorConfig`. */
+  readonly clockJumpThreshold?: string | undefined;
+  /** Confirm the clock after a reported jump (writes the confirmation and exits); not valid with `--once`. */
+  readonly confirmClock?: boolean | undefined;
 }
 
 /** What the sweep counts as corrupt stored data: this CLI's store error or the runtime's `store_corrupt`. */
@@ -111,6 +131,12 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
         attempts: event.attempts,
         repeat: event.repeat,
       };
+    case "clock_paused":
+      return { event: "clock_paused", jumpSeconds: event.jumpSeconds, repeat: event.repeat };
+    case "clock_confirmed":
+      return { event: "clock_confirmed" };
+    case "clock_marker_unreadable":
+      return { event: "clock_marker_unreadable" };
   }
 }
 
@@ -154,15 +180,28 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
     case "stuck":
       deps.io.err(`stint: ${sweepStuckLine(event.leaseId, event.reason)}\n`);
       return;
+    case "clock_paused":
+      deps.io.err(`stint: ${sweepClockPausedLine(event.jumpSeconds)}\n`);
+      return;
+    case "clock_confirmed":
+      deps.io.err(`stint: ${sweepClockConfirmedLine()}\n`);
+      return;
+    case "clock_marker_unreadable":
+      deps.io.err(`stint: ${sweepClockMarkerUnreadableLine()}\n`);
+      return;
   }
 }
 
 /** What every sweep, in either mode, is given besides the event sink and the stop signal. */
-function sweepOptions(deps: CliDeps, config: SupervisorConfig, state: SweepState): RunSweepOptions {
+function sweepOptions(deps: CliDeps, config: SupervisorConfig, state: SweepState, root: string): RunSweepOptions {
+  const monotonicMs = deps.supervise?.monotonicMs;
   return {
     config,
     state,
     isStoreCorrupt,
+    // The pause and its confirmation live in the store, so every sweep of either mode honours them (D-19).
+    control: createFileSupervisorControl(root),
+    ...(monotonicMs === undefined ? {} : { monotonicMs }),
     // The stuck line already names the lease, the reason and the fix. A second generic terminal line
     // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
     notify: () => Promise.resolve(),
@@ -189,18 +228,20 @@ async function sweepOnceLocked(
 ): Promise<number> {
   const stuckLeases = new Set<string>();
   const corruptLeases = new Set<string>();
+  const marker = { unreadable: false };
   // One state for the run: a stuck lease is announced once here, never on every event.
   const state = createSweepState();
 
   await runSweep(ports, {
-    ...sweepOptions(deps, config, state),
+    ...sweepOptions(deps, config, state, root),
     onEvent: async (event) => {
       if (event.kind === "stuck") stuckLeases.add(event.leaseId);
       if (event.kind === "corrupt_record") corruptLeases.add(event.leaseId);
+      if (event.kind === "clock_marker_unreadable") marker.unreadable = true;
       await renderEvent(deps, root, json, event);
     },
   });
-  if (corruptLeases.size > 0) return EXIT_CODES.storeCorrupt;
+  if (corruptLeases.size > 0 || marker.unreadable) return EXIT_CODES.storeCorrupt;
   return stuckLeases.size > 0 ? EXIT_CODES.cleanupIncomplete : EXIT_CODES.ok;
 }
 
@@ -245,7 +286,7 @@ async function sweepForever(
     while (!halted()) {
       try {
         await runSweep(ports, {
-          ...sweepOptions(deps, config, state),
+          ...sweepOptions(deps, config, state, root),
           onEvent: (event) => renderEvent(deps, root, json, event),
           signal: halt.signal,
         });
@@ -267,13 +308,36 @@ async function sweepForever(
   return EXIT_CODES.ok;
 }
 
+/**
+ * `--confirm-clock` (SUP-06, D-19): writes a confirmation bound to the current pause and returns. No lock, no
+ * prompt and no sweep, so it works from another terminal or a script while a supervisor runs. With no pause
+ * it writes nothing. A pause marker that cannot be read is a `StoreCorruptError` (exit 10) and is left as is.
+ */
+async function confirmClock(deps: CliDeps, root: string, json: boolean): Promise<number> {
+  const control = createFileSupervisorControl(root);
+  const pause = await control.readPause();
+  if (pause === undefined) {
+    if (json) deps.io.out(`${JSON.stringify({ event: "no_clock_pause" })}\n`);
+    else deps.io.err(`stint: ${confirmClockNoPauseLine()}\n`);
+    return EXIT_CODES.ok;
+  }
+  await control.writeConfirm({ v: 1, id: pause.id });
+  if (json) deps.io.out(`${JSON.stringify({ event: "clock_confirm_written" })}\n`);
+  else deps.io.err(`stint: ${confirmClockDoneLine()}\n`);
+  return EXIT_CODES.ok;
+}
+
 async function runSupervise(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   // Validate every flag before any store access.
   const config = parseSupervisorConfig(opts);
   const intervalSeconds = parseSweepInterval(opts);
+  const json = opts.json === true;
+  if (opts.confirmClock === true) {
+    if (opts.once === true) throw new CliError(EXIT_CODES.usage, "--confirm-clock cannot be used with --once.");
+    return await confirmClock(deps, resolveStoreRoot(opts), json);
+  }
   const root = resolveStoreRoot(opts);
   const ports = buildRuntimePorts(deps, root);
-  const json = opts.json === true;
 
   // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
   const lock = await acquireSupervisorLock(root, {
