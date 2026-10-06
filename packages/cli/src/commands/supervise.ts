@@ -17,6 +17,7 @@
  */
 
 import { runSweep } from "@stint/runtime";
+import type { Lease } from "@stint/core";
 import type { SweepEvent } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
@@ -25,14 +26,21 @@ import {
   sweepCorruptLine,
   sweepExpiredLine,
   sweepLeaseErrorLine,
+  sweepRetriedLine,
+  sweepStuckLine,
   sweepTornDownLine,
 } from "../messages.js";
 import { resolveStoreRoot } from "../paths.js";
 import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
+import { parseSupervisorConfig } from "./supervise-options.js";
 
 export interface SuperviseOpts extends GlobalOpts {
   readonly once?: boolean | undefined;
+  /** Seconds, as the string commander hands over; validated by `parseSupervisorConfig`. */
+  readonly retryBase?: string | undefined;
+  readonly retryMax?: string | undefined;
+  readonly retryCap?: string | undefined;
 }
 
 /** The JSON object for one event: scalar fields only. */
@@ -45,12 +53,16 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
         event: "torn_down",
         leaseId: event.leaseId,
         state: event.lease.state,
-        unrevoked: await unrevokedFor(deps, root, event),
+        unrevoked: await unrevokedFor(deps, root, event.leaseId, event.lease),
       };
     case "corrupt_record":
       return { event: "corrupt_record", leaseId: event.leaseId, reason: "store_corrupt" };
     case "lease_error":
       return { event: "lease_error", leaseId: event.leaseId };
+    case "retried":
+      return { event: "retried", leaseId: event.leaseId, attempt: event.attempt, state: event.lease.state };
+    case "stuck":
+      return { event: "stuck", leaseId: event.leaseId, reason: event.reason, attempts: event.attempts };
   }
 }
 
@@ -58,10 +70,11 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
 async function unrevokedFor(
   deps: CliDeps,
   root: string,
-  event: Extract<SweepEvent, { kind: "torn_down" }>,
+  leaseId: string,
+  lease: Lease,
 ): Promise<readonly string[]> {
-  if (!isUnrevokedCleanup(event.lease)) return [];
-  return unrevokedResources(await deps.receiptStoreFactory(root, event.leaseId).load("verified"));
+  if (!isUnrevokedCleanup(lease)) return [];
+  return unrevokedResources(await deps.receiptStoreFactory(root, leaseId).load("verified"));
 }
 
 async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Promise<void> {
@@ -71,7 +84,7 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
       return;
     case "torn_down":
       deps.io.err(`stint: ${sweepTornDownLine(event.leaseId, stateLabel(event.lease))}\n`);
-      for (const resource of await unrevokedFor(deps, root, event)) {
+      for (const resource of await unrevokedFor(deps, root, event.leaseId, event.lease)) {
         deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
       }
       return;
@@ -81,6 +94,15 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
     case "lease_error":
       deps.io.err(`stint: ${sweepLeaseErrorLine(event.leaseId)}\n`);
       return;
+    case "retried":
+      deps.io.err(`stint: ${sweepRetriedLine(event.leaseId, event.attempt, stateLabel(event.lease))}\n`);
+      for (const resource of await unrevokedFor(deps, root, event.leaseId, event.lease)) {
+        deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
+      }
+      return;
+    case "stuck":
+      deps.io.err(`stint: ${sweepStuckLine(event.leaseId, event.reason)}\n`);
+      return;
   }
 }
 
@@ -88,11 +110,14 @@ async function sweepOnce(deps: CliDeps, opts: SuperviseOpts): Promise<number> {
   if (opts.once !== true) {
     throw new CliError(EXIT_CODES.usage, "Pass --once to run a single sweep.");
   }
+  // Validate every flag before any store access.
+  const config = parseSupervisorConfig(opts);
   const root = resolveStoreRoot(opts);
   const ports = buildRuntimePorts(deps, root);
   const json = opts.json === true;
 
   await runSweep(ports, {
+    config,
     ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
     onEvent: async (event) => {
       if (json) {

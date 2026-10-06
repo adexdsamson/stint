@@ -5,6 +5,8 @@
  * `assertSafeLeaseId` and resource names that go through `sanitizeForTerminal`.
  */
 
+import type { TeardownStuckPayload } from "@stint/spec";
+
 import { sanitizeForTerminal } from "./adapter/sanitize.js";
 
 /** Printed once, to stderr, by every command that writes a credential to the store (D-09). */
@@ -68,6 +70,29 @@ export function sweepExpiredLine(leaseId: string): string {
 /** One `supervise` line when a sweep finished a teardown; `label` is a closed state label from `stateLabel` (D-20, SPEC-07). */
 export function sweepTornDownLine(leaseId: string, label: string): string {
   return `Lease ${leaseId} teardown finished: ${label}.`;
+}
+
+/** One `supervise` line for a supervisor retry of an incomplete teardown; `label` is a closed state label from `stateLabel` (D-04, D-20). */
+export function sweepRetriedLine(leaseId: string, attempt: number, label: string): string {
+  return `Lease ${leaseId} teardown retried (attempt ${String(attempt)}): ${label}.`;
+}
+
+/**
+ * One `supervise` line when a lease is marked stuck: the closed reason and the exact
+ * command that fixes it (D-04, D-20). The switch is exhaustive over the four reasons.
+ */
+export function sweepStuckLine(leaseId: string, reason: TeardownStuckPayload["reason"]): string {
+  const head = `Lease ${leaseId} is stuck (${reason}). `;
+  switch (reason) {
+    case "credentials_unavailable":
+      return `${head}Supply the credentials with: stint-cli cleanup ${leaseId} --credentials <file>`;
+    case "retries_exhausted":
+      return `${head}Check the trail with stint-cli receipts ${leaseId}, fix the cause, then run: stint-cli cleanup ${leaseId}`;
+    case "revocation_failed":
+      return `${head}The credential could not be revoked upstream. Rotate it in the provider dashboard, then run: stint-cli cleanup ${leaseId}`;
+    case "manifest_invalid":
+      return `${head}The stored manifest no longer verifies against your trust store. Restore the publisher key, then run: stint-cli cleanup ${leaseId}`;
+  }
 }
 
 /** One `supervise` line for a lease record the store could not read (D-23). Never includes the record's contents. */

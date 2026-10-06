@@ -26,8 +26,8 @@ function field(payload: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? sanitizeForTerminal(value) : "?";
 }
 
-/** A fence epoch from an entry payload: a safe integer renders as itself, anything else as `?`. */
-function epochField(payload: Record<string, unknown>, key: string): string {
+/** A count from an entry payload (a fence epoch, failed attempts): a safe integer renders as itself, anything else as `?`. */
+function countField(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   return typeof value === "number" && Number.isSafeInteger(value) ? String(value) : "?";
 }
@@ -75,7 +75,10 @@ function describe(entry: ReceiptEntry, hasUnrevoked: boolean): string {
     }
     case "teardown_takeover":
       // A later driver took over a fence a crashed driver never released (Phase 9 D-10).
-      return `teardown takeover: epoch ${epochField(payload, "previousEpoch")} -> ${epochField(payload, "epoch")} (${field(payload, "reason")})`;
+      return `teardown takeover: epoch ${countField(payload, "previousEpoch")} -> ${countField(payload, "epoch")} (${field(payload, "reason")})`;
+    case "teardown_stuck":
+      // The supervisor stopped retrying; the lease stays cleanup_incomplete (Phase 9 D-01).
+      return `teardown stuck: ${field(payload, "reason")} after ${countField(payload, "attempts")} failed attempts`;
     case "attested_claim":
       return `publisher ${field(payload, "publisherId")} claims ${field(payload, "claimType")} (not verified by the runtime)`;
     default:

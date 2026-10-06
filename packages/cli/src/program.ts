@@ -137,6 +137,9 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .command("supervise")
     .description("Settle and tear down ended leases in this store")
     .option("--once", "run a single sweep and exit")
+    .option("--retry-base <seconds>", "first wait before retrying an incomplete teardown (default 60)")
+    .option("--retry-max <seconds>", "longest wait between retries (default 3600)")
+    .option("--retry-cap <count>", "retries before a lease is marked stuck (default 8)")
     .action(async (_opts: unknown, cmd: Command) => {
       sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
     });
