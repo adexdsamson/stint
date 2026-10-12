@@ -104,7 +104,12 @@ export type SweepEvent =
   | { readonly kind: "lease_error"; readonly leaseId: string }
   /** The provider revoked the grant of an idle lease; the lease is torn down next, in the same sweep. */
   | { readonly kind: "grant_revoked"; readonly leaseId: string }
-  | { readonly kind: "retried"; readonly leaseId: string; readonly attempt: number; readonly lease: Lease }
+  | {
+      readonly kind: "retried";
+      readonly leaseId: string;
+      readonly attempt: number;
+      readonly lease: Lease;
+    }
   | {
       readonly kind: "stuck";
       readonly leaseId: string;
@@ -332,7 +337,10 @@ async function clockGate(
     }
     if (!clock.pauseAnnounced) {
       clock.pauseAnnounced = true;
-      safeEmit(ports.telemetry, { name: "supervisor.clock_paused", jumpSeconds: pause.jumpSeconds });
+      safeEmit(ports.telemetry, {
+        name: "supervisor.clock_paused",
+        jumpSeconds: pause.jumpSeconds,
+      });
       await emit({ kind: "clock_paused", jumpSeconds: pause.jumpSeconds, repeat: true });
     }
     return true;
@@ -372,7 +380,10 @@ async function clockGate(
  *
  * @experimental The runtime surface is not yet stable.
  */
-export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {}): Promise<SweepReport> {
+export async function runSweep(
+  ports: RuntimePorts,
+  options: RunSweepOptions = {},
+): Promise<SweepReport> {
   const events: SweepEvent[] = [];
   const emit = async (event: SweepEvent): Promise<void> => {
     events.push(event);
@@ -407,7 +418,11 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
    * True when a report for `leaseId` should be made now: it is new, its fingerprint changed, or the quiet
    * period has run out. Records the report when it is made, so the next sweep deduplicates against it.
    */
-  const shouldReport = (leaseId: string, fingerprint: string, previous: ReportMemory | undefined): boolean => {
+  const shouldReport = (
+    leaseId: string,
+    fingerprint: string,
+    previous: ReportMemory | undefined,
+  ): boolean => {
     const at = ports.clock();
     if (
       previous !== undefined &&
@@ -462,7 +477,8 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
 
   /** Failed teardown passes since the last stuck marker, from the verified chain. */
   const failedPassesOf = async (leaseId: string): Promise<number> =>
-    deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock()).failedPasses;
+    deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock())
+      .failedPasses;
 
   /**
    * Probes an idle active lease when its schedule says so (SUP-04). Returns the
@@ -473,7 +489,10 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   const probeIdle = async (leaseId: string, lease: Lease): Promise<Lease | undefined> => {
     const interval = config.probeIntervalSeconds;
     if (interval <= 0) return undefined;
-    const telemetry = (result: "ok" | "revoked" | "transient" | "not_probeable" | "skipped", next: number): void => {
+    const telemetry = (
+      result: "ok" | "revoked" | "transient" | "not_probeable" | "skipped",
+      next: number,
+    ): void => {
       safeEmit(ports.telemetry, {
         name: "supervisor.probe",
         leaseId,
@@ -518,10 +537,14 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
     }
 
     // A vault built just now from the stores never holds a refresh token another run or supervisor rotated (Pitfall 4).
-    const vault = createCredentialVault((_resource, credential) => oauthClientFromCredential(credential), ports.clock, {
-      secrets: ports.secrets,
-      allowInsecureRequests: allowInsecureForClient,
-    });
+    const vault = createCredentialVault(
+      (_resource, credential) => oauthClientFromCredential(credential),
+      ports.clock,
+      {
+        secrets: ports.secrets,
+        allowInsecureRequests: allowInsecureForClient,
+      },
+    );
     const outcome = await probeLeaseGrants(ports, leaseId, {
       vault,
       resources,
@@ -545,7 +568,10 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
         return undefined;
       case "transient": {
         schedule.failures += 1;
-        const wait = Math.max(outcome.retryAfterSeconds ?? 0, probeBackoffSeconds(schedule.failures, interval));
+        const wait = Math.max(
+          outcome.retryAfterSeconds ?? 0,
+          probeBackoffSeconds(schedule.failures, interval),
+        );
         schedule.nextProbeAt = at + wait;
         telemetry("transient", wait);
         return undefined;
@@ -558,7 +584,11 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
   };
 
   /** Reports an already stuck lease once per run, with no receipt and no host notice. */
-  const reannounce = async (leaseId: string, reason: TeardownStuckReason, attempts: number): Promise<void> => {
+  const reannounce = async (
+    leaseId: string,
+    reason: TeardownStuckReason,
+    attempts: number,
+  ): Promise<void> => {
     if (state.announcedStuck.has(leaseId)) return;
     state.announcedStuck.add(leaseId);
     await emit({ kind: "stuck", leaseId, reason, attempts, repeat: true });
@@ -613,12 +643,18 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
       const resolveInput = {
         leaseId,
         ...(options.decorateSteps === undefined ? {} : { decorateSteps: options.decorateSteps }),
-        ...(options.fenceTtlSeconds === undefined ? {} : { fenceTtlSeconds: options.fenceTtlSeconds }),
+        ...(options.fenceTtlSeconds === undefined
+          ? {}
+          : { fenceTtlSeconds: options.fenceTtlSeconds }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       };
       let resolved: ResolvedTeardown | undefined;
 
-      const derived = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
+      const derived = deriveRetryState(
+        await ports.receipts(leaseId).load("verified"),
+        config,
+        ports.clock(),
+      );
       const stuck = derived.stuck;
       if (stuck !== undefined) {
         // Reason text no known version of the supervisor writes: leave the lease alone and name nothing.
@@ -668,7 +704,11 @@ export async function runSweep(ports: RuntimePorts, options: RunSweepOptions = {
         await emit({ kind: "retried", leaseId, attempt: derived.failedPasses, lease: finished });
 
         if (finished.state === "cleanup_incomplete") {
-          const after = deriveRetryState(await ports.receipts(leaseId).load("verified"), config, ports.clock());
+          const after = deriveRetryState(
+            await ports.receipts(leaseId).load("verified"),
+            config,
+            ports.clock(),
+          );
           if (after.stuck === undefined && after.exhausted) {
             await markAndAnnounce(leaseId, "retries_exhausted", after.failedPasses);
           }
