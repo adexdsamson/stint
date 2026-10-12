@@ -85,7 +85,8 @@ export function renderConsent(
           : credential.revocation === "unsupported"
             ? "cannot be revoked by Stint"
             : "revocation not yet known";
-      row(`${s(credential.resource)}: ${capability}`);
+      // The kind is a closed enum, so it renders raw beside the capability (SPEC-10, 10-02).
+      row(`${s(credential.resource)} (${credential.kind}): ${capability}`);
     }
     row(CONSENT_PLAINTEXT_LINE);
     if (custody.credentials.some((credential) => credential.revocation === "unknown")) {

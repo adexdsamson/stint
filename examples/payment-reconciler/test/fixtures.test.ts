@@ -14,6 +14,7 @@ import { importLicensePublicKey, createLicenseIssuerClient } from "@stint/core/l
 import { httpIssuerTransport, loadRunProfile, parseRunProfile } from "@stint/cli";
 import type { LoadedCredential } from "@stint/cli";
 import { mintCleanupToken } from "@stint/proxy";
+import type { OAuthSeededCredential } from "@stint/proxy";
 import { startMockAuthServer } from "@stint/proxy/testing";
 import type { MockAuthHarness } from "@stint/proxy/testing";
 import { parseEnvelope, verifyEnvelope } from "@stint/spec";
@@ -115,7 +116,10 @@ describe("headless OAuth acquisition (D-05)", () => {
 
     const dir = await tempDir();
     const file = await writeCredentialsFile(credentials, path.join(dir, "credentials.json"));
-    const roundTripped = JSON.parse(await readFile(file, "utf8")) as Record<string, LoadedCredential>;
+    const roundTripped = JSON.parse(await readFile(file, "utf8")) as Record<
+      string,
+      OAuthSeededCredential
+    >;
     expect(roundTripped[SHEETS]?.refreshToken).toBe(credentials[SHEETS]?.refreshToken);
   });
 });

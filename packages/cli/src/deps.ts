@@ -135,6 +135,15 @@ export interface CliDeps {
    * a destructive action rather than assume consent. Absent means no terminal.
    */
   readonly confirm?: (question: string) => Promise<boolean | undefined>;
+  /**
+   * Asks for a secret (an API key) on the user's terminal with echo muted
+   * (10-02, D-A). Resolves the typed value, or `undefined` when there is no
+   * interactive terminal or the input ended. Callers MUST treat `undefined`
+   * as no entry and refuse, never as an empty secret, and MUST NOT log,
+   * receipt or otherwise interpolate the resolved value. Absent means no
+   * terminal.
+   */
+  readonly askSecret?: (prompt: string) => Promise<string | undefined>;
 }
 
 /** Options every subcommand can read through `cmd.optsWithGlobals()`. */

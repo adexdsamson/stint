@@ -5,7 +5,7 @@
  * commands are registered here with their positional args and flags (D-03). It
  * was FROZEN after plan 06-04, and later plans replace only their own
  * `commands/*.ts` bodies and never re-register anything here. The exceptions:
- * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option)
+ * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option) and D-A in Phase 10 (`create` gained an opt-in `--api-key` flag)
  * and Phase 9 D-21 (an eighth command, `supervise`: one sweep with `--once`,
  * otherwise a long-running loop that sweeps every `--sweep-interval` seconds
  * until it is stopped).
@@ -75,6 +75,10 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option(
       "--credentials <file>",
       "credentials file, so consent can say which credentials cannot be revoked; stored for the lease",
+    )
+    .option(
+      "--api-key",
+      "enter an API key interactively (no echo) for each delegated provider that uses one",
     )
     .action(async (manifestPath: string, _opts: unknown, cmd: Command) => {
       sink.code = await createCommand(deps, manifestPath, cmd.optsWithGlobals<CreateOpts>());

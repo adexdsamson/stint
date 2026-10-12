@@ -55,8 +55,8 @@ describe("renderConsent with custody", () => {
       ],
     });
     expect(text).toContain("Credentials");
-    expect(text).toContain("a.one: can be revoked when the lease ends");
-    expect(text).toContain("b.two: cannot be revoked by Stint");
+    expect(text).toContain("a.one (oauth): can be revoked when the lease ends");
+    expect(text).toContain("b.two (oauth): cannot be revoked by Stint");
     expect(text.split(CONSENT_PLAINTEXT_LINE)).toHaveLength(2);
     expect(text).not.toContain(CONSENT_CAPABILITY_UNKNOWN_LINE);
   });
@@ -66,7 +66,7 @@ describe("renderConsent with custody", () => {
       storage: "plaintext_file",
       credentials: [{ resource: "sheets.orders", kind: "oauth", revocation: "unknown" }],
     });
-    expect(text).toContain("sheets.orders: revocation not yet known");
+    expect(text).toContain("sheets.orders (oauth): revocation not yet known");
     expect(text).toContain(CONSENT_CAPABILITY_UNKNOWN_LINE);
     expect(text).not.toContain("can be revoked when the lease ends");
   });

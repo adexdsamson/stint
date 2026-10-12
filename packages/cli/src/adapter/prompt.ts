@@ -15,6 +15,12 @@ export interface AskLineOptions {
   readonly terminal?: boolean;
 }
 
+/** `askSecret` options: `terminal` only. A secret never draws a countdown (10-02). */
+export interface AskSecretOptions {
+  /** Overrides `output.isTTY === true` (tests drive a terminal-mode interface with fake streams). */
+  readonly terminal?: boolean;
+}
+
 /**
  * Asks one line on `input`/`output`. Resolves the typed line, or `undefined`
  * when there is no answer: the signal aborted, the input reached EOF, or the
@@ -70,6 +76,53 @@ export async function askLine(
   } finally {
     stopCountdown();
     signal.removeEventListener("abort", stopCountdown);
+    rl.close();
+  }
+}
+
+/**
+ * Asks one line with echo muted (`askSecret`, 10-02 D-A). Same contract as
+ * {@link askLine}: resolves the typed line, or `undefined` when there is no
+ * answer (abort, EOF, interface failure). The typed value is a SECRET: the
+ * prompt itself is written to `output` BEFORE the readline interface exists,
+ * and the interface is built over a wrapper that swallows every chunk, so the
+ * typed characters are never written to any stream. Callers MUST treat
+ * `undefined` as no-entry, never approval, and MUST NOT log, echo, receipt or
+ * otherwise interpolate the resolved value.
+ */
+export async function askSecret(
+  input: PromptInput,
+  output: PromptOutput,
+  prompt: string,
+  signal: AbortSignal,
+  options: AskSecretOptions = {},
+): Promise<string | undefined> {
+  if (signal.aborted) return undefined;
+
+  const terminal = options.terminal ?? output.isTTY === true;
+  // All-or-nothing muting (no chunk classification): the prompt rides a plain
+  // write before the interface exists, so the muted writer can swallow everything.
+  output.write(prompt);
+  const muted: PromptOutput = Object.create(output) as PromptOutput;
+  // The muted writer exists to discard its arguments: echoing anything would leak the typed secret (T-10-06).
+  muted.write = (
+    chunk: string | Uint8Array, // eslint-disable-line @typescript-eslint/no-unused-vars -- swallow-only writer
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void), // eslint-disable-line @typescript-eslint/no-unused-vars -- swallow-only writer
+    callback?: (error?: Error | null) => void, // eslint-disable-line @typescript-eslint/no-unused-vars -- swallow-only writer
+  ): boolean => true;
+  const rl = createInterface({ input, output: muted, terminal });
+  // EOF guard: rl.question() never settles when the input ends.
+  const closed = new Promise<undefined>((resolve) => {
+    rl.once("close", () => {
+      resolve(undefined);
+    });
+  });
+
+  try {
+    return await Promise.race([rl.question("", { signal }), closed]);
+  } catch {
+    return undefined;
+  } finally {
     rl.close();
   }
 }

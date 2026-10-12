@@ -22,6 +22,7 @@ export type { ClockConfirm, ClockPause, SupervisorControl } from "./supervisor/c
 export { RuntimeError } from "./errors.js";
 export type { RuntimeErrorCode } from "./errors.js";
 export type { RuntimePorts } from "./ports.js";
+export { API_KEY_PROVIDERS, delegatedApiKeyProviders } from "./api-key-providers.js";
 export { isLoopbackHttp, allowInsecureForClient } from "./loopback.js";
 export {
   PUBLISHER_TIMEOUT_MS,

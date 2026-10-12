@@ -122,6 +122,15 @@ export function sweepCorruptLine(leaseId: string): string {
   return `Lease record ${leaseId} could not be read (store_corrupt); it was skipped and left unchanged.`;
 }
 
+/**
+ * The no-echo prompt for one delegated API-key resource at `create` (10-02,
+ * D-A). Fixed text; only the resource name is interpolated, sanitized here.
+ * The answer is a SECRET: it is never echoed, logged or receipted.
+ */
+export function apiKeyPrompt(resource: string): string {
+  return `Enter the API key for ${sanitizeForTerminal(resource)} (not shown as you type): `;
+}
+
 /** One `supervise` line when a lease could not be processed. Never includes error text. */
 export function sweepLeaseErrorLine(leaseId: string): string {
   return `Lease ${leaseId} could not be processed in this sweep.`;

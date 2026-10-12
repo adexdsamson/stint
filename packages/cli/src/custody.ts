@@ -8,6 +8,7 @@
  */
 
 import type { ConsentCredential, ConsentCustody, GrantRecord, GrantsArtifact } from "@stint/core";
+import { isApiKeyCredential } from "@stint/proxy";
 import type { SeededCredential } from "@stint/proxy";
 import { seedLeaseCredentials } from "@stint/runtime";
 import type { RuntimePorts, SeedResult } from "@stint/runtime";
@@ -27,7 +28,8 @@ function byName(a: string, b: string): number {
  * D-28). The resource list is the sorted union of the manifest's delegated
  * resources and the credentials file's keys. Capability comes from the file
  * entry: an OAuth credential is `supported` only when it carries a revocation
- * endpoint; a resource with no file entry is `unknown`, never `supported`. No
+ * endpoint; an API-key entry is always `unsupported` (there is no endpoint to
+ * call); a resource with no file entry is `unknown`, never `supported`. No
  * secret value is read into the result.
  */
 export function buildConsentCustody(
@@ -43,13 +45,18 @@ export function buildConsentCustody(
 
   const list: ConsentCredential[] = [...names].sort(byName).map((resource) => {
     const entry = credentials?.[resource];
+    // An API key has no revocation endpoint to call, so consent is always honest
+    // about it: kind api_key, revocation unsupported (SPEC-10, 10-02).
+    if (entry !== undefined && isApiKeyCredential(entry)) {
+      return { resource, kind: "api_key", revocation: "unsupported" } as const;
+    }
     const revocation =
       entry === undefined
         ? "unknown"
         : entry.revocationEndpoint === undefined
           ? "unsupported"
           : "supported";
-    return { resource, kind: "oauth", revocation };
+    return { resource, kind: "oauth", revocation } as const;
   });
   return { storage: "plaintext_file", credentials: list };
 }

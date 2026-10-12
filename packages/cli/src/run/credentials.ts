@@ -6,7 +6,9 @@
  * job and is wired in plan 08-09. No OAuth acquisition flow lives here (D-02).
  *
  * File shape: `{ "<resource>": { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator,
- * clientId?, revocationEndpoint? } }`. `clientId` and `revocationEndpoint` are the non-secret
+ * clientId?, revocationEndpoint? } }`, or `{ "<resource>": { kind: "api_key", key } }` for a
+ * static API key (10-02; the key is a SECRET exactly like the tokens). `clientId` and
+ * `revocationEndpoint` are the non-secret
  * authorization-server details `revoke`/`cleanup` need to attempt RFC 7009 revocation (they have
  * no run profile): `revocationEndpoint` requires `clientId`, and without it revocation is
  * honestly receipted as `discarded_revocation_unsupported`.
@@ -14,7 +16,12 @@
 
 import { readFile } from "node:fs/promises";
 
-import type { CredentialVault, OAuthSeededCredential, SeededCredential } from "@stint/proxy";
+import type {
+  ApiKeySeededCredential,
+  CredentialVault,
+  OAuthSeededCredential,
+  SeededCredential,
+} from "@stint/proxy";
 
 import { CliError, EXIT_CODES } from "../exit.js";
 
@@ -30,11 +37,27 @@ function isUrl(v: string): boolean {
   return URL.canParse(v);
 }
 
-/** A seeded OAuth grant plus the optional non-secret AS details used to build its per-credential revocation client. */
-export type LoadedCredential = OAuthSeededCredential;
+/**
+ * One credentials-file entry: an OAuth grant (with its optional non-secret AS
+ * details) or a static API key (10-02, D-A). An `api_key` entry is exactly
+ * `{ kind: "api_key", key }`; the optional `origin` member is plan 10-03 and is
+ * rejected as an unknown field until then.
+ */
+export type LoadedCredential = OAuthSeededCredential | ApiKeySeededCredential;
+
+/** Parses one `api_key` entry: a non-empty `key` and no other member (an `origin` arrives in 10-03). */
+function parseApiKeyEntry(raw: Record<string, unknown>): ApiKeySeededCredential | undefined {
+  if (!isNonEmptyString(raw.key)) return undefined;
+  for (const member of Object.keys(raw)) {
+    if (member !== "kind" && member !== "key") return undefined;
+  }
+  return { kind: "api_key", key: raw.key };
+}
 
 function parseSeeded(raw: unknown): LoadedCredential | undefined {
   if (!isRecord(raw)) return undefined;
+  if (raw.kind === "api_key") return parseApiKeyEntry(raw);
+  if (raw.kind !== undefined && raw.kind !== "oauth") return undefined;
   const { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator } = raw;
   const { clientId, revocationEndpoint } = raw;
   if (

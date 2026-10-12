@@ -3,18 +3,21 @@
  * streams, the real clock. Used only by `bin.ts`; tests build their own deps.
  */
 
-import { askLine } from "./adapter/prompt.js";
+import { askLine, askSecret } from "./adapter/prompt.js";
 import { createTerminalHostAdapter } from "./adapter/terminal-host-adapter.js";
 import type { CliDeps, SuperviseSeams } from "./deps.js";
 import { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
 import { colorDecision, createStyle } from "./render/style.js";
 import { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
+import { openControllingTerminal } from "./run/terminal.js";
 import { abortableSleep } from "./supervise-timing.js";
 import { createJsonLeaseStore } from "./store/json-lease-store.js";
 import { createJsonReceiptStore } from "./store/json-receipt-store.js";
 import { loadTrustStore } from "./trust/trust-store.js";
 
 const DEFAULT_APPROVAL_TIMEOUT_SECONDS = 60;
+/** ASSUMED (A3): matches create's consent timeout; the secret prompt shares its discipline. */
+const DEFAULT_ASK_SECRET_TIMEOUT_SECONDS = 120;
 
 /** `[y/N]` on the real terminal; the question goes to stderr so `--json` stdout stays clean. */
 async function confirmOnTerminal(question: string): Promise<boolean | undefined> {
@@ -27,6 +30,28 @@ async function confirmOnTerminal(question: string): Promise<boolean | undefined>
   );
   if (answer === undefined) return undefined;
   return ["y", "yes"].includes(answer.trim().toLowerCase());
+}
+
+/**
+ * The no-echo secret prompt on the controlling terminal (10-02, D-A): the
+ * question and the answer never touch stdout/stderr, which `run` may own as
+ * its MCP channel. Arms the same AbortController-plus-timer discipline the
+ * consent block uses; no terminal resolves `undefined` so the caller refuses.
+ */
+async function askSecretOnTerminal(prompt: string): Promise<string | undefined> {
+  const terminal = openControllingTerminal();
+  if (terminal === undefined) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, DEFAULT_ASK_SECRET_TIMEOUT_SECONDS * 1000);
+  try {
+    return await askSecret(terminal.input, terminal.output, prompt, controller.signal);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+    terminal.close();
+  }
 }
 
 /** The slice of `process` the shutdown seam uses; a test passes a fake so no real signal is ever raised. */
@@ -112,6 +137,7 @@ export function createRealDeps(): CliDeps {
     loadTrustStore,
     credentials: { load: loadCredentials, seedVault: seedVaultFromCredentials },
     confirm: confirmOnTerminal,
+    askSecret: askSecretOnTerminal,
     supervise: {
       shutdown: () => createSuperviseShutdown(),
       sleep: abortableSleep,

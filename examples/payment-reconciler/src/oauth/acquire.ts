@@ -22,6 +22,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { LoadedCredential } from "@stint/cli";
+import type { OAuthSeededCredential } from "@stint/proxy";
 import * as oauth from "oauth4webapi";
 
 /** A redirect target the mock AS requires to parse as a URL; it is never contacted. */
@@ -59,11 +60,11 @@ function wallClockSeconds(): number {
 }
 
 /**
- * Runs the headless auth-code + PKCE flow for one resource and returns a
- * `LoadedCredential`-shaped value. Any failure throws a fixed-message error:
+ * Runs the headless auth-code + PKCE flow for one resource and returns the
+ * OAuth member of `LoadedCredential`. Any failure throws a fixed-message error:
  * AS response text and tokens are never interpolated.
  */
-export async function acquireGrant(options: AcquireGrantOptions): Promise<LoadedCredential> {
+export async function acquireGrant(options: AcquireGrantOptions): Promise<OAuthSeededCredential> {
   const { issuerUrl, tokenEndpoint, revocationEndpoint, clientId, resource } = options;
   const now = options.now ?? wallClockSeconds;
 
@@ -142,17 +143,18 @@ export async function acquireGrant(options: AcquireGrantOptions): Promise<Loaded
 
 /**
  * Acquires one grant per resource against the mock AS `harness` and returns the
- * credentials-file map `{ "<resource>": LoadedCredential }`. Grants run
+ * credentials-file map `{ "<resource>": OAuthSeededCredential }` (the OAuth
+ * member of `LoadedCredential`; the file parser accepts it unchanged). Grants run
  * sequentially so the mock AS sees a deterministic request order.
  */
 export async function acquireCredentialsFile(
   harness: AcquireHarness,
   resources: readonly string[],
   now?: () => number,
-): Promise<Record<string, LoadedCredential>> {
+): Promise<Record<string, OAuthSeededCredential>> {
   const tokenEndpoint = harness.oauthClient.as.token_endpoint ?? `${harness.issuerUrl}/token`;
   const revocationEndpoint = harness.oauthClient.as.revocation_endpoint;
-  const credentials: Record<string, LoadedCredential> = {};
+  const credentials: Record<string, OAuthSeededCredential> = {};
   for (const resource of resources) {
     credentials[resource] = await acquireGrant({
       issuerUrl: harness.issuerUrl,

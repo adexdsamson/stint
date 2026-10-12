@@ -19,6 +19,9 @@ import { PLAINTEXT_WARNING } from "../src/messages.js";
 import { leaseSecretsDir } from "../src/paths.js";
 import { main } from "../src/program.js";
 import { buildRuntimePorts } from "../src/runtime-ports.js";
+import { renderConsent } from "../src/adapter/consent-view.js";
+import { createStyle } from "../src/render/style.js";
+import { loadCredentials } from "../src/run/credentials.js";
 import { createHarness, delegatedManifest, writeSignedManifest } from "./helpers/cli-harness.js";
 import type { Harness, HarnessOptions } from "./helpers/cli-harness.js";
 import { startPublisherStub } from "./helpers/publisher-stub.js";
@@ -255,5 +258,134 @@ describe("cleanup after create --credentials", () => {
     expect(ended?.state).toBe("cleaned_up");
     expect(existsSync(leaseSecretsDir(s.harness.root, lease.id))).toBe(false);
     expect(await readFile(s.credentialsPath, "utf8")).toContain("access-token-secret-do-not-leak");
+  });
+});
+
+const PAYSTACK = "paystack.transactions";
+const API_KEY_ENTRY = { kind: "api_key", key: "sk_test_fixture_do_not_leak" };
+
+/** A delegated-only manifest whose one delegated provider is paystack (an API-key provider). */
+function paystackManifest(): Manifest {
+  return delegatedManifest({
+    auth: { mode: "delegated", delegated: [{ provider: "paystack", resources: [PAYSTACK] }] },
+    scopes: [{ resource: PAYSTACK, access: ["read"] }],
+  });
+}
+
+describe("create --credentials with api_key entries", () => {
+  it("parses an api_key entry into the LoadedCredential union", async () => {
+    const s = await setup(grant, paystackManifest(), { [PAYSTACK]: API_KEY_ENTRY });
+    const file = path.join(s.harness.root, "api-key-only.json");
+    await writeFile(file, JSON.stringify({ [PAYSTACK]: { kind: "api_key", key: "sk_test_x" } }));
+    await expect(loadCredentials(file)).resolves.toEqual({
+      [PAYSTACK]: { kind: "api_key", key: "sk_test_x" },
+    });
+    await s.harness.cleanup();
+  });
+
+  it("rejects an api_key entry with an empty key or an origin field with the fixed message", async () => {
+    for (const entry of [
+      { kind: "api_key", key: "", origin: "https://api.paystack.co" },
+      { kind: "api_key", key: "sk_test_x", origin: "https://api.paystack.co" },
+      { kind: "api_key" },
+      { kind: "api_key", key: 7 },
+      { kind: "basic", key: "sk_test_x" },
+    ]) {
+      const s = await setup(grant, paystackManifest(), { [PAYSTACK]: entry });
+      const code = await create(s, "--credentials", s.credentialsPath);
+      expect(code).toBe(EXIT_CODES.usage);
+      expect(s.harness.stderr.join("")).toContain("The credentials file has an unexpected shape.");
+      expect(s.requests).toHaveLength(0);
+      await s.harness.cleanup();
+    }
+  });
+
+  it("accepts an explicit kind oauth entry exactly as a kindless one", async () => {
+    const s = await setup(grant, delegatedManifest(), { [ORDERS]: { kind: "oauth", ...OAUTH_NO_REVOCATION } });
+    expect(await create(s, "--credentials", s.credentialsPath)).toBe(EXIT_CODES.ok);
+    expect(s.requests[0]?.custody?.credentials[0]).toEqual({
+      resource: ORDERS,
+      kind: "oauth",
+      revocation: "unsupported",
+    });
+    await s.harness.cleanup();
+  });
+
+  it("seeds an api_key entry through the same path as OAuth and receipts it api_key/unsupported", async () => {
+    const s = await setup(grant, paystackManifest(), { [PAYSTACK]: API_KEY_ENTRY });
+    const code = await create(s, "--credentials", s.credentialsPath);
+
+    expect(code).toBe(EXIT_CODES.ok);
+    expect(s.requests[0]?.custody).toEqual({
+      storage: "plaintext_file",
+      credentials: [{ resource: PAYSTACK, kind: "api_key", revocation: "unsupported" }],
+    });
+    const lease = await onlyLease(s);
+    expect(lease.state).toBe("active");
+    const ports = buildRuntimePorts(s.harness.deps, s.harness.root);
+    expect(await ports.secrets.get(credentialSecretKey(lease.id, PAYSTACK))).toBeDefined();
+    expect(await grantsOf(s, lease.id)).toEqual({
+      version: 1,
+      grants: [{ resource: PAYSTACK, kind: "api_key", revocation: "unsupported" }],
+    });
+    const warnings = s.harness.stderr
+      .join("")
+      .split("\n")
+      .filter((line) => line.includes(PLAINTEXT_WARNING));
+    expect(warnings).toHaveLength(1);
+    expect(s.harness.allOutput()).not.toContain("sk_test_fixture_do_not_leak");
+    await s.harness.cleanup();
+  });
+
+  it("renders the api_key kind beside the not-revocable capability on the consent screen", async () => {
+    const s = await setup(grant, paystackManifest(), { [PAYSTACK]: API_KEY_ENTRY });
+    await create(s, "--credentials", s.credentialsPath);
+    const rendered = renderConsent(paystackManifest(), createStyle(false), s.requests[0]?.custody);
+    expect(rendered).toContain(`${PAYSTACK} (api_key): cannot be revoked by Stint`);
+    await s.harness.cleanup();
+  });
+
+  it("loads a mixed OAuth + api_key file and shows both kinds with their capabilities", async () => {
+    const manifest = delegatedManifest({
+      auth: {
+        mode: "delegated",
+        delegated: [
+          { provider: "google", resources: [ORDERS] },
+          { provider: "paystack", resources: [PAYSTACK] },
+        ],
+      },
+      scopes: [
+        { resource: ORDERS, access: ["read", "write"] },
+        { resource: PAYSTACK, access: ["read"] },
+      ],
+    });
+    const s = await setup(grant, manifest, {
+      [ORDERS]: OAUTH_WITH_REVOCATION,
+      [PAYSTACK]: API_KEY_ENTRY,
+    });
+    const code = await create(s, "--credentials", s.credentialsPath);
+
+    expect(code).toBe(EXIT_CODES.ok);
+    expect(s.requests[0]?.custody?.credentials).toEqual([
+      { resource: PAYSTACK, kind: "api_key", revocation: "unsupported" },
+      { resource: ORDERS, kind: "oauth", revocation: "supported" },
+    ]);
+    const rendered = renderConsent(manifest, createStyle(false), s.requests[0]?.custody);
+    expect(rendered).toContain(`${ORDERS} (oauth): can be revoked when the lease ends`);
+    expect(rendered).toContain(`${PAYSTACK} (api_key): cannot be revoked by Stint`);
+    const lease = await onlyLease(s);
+    expect(await grantsOf(s, lease.id)).toEqual({
+      version: 1,
+      grants: [
+        { resource: PAYSTACK, kind: "api_key", revocation: "unsupported" },
+        { resource: ORDERS, kind: "oauth", revocation: "supported" },
+      ],
+    });
+    const warnings = s.harness.stderr
+      .join("")
+      .split("\n")
+      .filter((line) => line.includes(PLAINTEXT_WARNING));
+    expect(warnings).toHaveLength(1);
+    await s.harness.cleanup();
   });
 });

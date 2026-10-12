@@ -2,8 +2,9 @@
  * `stint create <manifest-path>`: verify, consent, activate.
  *
  *   read -> parseEnvelope -> verifyEnvelope(trustStore) -> [publisher gate] ->
- *   renderConsent (via the adapter) -> awaitConsentDecision ->
- *   reduce(consentGranted) -> [issue license once] -> activateLease -> save
+ *   [API-key entry, no echo, before consent] -> renderConsent (via the adapter) ->
+ *   awaitConsentDecision -> reduce(consentGranted) -> [issue license once] ->
+ *   activateLease -> save
  *
  * Deny by default: an unparseable, tampered, or untrusted manifest fails
  * BEFORE any consent is shown, and every non-grant (decline, timeout, adapter
@@ -18,25 +19,65 @@ import {
   activateLease,
   awaitConsentDecision,
   clockEvents,
+  credentialSecretKey,
   reduce,
   runtimeEvents,
   userEvents,
 } from "@stint/core";
 import type { Lease } from "@stint/core";
+import { API_KEY_PROVIDERS, delegatedApiKeyProviders } from "@stint/runtime";
 import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } from "@stint/spec";
+import type { Manifest } from "@stint/spec";
 
 import { buildConsentCustody, grantsFromCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
+import { apiKeyPrompt } from "../messages.js";
 import { resolveStoreRoot } from "../paths.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { createPublisherClient, licenseClaimsFromManifest } from "../run/license-http.js";
+import type { LoadedCredential } from "../run/credentials.js";
 import { saveEnvelope } from "../store/envelope.js";
 import { parsePublisherBindingFile, savePublisherBinding } from "../store/publisher-binding.js";
 import type { PublisherBinding } from "../store/publisher-binding.js";
 
 /** ASSUMED (A3): the manifest carries no consent timeout field; matches the terminal adapter's default. */
 const DEFAULT_CONSENT_TIMEOUT_SECONDS = 120;
+
+function byName(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The delegated resources that take an API key (their provider is in the
+ * runtime's closed table) and that the credentials file does not already
+ * cover (10-02, D-A): exactly the resources the prompt loop asks for, sorted
+ * and de-duplicated. Fails with a fixed usage message before any prompt when
+ * a table provider cannot be resolved (defensive; membership makes this
+ * unreachable today).
+ */
+function apiKeyEntryResources(
+  manifest: Manifest,
+  credentials: Readonly<Record<string, LoadedCredential>> | undefined,
+): readonly string[] {
+  const providers = new Set(delegatedApiKeyProviders(manifest));
+  for (const provider of providers) {
+    if (API_KEY_PROVIDERS[provider] === undefined) {
+      throw new CliError(
+        EXIT_CODES.usage,
+        "An API-key credential could not be resolved for a delegated resource.",
+      );
+    }
+  }
+  const names = new Set<string>();
+  for (const grant of manifest.auth.delegated ?? []) {
+    if (!providers.has(grant.provider)) continue;
+    for (const resource of grant.resources) {
+      if (credentials?.[resource] === undefined) names.add(resource);
+    }
+  }
+  return [...names].sort(byName);
+}
 
 export interface CreateOpts extends GlobalOpts {
   readonly trust?: string | undefined;
@@ -47,6 +88,12 @@ export interface CreateOpts extends GlobalOpts {
    * revoked, and the credentials are copied into the SecretStore after consent.
    */
   readonly credentials?: string | undefined;
+  /**
+   * Opt-in interactive API-key entry (D-A): with the flag, each delegated
+   * resource whose provider takes an API key and is not already covered is
+   * asked for once, no echo. Without the flag nothing is ever asked.
+   */
+  readonly apiKey?: boolean | undefined;
 }
 
 /** Reads the manifest file with a size cap applied BEFORE the bytes are loaded. */
@@ -130,12 +177,10 @@ export async function createCommand(
     opts.credentials !== undefined && opts.credentials !== ""
       ? await deps.credentials.load(opts.credentials)
       : undefined;
-  const custody = buildConsentCustody(manifest, credentials);
 
   // 4. Ensure the runtime signing key exists (created on first create, A4).
   await deps.keys.loadOrCreate(root);
 
-  // 5. Consent, with the timeout armed here and the outcome decided by core.
   const now = deps.clock();
   const leaseId = randomUUID();
   const proposed = newLease(
@@ -143,6 +188,71 @@ export async function createCommand(
     verified.value.contentHash,
     manifest.lease.max_duration_seconds,
   );
+  const store = deps.storeFactory(root);
+  const ports = buildRuntimePorts(deps, root, { trust: opts.trust });
+
+  /** Saves the lease as declined and fails with the fixed consent-declined message (exit 3). */
+  const declineLease = async (): Promise<never> => {
+    const declined = reduce(proposed, userEvents.consentDeclined(), now);
+    if (!declined.ok) throw new CliError(EXIT_CODES.internal, "Internal error.");
+    await store.save(declined.value.lease);
+    throw new CliError(
+      EXIT_CODES.consentDeclined,
+      "Consent was not granted; no lease was activated.",
+    );
+  };
+
+  /**
+   * One no-echo ask for an API key, with a single re-ask on an empty or
+   * whitespace answer (T-10-08). An explicit refusal (a second empty answer)
+   * declines the lease: the user asked for key entry and then refused it, so
+   * the credential is refused, never fabricated. No answer at all (no
+   * terminal, EOF, abort, timeout) is no entry, not a refusal: that resource
+   * simply proceeds without an API key and consent shows it honestly. The
+   * resolved value is a SECRET and goes nowhere but the returned string.
+   */
+  const askApiKey = async (
+    ask: NonNullable<CliDeps["askSecret"]>,
+    resource: string,
+  ): Promise<string | undefined> => {
+    const prompt = apiKeyPrompt(resource);
+    let answer = await ask(prompt);
+    if (answer === undefined) return undefined;
+    if (answer.trim() === "") {
+      answer = await ask(prompt);
+      if (answer === undefined) return undefined;
+      if (answer.trim() === "") return await declineLease();
+    }
+    return answer.trim();
+  };
+
+  // Opt-in API-key entry (10-02, D-A), BEFORE consent and only under --api-key: each
+  // delegated resource that takes an API key and is covered by neither the credentials
+  // file nor the store is asked for exactly once. Without the flag nothing is ever
+  // asked, so every pre-existing flow (OAuth grants arriving later, headless creates)
+  // behaves exactly as before. A host with no secret channel (no askSecret seam) or an
+  // unanswered ask skips that resource: CRED-01 lets a user provide a key, it never
+  // demands one. A credential the store already holds is never re-asked
+  // (put-if-absent end to end). The value stays in this map until seeding, after
+  // activation, stores it at its hashed path; nothing else ever sees it.
+  const ask = opts.apiKey === true ? deps.askSecret : undefined;
+  const entered: Record<string, Extract<LoadedCredential, { kind: "api_key" }>> = {};
+  if (ask !== undefined) {
+    for (const resource of apiKeyEntryResources(manifest, credentials)) {
+      if ((await ports.secrets.get(credentialSecretKey(leaseId, resource))) !== undefined) continue;
+      const key = await askApiKey(ask, resource);
+      if (key === undefined) continue;
+      entered[resource] = { kind: "api_key", key };
+    }
+  }
+
+  // Consent sees the union of the file entries and the entered API keys, so the screen
+  // shows each credential's kind and revocation capability (SPEC-10); no secret value
+  // crosses into the custody object.
+  const seededCredentials: Record<string, LoadedCredential> = { ...(credentials ?? {}), ...entered };
+  const custody = buildConsentCustody(manifest, seededCredentials);
+
+  // 5. Consent, with the timeout armed here and the outcome decided by core.
   const adapter = deps.adapterFactory(deps.io, {
     json,
     approvalTimeoutSeconds: manifest.approvals.timeout_seconds,
@@ -165,8 +275,6 @@ export async function createCommand(
     // Lets an adapter that is still prompting stop its own UI.
     controller.abort();
   }
-
-  const store = deps.storeFactory(root);
 
   if (decision.decision !== "grant") {
     const event =
@@ -223,10 +331,12 @@ export async function createCommand(
   if (binding !== undefined) await savePublisherBinding(root, lease.id, binding);
 
   // Record what this lease is expected to hold so teardown can fail closed, then copy any
-  // supplied credentials into the store. Both happen only now, after consent and activation.
-  const ports = buildRuntimePorts(deps, root, { trust: opts.trust });
+  // supplied or interactively entered credentials into the store. Both happen only now,
+  // after consent and activation.
   await ports.artifacts.put(lease.id, "grants", grantsFromCustody(custody));
-  if (credentials !== undefined) await seedFromCredentials(deps, ports, lease.id, credentials);
+  if (Object.keys(seededCredentials).length > 0) {
+    await seedFromCredentials(deps, ports, lease.id, seededCredentials);
+  }
 
   if (json) {
     deps.io.out(
