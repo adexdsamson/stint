@@ -31,7 +31,9 @@ stint-cli supervise --once
 
 The store is the one the other commands use: `--store <dir>`, else `$STINT_HOME`, else `~/.stint`. A background service should set one of them on purpose, because a service often runs with a different home directory than your shell.
 
-Press Ctrl-C to stop the long-running mode. The supervisor finishes the step it is in, starts nothing new, releases its locks and exits 0. A second Ctrl-C ends it at once.
+Press Ctrl-C to stop the long-running mode. The supervisor finishes the step it is in, starts nothing new, releases its locks and exits 0. A second Ctrl-C ends it at once; on Windows that immediate stop is exit code 1, because a hard re-raise cannot run exit handlers.
+
+On Windows there is also a startup window: from process start until the first sweep begins (module loading, opening the store, taking the lock), a Ctrl-C is handled by the OS default console handler, not by the supervisor. PowerShell then reports exit code `-1073741510` (`0xC000013A`, STATUS_CONTROL_C_EXIT) and the process stops at once. Nothing is corrupted: no lease has been touched yet, and a lock left behind by such a stop goes stale and is recovered by the next start, exactly like any hard stop. `--once` and the other commands never listen for signals, so the same exit code applies to a Ctrl-C there. Ctrl+Break behaves like Ctrl-C in the long-running mode.
 
 Only one supervisor runs per store, in either mode. A second one waits about 12 seconds (the 10 second lock stale time plus 2 seconds) and then exits 8 with `Another supervisor is already running on this store.` The wait lets a restart after a hard stop take over a lock the dead process left behind. If a running supervisor loses its lock, it stops sweeping and exits 8 with `The supervisor lock was lost; stopping.`
 

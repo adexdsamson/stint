@@ -376,7 +376,8 @@ describe("a lost lock (T-09-45)", () => {
       expect(code).toBe(EXIT_CODES.leaseBusy);
       expect(stderrOf(r)).toBe("stint: Another supervisor is already running on this store.\n");
       expect(loop.sleeps).toEqual([]);
-      expect(loop.stats.shutdownCalls).toBe(0);
+      // The stop listener is installed before the lock (G-09-1), so even a refused run started and disposed it.
+      expect(loop.stats).toEqual({ shutdownCalls: 1, disposed: 1 });
     } finally {
       await held.release();
     }

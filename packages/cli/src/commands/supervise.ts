@@ -50,7 +50,13 @@
 
 import { RuntimeError, createSweepState, runSweep } from "@stint/runtime";
 import type { Lease } from "@stint/core";
-import type { RunSweepOptions, RuntimePorts, SupervisorConfig, SweepEvent, SweepState } from "@stint/runtime";
+import type {
+  RunSweepOptions,
+  RuntimePorts,
+  SupervisorConfig,
+  SweepEvent,
+  SweepState,
+} from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
@@ -71,7 +77,12 @@ import {
   sweepTornDownLine,
 } from "../messages.js";
 import { resolveStoreRoot } from "../paths.js";
-import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
+import {
+  isUnrevokedCleanup,
+  rotateCaveat,
+  stateLabel,
+  unrevokedResources,
+} from "../render/caveat.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
 import { StoreCorruptError } from "../store/atomic-file.js";
 import { createFileSupervisorControl } from "../store/supervisor-control.js";
@@ -100,11 +111,18 @@ export interface SuperviseOpts extends GlobalOpts {
 
 /** What the sweep counts as corrupt stored data: this CLI's store error or the runtime's `store_corrupt`. */
 function isStoreCorrupt(error: unknown): boolean {
-  return error instanceof StoreCorruptError || (error instanceof RuntimeError && error.code === "store_corrupt");
+  return (
+    error instanceof StoreCorruptError ||
+    (error instanceof RuntimeError && error.code === "store_corrupt")
+  );
 }
 
 /** The JSON object for one event: scalar fields only. */
-async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<Record<string, unknown>> {
+async function jsonFor(
+  deps: CliDeps,
+  root: string,
+  event: SweepEvent,
+): Promise<Record<string, unknown>> {
   switch (event.kind) {
     case "expired":
       return { event: "expired", leaseId: event.leaseId };
@@ -122,7 +140,12 @@ async function jsonFor(deps: CliDeps, root: string, event: SweepEvent): Promise<
     case "grant_revoked":
       return { event: "grant_revoked", leaseId: event.leaseId };
     case "retried":
-      return { event: "retried", leaseId: event.leaseId, attempt: event.attempt, state: event.lease.state };
+      return {
+        event: "retried",
+        leaseId: event.leaseId,
+        attempt: event.attempt,
+        state: event.lease.state,
+      };
     case "stuck":
       return {
         event: "stuck",
@@ -172,7 +195,9 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
       deps.io.err(`stint: ${sweepGrantRevokedLine(event.leaseId)}\n`);
       return;
     case "retried":
-      deps.io.err(`stint: ${sweepRetriedLine(event.leaseId, event.attempt, stateLabel(event.lease))}\n`);
+      deps.io.err(
+        `stint: ${sweepRetriedLine(event.leaseId, event.attempt, stateLabel(event.lease))}\n`,
+      );
       for (const resource of await unrevokedFor(deps, root, event.leaseId, event.lease)) {
         deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
       }
@@ -193,7 +218,12 @@ async function renderHuman(deps: CliDeps, root: string, event: SweepEvent): Prom
 }
 
 /** What every sweep, in either mode, is given besides the event sink and the stop signal. */
-function sweepOptions(deps: CliDeps, config: SupervisorConfig, state: SweepState, root: string): RunSweepOptions {
+function sweepOptions(
+  deps: CliDeps,
+  config: SupervisorConfig,
+  state: SweepState,
+  root: string,
+): RunSweepOptions {
   const monotonicMs = deps.supervise?.monotonicMs;
   return {
     config,
@@ -205,12 +235,19 @@ function sweepOptions(deps: CliDeps, config: SupervisorConfig, state: SweepState
     // The stuck line already names the lease, the reason and the fix. A second generic terminal line
     // would break one line per action (D-20); other hosts get the event through the same seam (D-04).
     notify: () => Promise.resolve(),
-    ...(deps.teardown?.decorateSteps === undefined ? {} : { decorateSteps: deps.teardown.decorateSteps }),
+    ...(deps.teardown?.decorateSteps === undefined
+      ? {}
+      : { decorateSteps: deps.teardown.decorateSteps }),
   };
 }
 
 /** Renders one event: a JSON object on stdout under `--json`, else the fixed human line(s) on stderr. */
-async function renderEvent(deps: CliDeps, root: string, json: boolean, event: SweepEvent): Promise<void> {
+async function renderEvent(
+  deps: CliDeps,
+  root: string,
+  json: boolean,
+  event: SweepEvent,
+): Promise<void> {
   if (json) {
     deps.io.out(`${JSON.stringify(await jsonFor(deps, root, event))}\n`);
   } else {
@@ -304,7 +341,8 @@ async function sweepForever(
   } finally {
     stop.removeEventListener("abort", onStop);
   }
-  if (lost() && !stop.aborted) throw new CliError(EXIT_CODES.leaseBusy, supervisorLockLostMessage());
+  if (lost() && !stop.aborted)
+    throw new CliError(EXIT_CODES.leaseBusy, supervisorLockLostMessage());
   return EXIT_CODES.ok;
 }
 
@@ -333,28 +371,44 @@ async function runSupervise(deps: CliDeps, opts: SuperviseOpts): Promise<number>
   const intervalSeconds = parseSweepInterval(opts);
   const json = opts.json === true;
   if (opts.confirmClock === true) {
-    if (opts.once === true) throw new CliError(EXIT_CODES.usage, "--confirm-clock cannot be used with --once.");
+    if (opts.once === true)
+      throw new CliError(EXIT_CODES.usage, "--confirm-clock cannot be used with --once.");
     return await confirmClock(deps, resolveStoreRoot(opts), json);
   }
   const root = resolveStoreRoot(opts);
-  const ports = buildRuntimePorts(deps, root);
 
-  // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
-  const lock = await acquireSupervisorLock(root, {
-    staleMs: deps.supervise?.lockStaleMs,
-    acquireWindowMs: deps.supervise?.lockAcquireWindowMs,
-  });
+  // Signals are listened for before the store and the lock are touched, so a Ctrl-C during startup is
+  // also a graceful stop (G-09-1): on Windows a press before this point hits the OS default console
+  // handler, which kills the process with STATUS_CONTROL_C_EXIT before any listener exists. Only the
+  // long-running mode listens; --once and --confirm-clock keep the default Ctrl-C behaviour, and a
+  // host without the seam never aborts. An already-aborted signal is handled by sweepForever, which
+  // checks it before the first sweep.
+  const noStop = { signal: new AbortController().signal, dispose: (): void => undefined };
+  const shutdown = opts.once === true ? noStop : (deps.supervise?.shutdown?.() ?? noStop);
   try {
-    if (opts.once === true) return await sweepOnceLocked(deps, config, root, ports, json);
-    // Signals are listened for only in the long-running mode; a host without the seam never aborts.
-    const shutdown = deps.supervise?.shutdown?.() ?? { signal: new AbortController().signal, dispose: () => undefined };
+    const ports = buildRuntimePorts(deps, root);
+    // One supervisor per store, in either mode (D-21): refused with exit 8 before any sweep.
+    const lock = await acquireSupervisorLock(root, {
+      staleMs: deps.supervise?.lockStaleMs,
+      acquireWindowMs: deps.supervise?.lockAcquireWindowMs,
+    });
     try {
-      return await sweepForever(deps, config, root, ports, json, intervalSeconds, shutdown.signal, lock);
+      if (opts.once === true) return await sweepOnceLocked(deps, config, root, ports, json);
+      return await sweepForever(
+        deps,
+        config,
+        root,
+        ports,
+        json,
+        intervalSeconds,
+        shutdown.signal,
+        lock,
+      );
     } finally {
-      shutdown.dispose();
+      await lock.release();
     }
   } finally {
-    await lock.release();
+    shutdown.dispose();
   }
 }
 
