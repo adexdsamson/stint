@@ -169,6 +169,8 @@ schtasks /Create /TN "Stint supervisor" /SC ONLOGON /RL LIMITED /TR "C:\path\to\
 
 Then open the task in Task Scheduler and, under Settings, turn on "If the task fails, restart every" with a few minutes and 3 or more attempts. Turn off "Stop the task if it runs longer than", because by default Task Scheduler ends a task after 3 days and that is a hard stop. Task Scheduler "End" and `taskkill` are hard stops too. The fence and the lock go stale, as described under crash recovery, and the next start takes over.
 
+Two Windows facts to check while you are in those Settings. First, untick "Start the task only if the computer is on AC power": it is on by default, `schtasks` has no switch to clear it, and on a laptop or a desktop on a UPS the task then never starts at all. Second, "restart every" only restarts failures Task Scheduler sees itself, and a supervisor killed by `taskkill`, Task Scheduler "End" or a plain nonzero exit was not restarted in testing. The dependable restart is a recurring trigger instead: the `--once` pattern below, or a `supervise` start every few minutes (a start while one is already running exits 8 and is harmless).
+
 If you would rather not keep a process running, schedule `--once` instead:
 
 ```text
