@@ -760,11 +760,93 @@ export const receiptSchema = {
             "not_applicable",
             "attested_ok"
           ]
+        },
+        "resource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       },
       "required": [
         "step",
         "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "TeardownBlockedPayload": {
+      "title": "TeardownBlockedPayload",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "credentials_unavailable"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "required": [
+        "reason",
+        "resources"
+      ],
+      "additionalProperties": false
+    },
+    "TeardownTakeoverPayload": {
+      "title": "TeardownTakeoverPayload",
+      "type": "object",
+      "properties": {
+        "previousEpoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fence_expired"
+          ]
+        }
+      },
+      "required": [
+        "previousEpoch",
+        "epoch",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "TeardownStuckPayload": {
+      "title": "TeardownStuckPayload",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "credentials_unavailable",
+            "retries_exhausted",
+            "revocation_failed",
+            "manifest_invalid"
+          ]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "reason",
+        "attempts"
       ],
       "additionalProperties": false
     },
@@ -909,6 +991,111 @@ export const receiptSchema = {
       ],
       "additionalProperties": false
     },
+    "TeardownBlockedEntry": {
+      "title": "TeardownBlockedEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_blocked"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownBlockedPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "TeardownTakeoverEntry": {
+      "title": "TeardownTakeoverEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_takeover"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownTakeoverPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "TeardownStuckEntry": {
+      "title": "TeardownStuckEntry",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain": {
+          "$ref": "#/definitions/ReceiptChain"
+        },
+        "type": {
+          "const": "teardown_stuck"
+        },
+        "prevHash": {
+          "$ref": "#/definitions/ContentHash"
+        },
+        "payload": {
+          "$ref": "#/definitions/TeardownStuckPayload"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "chain",
+        "type",
+        "prevHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
     "AttestedClaimEntry": {
       "title": "AttestedClaimEntry",
       "type": "object",
@@ -954,6 +1141,15 @@ export const receiptSchema = {
     },
     {
       "$ref": "#/definitions/TeardownStepEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownBlockedEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownTakeoverEntry"
+    },
+    {
+      "$ref": "#/definitions/TeardownStuckEntry"
     },
     {
       "$ref": "#/definitions/AttestedClaimEntry"

@@ -15,26 +15,15 @@ import path from "node:path";
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK } from "jose";
 import type { CryptoKey, JWK } from "jose";
 
+import type { KeyProvider, RuntimeKey, RuntimePublicJwk, RuntimeVerificationKey } from "@stint/core";
+
 import { CliError, EXIT_CODES } from "../exit.js";
 import { StoreCorruptError, atomicWriteJson, readJsonRetry } from "../store/atomic-file.js";
 
 const PRIVATE_FILE = "runtime-ed25519.json";
 const PUBLIC_FILE = "runtime-ed25519.pub.json";
 
-/** Public half in its minimal JWK form (never carries `d`). */
-export interface RuntimePublicJwk {
-  readonly kty: "OKP";
-  readonly crv: "Ed25519";
-  readonly x: string;
-}
-
-/** The loaded runtime key pair. `kid` is the RFC 7638 thumbprint of the public key. */
-export interface RuntimeKey {
-  readonly privateKey: CryptoKey;
-  readonly publicKey: CryptoKey;
-  readonly publicJwk: RuntimePublicJwk;
-  readonly kid: string;
-}
+export type { RuntimeKey, RuntimePublicJwk } from "@stint/core";
 
 function keysDir(root: string): string {
   return path.join(root, "keys");
@@ -133,4 +122,36 @@ export async function loadCheckpointPublicKey(root: string): Promise<RuntimeKey[
   const publicJwk = readPublicJwk(raw);
   if (publicJwk === undefined) throw new StoreCorruptError();
   return await importEd25519(publicJwk);
+}
+
+/**
+ * The file `KeyProvider` over the v0.1 key files (RT-02). `loadOrCreate` shares
+ * one in-flight promise so concurrent calls on one provider create one key;
+ * `loadVerificationKeys` never creates a key and never reads the private file.
+ */
+export function createFileKeyProvider(root: string): KeyProvider {
+  let pending: Promise<RuntimeKey> | undefined;
+
+  return {
+    loadOrCreate(): Promise<RuntimeKey> {
+      if (pending === undefined) {
+        const attempt = loadOrCreateRuntimeKey(root);
+        pending = attempt;
+        // A failed attempt must not be memoised: the next call retries.
+        attempt.catch(() => {
+          if (pending === attempt) pending = undefined;
+        });
+      }
+      return pending;
+    },
+
+    async loadVerificationKeys(): Promise<readonly RuntimeVerificationKey[]> {
+      const raw = await readJsonRetry(path.join(keysDir(root), PUBLIC_FILE));
+      if (raw === undefined) return [];
+      const publicJwk = readPublicJwk(raw);
+      if (publicJwk === undefined) throw new StoreCorruptError();
+      const publicKey = await importEd25519(publicJwk);
+      return [{ kid: await calculateJwkThumbprint(publicJwk), publicKey, publicJwk }];
+    },
+  };
 }

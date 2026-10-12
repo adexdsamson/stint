@@ -236,6 +236,9 @@ importers:
       '@stint/proxy':
         specifier: workspace:*
         version: link:../proxy
+      '@stint/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@stint/spec':
         specifier: workspace:*
         version: link:../spec
@@ -298,6 +301,21 @@ importers:
       oauth2-mock-server:
         specifier: 9.2.0
         version: 9.2.0
+
+  packages/runtime:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.30.1
+        version: 1.30.1(supports-color@7.2.0)(zod@4.6.5)
+      '@stint/core':
+        specifier: workspace:*
+        version: link:../core
+      '@stint/proxy':
+        specifier: workspace:*
+        version: link:../proxy
+      '@stint/spec':
+        specifier: workspace:*
+        version: link:../spec
 
   packages/spec:
     dependencies:

@@ -268,7 +268,8 @@ async function expectSecretlessRevokeOauthReceipt(
   if (entry === undefined) throw new Error("expected exactly one receipt entry");
   expect(entry.type).toBe("teardown_step");
   if (entry.type === "teardown_step") {
-    expect(entry.payload).toEqual({ step: "revoke_oauth", outcome: expectedOutcome });
+    // D-26: the per-credential receipt names its credential through the optional `resource` field.
+    expect(entry.payload).toEqual({ step: "revoke_oauth", outcome: expectedOutcome, resource: RESOURCE });
   }
 
   const serializedChain = JSON.stringify(chain);

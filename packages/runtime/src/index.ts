@@ -1,0 +1,50 @@
+/**
+ * @stint/runtime (experimental): the host-agnostic Agent Lease Protocol
+ * runtime. A host supplies `RuntimePorts`; the runtime owns the lease
+ * lifecycle. It imports no Node file-system, path, OS or child-process module
+ * and never reads `process` (D-24).
+ */
+
+export const PACKAGE_NAME = "@stint/runtime";
+
+export { settleExpired } from "./settle-expired.js";
+export { runSweep, createSweepState } from "./supervisor/sweep.js";
+export type { ProbeSchedule, ReportMemory, RunSweepOptions, SweepEvent, SweepReport, SweepState } from "./supervisor/sweep.js";
+export { DEFAULT_SUPERVISOR_CONFIG } from "./supervisor/config.js";
+export type { SupervisorConfig } from "./supervisor/config.js";
+export { deriveRetryState } from "./supervisor/retry-state.js";
+export type { RetryState } from "./supervisor/retry-state.js";
+export { markStuck } from "./supervisor/stuck.js";
+export { forwardJumpSeconds } from "./supervisor/clock-guard.js";
+export type { ClockSample } from "./supervisor/clock-guard.js";
+export { createInMemorySupervisorControl, parseClockConfirm, parseClockPause } from "./supervisor/control.js";
+export type { ClockConfirm, ClockPause, SupervisorControl } from "./supervisor/control.js";
+export { RuntimeError } from "./errors.js";
+export type { RuntimeErrorCode } from "./errors.js";
+export type { RuntimePorts } from "./ports.js";
+export { isLoopbackHttp, allowInsecureForClient } from "./loopback.js";
+export {
+  PUBLISHER_TIMEOUT_MS,
+  httpIssuerTransport,
+  createPublisherClient,
+  licenseClaimsFromManifest,
+} from "./license-http.js";
+export { parsePublisherBinding } from "./publisher-binding.js";
+export type { PublisherBinding } from "./publisher-binding.js";
+export { loadLeaseManifest } from "./manifest.js";
+export { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
+export type { SeedResult } from "./custody.js";
+export { resolveTeardown } from "./resolve-teardown.js";
+export type { ResolveTeardownInput, ResolvedTeardown } from "./resolve-teardown.js";
+export { createLeaseRuntime, LICENSE_REFRESH_BEFORE_SECONDS } from "./lease-runtime.js";
+export type { LeaseEnded, LeaseEndReason, LeaseRuntimeOptions, RunningLease } from "./lease-runtime.js";
+export { enrichFromProfile } from "./profile.js";
+export type { RunProfile } from "./profile.js";
+export {
+  RUN_HEARTBEAT_INTERVAL_SECONDS,
+  RUN_LIVE_WINDOW_SECONDS,
+  isRunLive,
+  writeRunHeartbeat,
+} from "./supervisor/heartbeat.js";
+export { probeLeaseGrants } from "./supervisor/probe.js";
+export type { ProbeLeaseOptions, ProbeOutcome } from "./supervisor/probe.js";

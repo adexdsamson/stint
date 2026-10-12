@@ -53,7 +53,26 @@ export function leaseFile(root: string, id: string): string {
   return path.join(leaseDir(root, id), "lease.json");
 }
 
+/** `<root>/supervisor`: holds the supervisor's single-instance lock (D-21). */
+export function supervisorDir(root: string): string {
+  return path.resolve(root, "supervisor");
+}
+
 /** `<root>/leases` — the directory `list()` scans. */
 export function leasesRoot(root: string): string {
   return path.resolve(root, "leases");
+}
+
+/** `<root>/secrets` — the secrets tree, kept apart from the shareable lease folders (D-07). */
+export function secretsRoot(root: string): string {
+  return path.resolve(root, "secrets");
+}
+
+/** `<root>/secrets/lease/<id>` — validated, and asserted to stay under the secrets tree. */
+export function leaseSecretsDir(root: string, id: string): string {
+  assertSafeLeaseId(id);
+  const base = path.resolve(secretsRoot(root), "lease");
+  const dir = path.resolve(base, id);
+  assertUnder(base, dir);
+  return dir;
 }

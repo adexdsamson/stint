@@ -15,14 +15,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CredentialRefreshError, createCredentialVault } from "../src/vault/credential-vault.js";
 import type { CredentialVault } from "../src/vault/credential-vault.js";
 import { refreshAccessToken } from "../src/vault/oauth-client.js";
-import type { SeededCredential } from "../src/vault/oauth-client.js";
+import type { OAuthSeededCredential } from "../src/vault/oauth-client.js";
 import { startMockAuthServer } from "../src/testing.js";
 import type { MockAuthHarness } from "../src/testing.js";
 
 const NOW = 1_700_000_000;
 const RESOURCE_INDICATOR = "https://api.paystack.example/v1";
 
-function seedFor(overrides?: Partial<SeededCredential>): SeededCredential {
+function seedFor(overrides?: Partial<OAuthSeededCredential>): OAuthSeededCredential {
   return {
     accessToken: "seed-access-token",
     refreshToken: "seed-refresh-token",
@@ -164,9 +164,11 @@ describe("credential-vault: single-flight refresh (PRXY-08)", () => {
   it("the raw token store is not reachable from any exported symbol", () => {
     // 05-04 (D-22, D-23): revokeAndDiscardLeaseCredentials/discardLeaseCredentials
     // are additive teardown-step-1 methods -- neither returns a raw token,
-    // preserving the custody boundary this test asserts.
+    // preserving the custody boundary this test asserts. 09-06: probeGrant is the
+    // idle-lease probe; its result is a closed kind and never a token.
     expect(Object.keys(vault).sort()).toEqual([
       "discardLeaseCredentials",
+      "probeGrant",
       "resolveAccessToken",
       "revokeAndDiscardLeaseCredentials",
       "seedCredential",

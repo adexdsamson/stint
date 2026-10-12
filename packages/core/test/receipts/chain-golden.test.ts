@@ -36,6 +36,12 @@ function toInput(entry: ReceiptEntry): ReceiptEntryInput {
       return { chain: entry.chain, type: entry.type, payload: entry.payload };
     case "teardown_step":
       return { chain: entry.chain, type: entry.type, payload: entry.payload };
+    case "teardown_blocked":
+      return { chain: entry.chain, type: entry.type, payload: entry.payload };
+    case "teardown_takeover":
+      return { chain: entry.chain, type: entry.type, payload: entry.payload };
+    case "teardown_stuck":
+      return { chain: entry.chain, type: entry.type, payload: entry.payload };
     case "attested_claim":
       return { chain: entry.chain, type: entry.type, payload: entry.payload };
   }

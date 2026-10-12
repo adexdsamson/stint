@@ -217,3 +217,144 @@ describe("stint receipts", () => {
     );
   });
 });
+
+function revokeStep(ts: number, outcome: string, resource?: string): Seed {
+  return {
+    chain: "verified",
+    ts,
+    input: {
+      type: "teardown_step",
+      payload: {
+        step: "revoke_oauth",
+        outcome,
+        ...(resource === undefined ? {} : { resource }),
+      },
+    } as Omit<ReceiptEntryInput, "chain">,
+  };
+}
+
+function toCleanedUp(ts: number): Seed {
+  return {
+    chain: "verified",
+    ts,
+    input: {
+      type: "transition",
+      payload: {
+        from: "tearing_down",
+        event: "teardown_succeeded",
+        actor: "runtime",
+        to: "cleaned_up",
+      },
+    },
+  };
+}
+
+describe("stint receipts: SPEC-07 caveat", () => {
+  it("labels the cleaned_up transition and names the credential to rotate", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [
+      revokeStep(NOW - 30, "discarded_revocation_unsupported", "sheets.orders"),
+      revokeStep(NOW - 29, "discarded_revocation_unsupported"),
+      toCleanedUp(NOW - 10),
+    ]);
+    expect(await main(["--store", harness.root, "receipts", LEASE.id], harness.deps)).toBe(0);
+    const lines = harness.stdout.join("").trimEnd().split("\n");
+
+    expect(lines[0]).toContain(
+      "teardown revoke_oauth: discarded_revocation_unsupported for sheets.orders (not revoked upstream; rotate it in the provider dashboard)",
+    );
+    // The aggregate receipt names no credential, so it keeps the original shape.
+    expect(lines[1]).toMatch(/teardown revoke_oauth: discarded_revocation_unsupported$/);
+    expect(lines[2]).toContain(
+      "lease tearing_down -> cleaned_up (credential not revoked upstream) (teardown_succeeded by runtime)",
+    );
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  it("a fully revoked chain shows neither the label nor the rotate instruction", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [revokeStep(NOW - 30, "revoked", "sheets.orders"), toCleanedUp(NOW - 10)]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).toContain("teardown revoke_oauth: revoked for sheets.orders\n");
+    expect(out).toContain("lease tearing_down -> cleaned_up (teardown_succeeded by runtime)");
+    expect(out).not.toContain("not revoked upstream");
+    expect(out).not.toContain("rotate it in the provider dashboard");
+  });
+
+  it("a teardown step without a resource renders exactly as before", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [VERIFIED_TEARDOWN]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    expect(harness.stdout.join("")).toContain("[verified] teardown vault: ok\n");
+  });
+
+  it("sanitizes a resource name that carries an escape or bidi character (T-08-05)", async () => {
+    const harness = await harnessWithLease();
+    const bidi = String.fromCharCode(0x202e);
+    await seed(harness, [
+      revokeStep(
+        NOW - 30,
+        "discarded_revocation_unsupported",
+        `evil${ESC}[31m${bidi}name\r\nforged line`,
+      ),
+    ]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).not.toContain(ESC);
+    expect(out).not.toContain(bidi);
+    expect(out).not.toContain("\r");
+    expect(out.trimEnd().split("\n")).toHaveLength(1);
+    expect(out).toContain("for evilname forged line");
+  });
+});
+
+describe("stint receipts: teardown_blocked", () => {
+  function blocked(ts: number, resources: [string, ...string[]]): Seed {
+    return {
+      chain: "verified",
+      ts,
+      input: { type: "teardown_blocked", payload: { reason: "credentials_unavailable", resources } },
+    };
+  }
+
+  it("renders a well-formed entry with its resource names", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [blocked(NOW - 30, ["sheets.orders", "mail.send"])]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).toContain("[verified] teardown blocked: credentials unavailable for sheets.orders, mail.send\n");
+    expect(out).not.toContain("unrecognized receipt entry");
+  });
+
+  it("renders a malformed payload without the resource list and does not throw", async () => {
+    const harness = await harnessWithLease();
+    const store = harness.deps.receiptStoreFactory(harness.root, LEASE.id);
+    await store.append("verified", {
+      seq: 0,
+      ts: NOW,
+      chain: "verified",
+      type: "teardown_blocked",
+      prevHash: HASH,
+      payload: { reason: "credentials_unavailable", resources: "not-an-array" },
+    } as unknown as ReceiptEntry);
+
+    expect(await main(["--store", harness.root, "receipts", LEASE.id], harness.deps)).toBe(0);
+    expect(harness.stdout.join("")).toContain("[verified] teardown blocked: credentials unavailable\n");
+  });
+
+  it("sanitizes a resource name that carries an escape character", async () => {
+    const harness = await harnessWithLease();
+    await seed(harness, [blocked(NOW - 30, [`evil${ESC}[31mname\r\nforged line`])]);
+    await main(["--store", harness.root, "receipts", LEASE.id], harness.deps);
+    const out = harness.stdout.join("");
+
+    expect(out).not.toContain(ESC);
+    expect(out).not.toContain("\r");
+    expect(out.trimEnd().split("\n")).toHaveLength(1);
+    expect(out).toContain("credentials unavailable for evilname forged line");
+  });
+});

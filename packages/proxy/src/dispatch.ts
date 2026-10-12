@@ -44,9 +44,10 @@
  * queue slot by the time `runTeardown` opens its own.
  */
 
-import { evaluatePolicy, resolveBinding } from "@stint/core";
+import { createLeaseEndedReason, evaluatePolicy, resolveBinding, safeEmit } from "@stint/core";
 import type {
   ApprovalRequirement,
+  ApprovalVoidReason,
   BindingSet,
   ConnectorBinding,
   Lease,
@@ -60,6 +61,7 @@ import { extractSpendMinor, resolveCatalogEntry } from "./catalog.js";
 import { runInLeaseTransaction } from "./concurrency/lease-serializer.js";
 import { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
 import { applyProviderRevocation, isProviderRevocation } from "./revocation.js";
+import { TeardownFencedError } from "./teardown/fence.js";
 import { appendTransitionReceipt, runTeardown } from "./teardown/orchestrate.js";
 import { CredentialRefreshError } from "./vault/credential-vault.js";
 import type { ProxyDeps } from "./server.js";
@@ -125,8 +127,26 @@ export interface ApprovalDecision {
  * drift denies the reused approval as a new request.
  */
 export interface ApprovalStage {
-  requestApproval(ctx: CallContext, requirement: ApprovalRequirement, now: number): Promise<ApprovalDecision>;
+  requestApproval(
+    ctx: CallContext,
+    requirement: ApprovalRequirement,
+    now: number,
+    opts?: ApprovalRequestOptions,
+  ): Promise<ApprovalDecision>;
   verifyCommitment(approvalId: string, currentHash: ContentHash): boolean;
+  /** Drops a held commitment that will never be verified (the post-approval transaction failed before it ran). Optional so existing stages stay valid. */
+  release?(approvalId: string): void;
+  /** Tells the user an approval they gave did not take effect (D-21). Best effort: it must never throw and never changes the call's result. */
+  reportVoided?(ctx: CallContext, reason: ApprovalVoidReason, now: number): Promise<void>;
+}
+
+/**
+ * Per-request options for `ApprovalStage.requestApproval`. `signal` is the
+ * lease-ended signal `handleCall` aborts when the lease ends during the wait
+ * (D-20); a stage merges it with its own timeout.
+ */
+export interface ApprovalRequestOptions {
+  readonly signal?: AbortSignal;
 }
 
 /** The result of an additional lease-limit check beyond `evaluatePolicy`'s own (e.g. the actions_per_hour sliding window, PRXY-04). */
@@ -225,14 +245,57 @@ function errorResult(): CallToolResult {
   return textResult("call failed", true);
 }
 
+/** How often the lock-free lease-end watcher polls the lease store while an approval is pending, in milliseconds (D-20). */
+const DEFAULT_APPROVAL_WATCH_MS = 1000;
+
+/** The state `handleCall` threads through a call's one or two transactions so exactly one receipt and one telemetry event describe it. */
+interface CallState {
+  outcome: "allowed" | "denied";
+  detail: string | undefined;
+  /** True once the held approval's commitment verified: the human's yes still stands. */
+  approved: boolean;
+  /** True when the call was approved and then denied by the re-check (D-21). */
+  deniedAfterApproval: boolean;
+  voidReason: ApprovalVoidReason | undefined;
+}
+
+/** The call parked between the two transactions while a human decides (PRXY-10, D-18). */
+interface DeferredApproval {
+  readonly ctx: CallContext;
+  readonly requirement: ApprovalRequirement;
+}
+
+/** Maps a post-approval policy denial to the fixed reason the user is shown (D-21). */
+function voidReasonForPolicy(reason: string): ApprovalVoidReason {
+  if (reason === "expired") return "expired_after_approval";
+  if (reason === "lease_not_active") return "lease_ended_after_approval";
+  if (reason === "over_max_actions" || reason === "over_spend" || reason === "over_actions_per_hour") {
+    return "limit_reached_after_approval";
+  }
+  return "approval_drifted";
+}
+
 /**
  * The one dispatch point every `tools/call` (allowed, denied, or naming a
  * hidden/unbound tool directly) flows through. Resolves args
  * (`params.arguments ?? {}`), resolves the effective binding, then runs
- * authorize -> execute -> receipt entirely inside one per-lease
- * transaction so the receipt append happens in the same serialized step as
- * the counters it mutates (D-13). The receipt is appended in a `finally`
- * block so a thrown `execute` never skips it.
+ * authorize -> execute -> receipt inside a per-lease transaction so the
+ * receipt append happens in the same serialized step as the counters it
+ * mutates (D-13). The receipt is appended in a `finally` block so a thrown
+ * `execute` never skips it.
+ *
+ * A call that needs a human approval does NOT hold the lease's serialization
+ * while it waits (PRXY-10, D-18). The first transaction evaluates policy and,
+ * for `require_approval`, returns the lease unchanged with no receipt. The
+ * wait then happens with no lock held, watched by a lock-free poll that
+ * cancels it if the lease ends (D-20). A second, short transaction re-enters
+ * the lease and evaluates the facts again with a fresh clock reading before
+ * anything runs: the approval commitment, expiry, lease state, policy and
+ * limits (PRXY-09, D-19). Nothing is reserved during the wait, so no limit is
+ * ever exceeded. Exactly one receipt is appended per call, in the transaction
+ * that decides it, so chain order is decision order, not arrival order. A
+ * call approved and then denied by the re-check says so in its receipt and on
+ * the user's terminal; the agent only ever gets the plain denial reason (D-21).
  */
 export async function handleCall(
   deps: ProxyDeps,
@@ -247,22 +310,93 @@ export async function handleCall(
   // tool (no `payAmount` descriptor) always yields `undefined` here.
   const catalogEntry = resolveCatalogEntry(deps.catalog, params.name);
   const spendMinor = catalogEntry !== undefined ? extractSpendMinor(catalogEntry, resolvedArgs) : undefined;
+  const call: PolicyCall = { tool: params.name, spendMinor };
 
-  let result: CallToolResult | undefined;
+  const box: { result?: CallToolResult; deferred?: DeferredApproval } = {};
+  const st: CallState = {
+    outcome: "denied",
+    detail: undefined,
+    approved: false,
+    deniedAfterApproval: false,
+    voidReason: undefined,
+  };
 
-  const finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
-    let nextLease = lease;
-    let outcome: "allowed" | "denied" = "denied";
-    let detail: string | undefined;
+  /** Appends the call's single receipt in the transaction that decided it. */
+  const appendReceipt = async (at: number): Promise<void> => {
+    const chain = await deps.receiptStore.load("verified");
+    const payload = buildCallPayload(
+      binding,
+      resolvedArgs,
+      st.outcome,
+      st.detail,
+      st.deniedAfterApproval ? { afterApproval: true } : undefined,
+    );
+    await appendCallReceipt(deps.receiptStore, chain, payload, at);
+  };
 
+  /** Caps, execute and commit. Errors are classified by `handleExecuteError` in the caller's catch. */
+  const authorizeExecuteCommit = async (lease: Lease, ctx: CallContext, at: number): Promise<Lease> => {
+    const capCheck = deps.enforceCaps.authorize(lease, call, deps.limits, at);
+    if (!capCheck.ok) {
+      st.detail = capCheck.reason ?? "cap_exceeded";
+      if (st.approved) {
+        st.deniedAfterApproval = true;
+        st.voidReason = "limit_reached_after_approval";
+      }
+      box.result = denyResult(st.detail);
+      return lease;
+    }
+
+    const execResult = await deps.execute.execute(ctx, at);
+    st.outcome = "allowed";
+    box.result = allowResult(execResult);
+    return deps.enforceCaps.commit(lease, call, at);
+  };
+
+  /**
+   * D-09/PRXY-07: a failed outbound refresh classifies as provider_revoked or
+   * transient_error (04-05's vault). Only the former ever advances lease
+   * state -- a single transient blip never revokes (module docstring above).
+   */
+  const handleExecuteError = async (err: unknown, lease: Lease, at: number): Promise<Lease> => {
+    st.outcome = "denied";
+    if (err instanceof CredentialRefreshError) {
+      if (isProviderRevocation(err.kind)) {
+        st.detail = "provider_revoked";
+        box.result = denyResult(st.detail);
+        let nextLease = lease;
+        const revocation = applyProviderRevocation(lease, at);
+        if (revocation.ok) {
+          nextLease = revocation.value.lease;
+          // grant_revoked then begin_teardown, in order (D-18) -- appended
+          // inside this SAME per-lease transaction so the ending is
+          // receipted atomically with the triggering call's denial.
+          for (const transition of revocation.value.transitions) {
+            await appendTransitionReceipt(deps.receiptStore, transition, at);
+          }
+        }
+        return nextLease;
+      }
+      st.detail = "transient_error";
+      box.result = denyResult(st.detail);
+      return lease;
+    }
+    st.detail = "execute_failed";
+    // Deliberately generic -- never echoes the underlying error's message,
+    // which could carry args/credential material from a connector (D-13).
+    box.result = errorResult();
+    return lease;
+  };
+
+  // First transaction: decide, and either finish the call or park it for approval.
+  let finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
     try {
-      const call: PolicyCall = { tool: params.name, spendMinor };
       const decision = evaluatePolicy(lease, call, binding, deps.limits, deps.approvals, now);
 
       if (decision.decision === "deny") {
-        detail = decision.reason;
-        result = denyResult(detail);
-        return nextLease;
+        st.detail = decision.reason;
+        box.result = denyResult(st.detail);
+        return lease;
       }
 
       // Invariant: `evaluatePolicy` only reaches `require_approval`/`allow`
@@ -281,98 +415,146 @@ export async function handleCall(
       };
 
       if (decision.decision === "require_approval") {
-        const approval = await deps.approve.requestApproval(ctx, decision.requirement, now);
-        if (approval.decision === "deny") {
-          detail = approval.reason ?? "approval_denied";
-          result = denyResult(detail);
-          return nextLease;
-        }
-
-        // Recompute-and-match (D-11, PRXY-05): a held approval's commitment
-        // is only valid for the EXACT args + binding identity + lease
-        // version it was minted against. Re-derive the binding and lease
-        // fresh here -- never trust the pre-hold `binding`/`lease` closures
-        // alone -- so a hot-swapped binding or a lease-version bump that
-        // happened during the out-of-band hold is caught, not silently
-        // reused. All three D-11 drift vectors (arg change, binding
-        // hot-swap, lease-version advance) collapse to the same
-        // `approval_drifted` denial; the reused approval is a new request.
-        const currentBinding = resolveEffectiveBinding(
-          deps.bindings,
-          deps.grantedScopes,
-          deps.grantedResources,
-          params.name,
-        );
-        const currentLease = (await deps.leaseStore.load(deps.leaseId)) ?? lease;
-        const currentHash =
-          currentBinding !== undefined
-            ? computeApprovalHash(resolvedArgs, currentBinding, currentLease.version)
-            : undefined;
-        const isCommitmentValid =
-          approval.approvalId !== undefined &&
-          currentHash !== undefined &&
-          deps.approve.verifyCommitment(approval.approvalId, currentHash);
-
-        if (!isCommitmentValid) {
-          detail = "approval_drifted";
-          result = denyResult(detail);
-          return nextLease;
-        }
+        // Park the call: nothing is reserved, no receipt is written, and the
+        // lease is returned unchanged so the lock is free during the wait.
+        box.deferred = { ctx, requirement: decision.requirement };
+        return lease;
       }
 
-      const capCheck = deps.enforceCaps.authorize(lease, call, deps.limits, now);
-      if (!capCheck.ok) {
-        detail = capCheck.reason ?? "cap_exceeded";
-        result = denyResult(detail);
-        return nextLease;
-      }
-
-      const execResult = await deps.execute.execute(ctx, now);
-      outcome = "allowed";
-      result = allowResult(execResult);
-      nextLease = deps.enforceCaps.commit(lease, call, now);
-      return nextLease;
+      return await authorizeExecuteCommit(lease, ctx, now);
     } catch (err) {
-      // D-09/PRXY-07: a failed outbound refresh classifies as
-      // provider_revoked or transient_error (04-05's vault). Only the
-      // former ever advances lease state -- a single transient blip never
-      // revokes (module docstring above).
-      if (err instanceof CredentialRefreshError) {
-        outcome = "denied";
-        if (isProviderRevocation(err.kind)) {
-          detail = "provider_revoked";
-          result = denyResult(detail);
-          const revocation = applyProviderRevocation(lease, now);
-          if (revocation.ok) {
-            nextLease = revocation.value.lease;
-            // grant_revoked then begin_teardown, in order (D-18) -- appended
-            // inside this SAME per-lease transaction so the ending is
-            // receipted atomically with the triggering call's denial.
-            for (const transition of revocation.value.transitions) {
-              await appendTransitionReceipt(deps.receiptStore, transition, now);
-            }
-          }
-          return nextLease;
-        }
-        detail = "transient_error";
-        result = denyResult(detail);
-        return nextLease;
-      }
-      outcome = "denied";
-      detail = "execute_failed";
-      result = errorResult();
-      return nextLease;
+      return await handleExecuteError(err, lease, now);
     } finally {
-      const chain = await deps.receiptStore.load("verified");
-      const payload = buildCallPayload(binding, resolvedArgs, outcome, detail);
-      await appendCallReceipt(deps.receiptStore, chain, payload, now);
+      if (box.deferred === undefined) {
+        await appendReceipt(now);
+      }
     }
   });
 
+  const deferred = box.deferred;
+  let decidedAt = now;
+  if (deferred !== undefined) {
+    // Unlocked wait, watched for the lease ending (D-20).
+    const leaseEnded = new AbortController();
+    let polling = false;
+    const watcher = setInterval(() => {
+      if (polling || leaseEnded.signal.aborted) return;
+      polling = true;
+      deps.leaseStore
+        .load(deps.leaseId)
+        .then((current) => {
+          const ended =
+            current === undefined ||
+            current.state !== "active" ||
+            (current.expiresAt > 0 && deps.clock() >= current.expiresAt);
+          if (ended && !leaseEnded.signal.aborted) leaseEnded.abort(createLeaseEndedReason());
+        })
+        .catch(() => {
+          // a failed poll is ignored; the second transaction still re-checks everything
+        })
+        .finally(() => {
+          polling = false;
+        });
+    }, deps.approvalWatchMs ?? DEFAULT_APPROVAL_WATCH_MS);
+
+    let approval: ApprovalDecision;
+    try {
+      approval = await deps.approve.requestApproval(deferred.ctx, deferred.requirement, now, {
+        signal: leaseEnded.signal,
+      });
+    } finally {
+      clearInterval(watcher);
+    }
+
+    // Second transaction: a fresh clock, then re-check everything before executing.
+    const nowB = Math.max(now, deps.clock());
+    decidedAt = nowB;
+    const commitment = { verified: false };
+    try {
+      finalLease = await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+        try {
+          // (1) The human, the clock or the lease said no.
+          if (approval.decision === "deny") {
+            st.detail = approval.reason ?? "approval_denied";
+            box.result = denyResult(st.detail);
+            return lease;
+          }
+
+          // (2) Recompute-and-match (D-11, PRXY-05) against THIS transaction's
+          // lease: a hot-swapped binding, changed args or a lease-version bump
+          // during the wait is `approval_drifted`. `verifyCommitment` consumes
+          // the pending entry.
+          const currentBinding = resolveEffectiveBinding(
+            deps.bindings,
+            deps.grantedScopes,
+            deps.grantedResources,
+            params.name,
+          );
+          const currentHash =
+            currentBinding !== undefined ? computeApprovalHash(resolvedArgs, currentBinding, lease.version) : undefined;
+          let isCommitmentValid = false;
+          if (approval.approvalId !== undefined && currentHash !== undefined) {
+            commitment.verified = true;
+            isCommitmentValid = deps.approve.verifyCommitment(approval.approvalId, currentHash);
+          }
+          st.approved = isCommitmentValid;
+          if (!isCommitmentValid || currentBinding === undefined) {
+            st.detail = "approval_drifted";
+            st.deniedAfterApproval = true;
+            st.voidReason = "approval_drifted";
+            box.result = denyResult(st.detail);
+            return lease;
+          }
+
+          // (3) Expiry, lease state, policy and limits again, with the fresh clock (D-19).
+          const policy = evaluatePolicy(lease, call, currentBinding, deps.limits, deps.approvals, nowB);
+          if (policy.decision === "deny") {
+            st.detail = policy.reason;
+            st.deniedAfterApproval = true;
+            st.voidReason = voidReasonForPolicy(policy.reason);
+            box.result = denyResult(st.detail);
+            return lease;
+          }
+
+          // (4)-(5) Caps, execute, commit.
+          const ctx: CallContext = { ...deferred.ctx, binding: currentBinding, leaseVersion: lease.version };
+          return await authorizeExecuteCommit(lease, ctx, nowB);
+        } catch (err) {
+          return await handleExecuteError(err, lease, nowB);
+        } finally {
+          await appendReceipt(nowB);
+        }
+      });
+    } finally {
+      // The commitment never reaches verifyCommitment when the transaction
+      // could not open, threw early, or the binding vanished: release it.
+      if (!commitment.verified && approval.decision === "approve" && approval.approvalId !== undefined) {
+        deps.approve.release?.(approval.approvalId);
+      }
+    }
+
+    if (st.deniedAfterApproval && st.voidReason !== undefined && deps.approve.reportVoided !== undefined) {
+      try {
+        await deps.approve.reportVoided(deferred.ctx, st.voidReason, nowB);
+      } catch {
+        // telling the user is best effort and never changes the call's result
+      }
+    }
+  }
+
+  const result = box.result;
   if (result === undefined) {
     // unreachable: every path above sets `result` before returning from the mutator.
     throw new Error("@stint/proxy: handleCall produced no result.");
   }
+
+  safeEmit(deps.telemetry, {
+    name: "call.decided",
+    leaseId: deps.leaseId,
+    tool: binding?.tool ?? "unknown",
+    outcome: st.outcome,
+    ...(st.detail !== undefined ? { reason: st.detail } : {}),
+  });
 
   // 05-03 (TEAR-01, D-18, D-30): the triggering call's own transaction has
   // fully committed above -- this opens a SEPARATE, later per-lease
@@ -380,15 +562,23 @@ export async function handleCall(
   // callers that don't wire it (every pre-05-03 `ProxyDeps`) keep working
   // unchanged.
   if (deps.teardownSteps !== undefined && TEARDOWN_TRIGGER_STATES.has(finalLease.state)) {
-    await runTeardown(
-      {
-        leaseStore: deps.leaseStore,
-        receiptStore: deps.receiptStore,
-        leaseId: deps.leaseId,
-        steps: deps.teardownSteps,
-      },
-      now,
-    );
+    try {
+      await runTeardown(
+        {
+          leaseStore: deps.leaseStore,
+          receiptStore: deps.receiptStore,
+          leaseId: deps.leaseId,
+          steps: deps.teardownSteps,
+          ...(deps.teardownFence === undefined ? {} : { fence: deps.teardownFence }),
+        },
+        decidedAt,
+      );
+    } catch (error) {
+      // Another driver (the supervisor, a user command) owns this teardown
+      // pass (D-09). The call's own result is already decided; it is returned
+      // unchanged. Every other error propagates as before.
+      if (!(error instanceof TeardownFencedError)) throw error;
+    }
   }
 
   return result;

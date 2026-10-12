@@ -30,6 +30,24 @@
 import type { Checkpoint, ReceiptChain, ReceiptEntry } from "@stint/spec";
 
 /**
+ * Thrown by `ReceiptStore.append` when `entry.seq` is not equal to the number
+ * of entries already stored for the chain: the chain advanced (or the entry
+ * skipped ahead) between the caller loading it and appending. The caller
+ * reloads the chain and re-derives the entry. Fixed message, no entry content.
+ */
+export class ReceiptConflictError extends Error {
+  readonly chain: ReceiptChain;
+  readonly expectedSeq: number;
+
+  constructor(chain: ReceiptChain, expectedSeq: number) {
+    super("The receipt chain advanced before this entry was appended.");
+    this.name = "ReceiptConflictError";
+    this.chain = chain;
+    this.expectedSeq = expectedSeq;
+  }
+}
+
+/**
  * The async append/load/checkpoint-read-write contract every `ReceiptStore`
  * implementation (the in-memory double here, the Phase 6 JSON-file store)
  * must uphold.
@@ -38,6 +56,12 @@ export interface ReceiptStore {
   /**
    * Appends `entry` to `chain`'s persisted log. MUST NOT overwrite, reorder,
    * or remove any previously-appended entry for that `chain` — append-only.
+   *
+   * Sequence rule (normative): `append` MUST reject with
+   * `ReceiptConflictError` when `entry.seq` is not equal to the number of
+   * entries already stored for that `chain`, leaving the stored chain
+   * unchanged. A forked or reordered chain is therefore a loud error, never a
+   * silent write.
    */
   append(chain: ReceiptChain, entry: ReceiptEntry): Promise<void>;
   /**

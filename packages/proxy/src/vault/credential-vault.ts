@@ -18,8 +18,119 @@
  * with zero additional token-endpoint hits.
  */
 
-import { refreshAccessToken, revokeCredential } from "./oauth-client.js";
-import type { OAuthClient, RefreshOptions, RevokeResult, SeededCredential } from "./oauth-client.js";
+import { credentialSecretKey, leaseSecretPrefix } from "@stint/core";
+import type { SecretStore } from "@stint/core";
+
+import { isApiKeyCredential, refreshAccessToken, revokeCredential } from "./oauth-client.js";
+import type {
+  OAuthClient,
+  OAuthClientResolver,
+  OAuthSeededCredential,
+  RevokeResult,
+  SeededCredential,
+} from "./oauth-client.js";
+
+/**
+ * Options for {@link createCredentialVault}. `allowInsecureRequests` is a
+ * superset of the old `RefreshOptions` flag: a boolean applies to every
+ * credential (as before); a function is evaluated per resolved client so plain
+ * http can be allowed for one credential's server and not another's.
+ *
+ * `secrets` makes the vault durable: a credential missing from memory is
+ * loaded through from the store, a refreshed credential (including a rotated
+ * refresh token) is written through, and discard removes the stored copies.
+ * Without it the vault is in-memory only, exactly as before.
+ */
+export interface CredentialVaultOptions {
+  readonly allowInsecureRequests?: boolean | ((client: OAuthClient) => boolean);
+  readonly secrets?: SecretStore;
+}
+
+const STORED_CREDENTIAL_VERSION = 1;
+
+/**
+ * Serializes a credential for a `SecretStore` value. The result holds the
+ * secret tokens: it belongs only in a store and must never be logged or
+ * receipted.
+ */
+export function serializeStoredCredential(credential: SeededCredential): string {
+  return JSON.stringify({ v: STORED_CREDENTIAL_VERSION, credential });
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isOptionalString(v: unknown): v is string | undefined {
+  return v === undefined || typeof v === "string";
+}
+
+/**
+ * Parses a value written by {@link serializeStoredCredential}. Strict: version
+ * 1 and either the api_key shape or the full OAuth shape; anything else
+ * (corrupt, edited, wrong version) returns `undefined` and is treated as
+ * absent. It never throws and never echoes the stored contents.
+ */
+export function parseStoredCredential(raw: string): SeededCredential | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed) || parsed.v !== STORED_CREDENTIAL_VERSION || !isRecord(parsed.credential)) {
+    return undefined;
+  }
+  const c = parsed.credential;
+
+  if (c.kind === "api_key") {
+    return typeof c.key === "string" && c.key !== "" ? { kind: "api_key", key: c.key } : undefined;
+  }
+  if (c.kind !== undefined && c.kind !== "oauth") return undefined;
+
+  if (
+    typeof c.accessToken !== "string" ||
+    typeof c.refreshToken !== "string" ||
+    typeof c.expiry !== "number" ||
+    !Number.isFinite(c.expiry) ||
+    typeof c.tokenEndpoint !== "string" ||
+    !URL.canParse(c.tokenEndpoint) ||
+    typeof c.resourceIndicator !== "string" ||
+    !isOptionalString(c.clientId) ||
+    !isOptionalString(c.revocationEndpoint) ||
+    (c.revocationEndpoint !== undefined && !URL.canParse(c.revocationEndpoint))
+  ) {
+    return undefined;
+  }
+  return {
+    ...(c.kind === "oauth" ? { kind: "oauth" as const } : {}),
+    accessToken: c.accessToken,
+    refreshToken: c.refreshToken,
+    expiry: c.expiry,
+    tokenEndpoint: c.tokenEndpoint,
+    resourceIndicator: c.resourceIndicator,
+    ...(c.clientId === undefined ? {} : { clientId: c.clientId }),
+    ...(c.revocationEndpoint === undefined ? {} : { revocationEndpoint: c.revocationEndpoint }),
+  };
+}
+
+/**
+ * What {@link CredentialVault.probeGrant} reports about one grant. It carries
+ * only a kind and an optional integer: never a token, a response body or
+ * upstream error text (T-09-26).
+ *
+ * - `ok`: the provider accepted the refresh grant; the grant is alive.
+ * - `provider_revoked`: a definitive 4xx revocation signal (D-17).
+ * - `transient`: anything else (5xx, 429, network, timeout, unexpected body);
+ *   `retryAfterSeconds` is the provider's `Retry-After`, clamped to 0..3600.
+ * - `not_probeable`: there is nothing to refresh (an API key, an empty refresh
+ *   token, a credential the store does not hold); no network request was made.
+ */
+export type ProbeGrantResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "provider_revoked" }
+  | { readonly kind: "transient"; readonly retryAfterSeconds?: number }
+  | { readonly kind: "not_probeable" };
 
 /** The vault's public surface (D-04). No method returns the raw store; only `resolveAccessToken` reads a token out. */
 export interface CredentialVault {
@@ -36,6 +147,26 @@ export interface CredentialVault {
    */
   resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string>;
   /**
+   * The idle-lease probe (D-14, D-16): asks the provider whether the grant for
+   * `leaseId:resource` is still alive by performing one real refresh-token
+   * grant, even while the cached access token is still valid (a lease that sits
+   * idle never refreshes on its own, so a revocation would otherwise go
+   * unnoticed). It runs inside the same per-credential single flight as
+   * {@link resolveAccessToken}, and a rotated refresh token is updated in memory
+   * first and then written through to the SecretStore, so the probe can never
+   * lose the only valid token. The caller must hold the lease lock while it
+   * probes. Returns `not_probeable`, with no network request, for an API key, a
+   * credential with an empty refresh token, or one the vault and store do not
+   * hold. Only a definitive 4xx signal maps to `provider_revoked` (D-17); a
+   * failed probe never throws and never carries a token or provider text.
+   */
+  probeGrant(
+    leaseId: string,
+    resource: string,
+    now: number,
+    opts?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+  ): Promise<ProbeGrantResult>;
+  /**
    * Teardown step 1 (D-22, D-23): for every credential currently seeded
    * under `leaseId`, calls {@link revokeCredential} internally with the
    * refresh token this vault holds (the token never leaves the vault) and
@@ -51,15 +182,17 @@ export interface CredentialVault {
   revokeAndDiscardLeaseCredentials(
     leaseId: string,
     now: number,
+    expectedResources?: readonly string[],
   ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>>;
   /**
    * Deletes every credential seeded under `leaseId` WITHOUT attempting any
    * revoke call -- used by teardown step 4 ("delete cached data", a later
    * plan) once step 1 has already made its terminal, one-time revoke
    * attempt (D-23). Idempotent: deleting an already-discarded lease's
-   * credentials is a no-op.
+   * credentials is a no-op. Returns a promise only when the vault was built
+   * with a durable store to clear.
    */
-  discardLeaseCredentials(leaseId: string): void;
+  discardLeaseCredentials(leaseId: string): void | Promise<void>;
 }
 
 /** Every credential key currently seeded for `leaseId`, resolved back to its bare `resource` (the inverse of {@link keyFor}). The trailing colon in the prefix check prevents a lease id that is a string-prefix of another (e.g. "lease-1" vs "lease-10") from matching the wrong lease's entries. */
@@ -101,19 +234,32 @@ function keyFor(leaseId: string, resource: string): string {
 }
 
 /**
- * Constructs a `CredentialVault` backed by `oauthClient` (the discovered
- * Authorization Server metadata + this proxy's `Client`/`ClientAuth`
- * identity) and `clock` (the injectable `now` source -- no internal timers,
- * per-call expiry only, matching the locked-upstream "no cached still-valid
- * boolean" discipline).
+ * Constructs a `CredentialVault` backed by `client` (either one
+ * `OAuthClient` used for every credential, or an {@link OAuthClientResolver}
+ * that picks the client per credential: the discovered Authorization Server
+ * metadata + this proxy's `Client`/`ClientAuth` identity) and `clock` (the
+ * injectable `now` source -- no internal timers, per-call expiry only,
+ * matching the locked-upstream "no cached still-valid boolean" discipline).
  */
 export function createCredentialVault(
-  oauthClient: OAuthClient,
+  client: OAuthClient | OAuthClientResolver,
   clock: () => number,
-  refreshOpts: RefreshOptions = {},
+  opts: CredentialVaultOptions = {},
 ): CredentialVault {
   const credentials = new Map<string, SeededCredential>();
   const tails = new Map<string, Promise<unknown>>();
+  const resolveClient: OAuthClientResolver = typeof client === "function" ? client : () => client;
+
+  /** The OAuth client for one credential, plus the insecure-transport flag computed for that client. */
+  function clientFor(
+    resource: string,
+    credential: OAuthSeededCredential,
+  ): { readonly oauthClient: OAuthClient; readonly requestOpts: { readonly allowInsecureRequests: boolean } } {
+    const oauthClient = resolveClient(resource, credential);
+    const flag = opts.allowInsecureRequests;
+    const allowInsecureRequests = typeof flag === "function" ? flag(oauthClient) : flag === true;
+    return { oauthClient, requestOpts: { allowInsecureRequests } };
+  }
 
   function runSingleFlight<T>(key: string, work: () => Promise<T>): Promise<T> {
     const previousTail = tails.get(key) ?? Promise.resolve();
@@ -127,22 +273,86 @@ export function createCredentialVault(
     return next;
   }
 
+
+  const secrets = opts.secrets;
+  /**
+   * Keys whose in-memory credential is newer than the store's copy because a
+   * write-through failed. Retried at the start of the next resolve, inside the
+   * single-flight chain, before any token is returned.
+   */
+  const dirty = new Set<string>();
+  /**
+   * Credentials this vault revoked or discarded. Load-through never brings one
+   * back from the store, so a failed store delete cannot resurrect a revoked
+   * grant inside this process. Reseeding a key lifts its entry.
+   */
+  const discardedKeys = new Set<string>();
+  const discardedLeases = new Set<string>();
+
+  function persist(leaseId: string, resource: string, key: string, credential: SeededCredential): Promise<void> {
+    if (secrets === undefined) return Promise.resolve();
+    // A rejected put surfaces as a fixed transient_error: the error never
+    // carries the stored value, only the `leaseId:resource` key.
+    return Promise.resolve()
+      .then(() => secrets.put(credentialSecretKey(leaseId, resource), serializeStoredCredential(credential)))
+      .then(
+        () => {
+          dirty.delete(key);
+        },
+        () => {
+          dirty.add(key);
+          throw new CredentialRefreshError(key, "transient_error");
+        },
+      );
+  }
+
+  /**
+   * Loads one credential through from the store into memory. An absent key, a
+   * store error or a value that does not parse is "absent": nothing is thrown
+   * and no stored content is echoed. If another caller seeded or refreshed the
+   * key while the read was in flight, that newer in-memory record wins.
+   */
+  async function loadThrough(leaseId: string, resource: string, key: string): Promise<SeededCredential | undefined> {
+    const existing = credentials.get(key);
+    if (existing !== undefined || secrets === undefined) return existing;
+    if (discardedKeys.has(key) || discardedLeases.has(leaseId)) return undefined;
+    let loaded: SeededCredential | undefined;
+    try {
+      const raw = await secrets.get(credentialSecretKey(leaseId, resource));
+      loaded = raw === undefined ? undefined : parseStoredCredential(raw);
+    } catch {
+      loaded = undefined;
+    }
+    const raced = credentials.get(key);
+    if (raced !== undefined) return raced;
+    if (loaded !== undefined) credentials.set(key, loaded);
+    return loaded;
+  }
+
   return {
     seedCredential(leaseId: string, resource: string, seeded: SeededCredential): void {
-      credentials.set(keyFor(leaseId, resource), { ...seeded });
+      const key = keyFor(leaseId, resource);
+      discardedKeys.delete(key);
+      credentials.set(key, { ...seeded });
     },
 
-    resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string> {
+    async resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string> {
       const key = keyFor(leaseId, resource);
-      const record = credentials.get(key);
+      const record = credentials.get(key) ?? (await loadThrough(leaseId, resource, key));
       if (record === undefined) {
-        return Promise.reject(new Error(`@stint/proxy: no credential seeded for "${key}".`));
+        throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
+      }
+
+      // An API key never expires and never enters the refresh path.
+      if (isApiKeyCredential(record)) {
+        return record.key;
       }
 
       // Per-call expiry against the injected clock -- pure comparison, no
-      // cached "still valid" boolean, no timer.
-      if (record.expiry > now) {
-        return Promise.resolve(record.accessToken);
+      // cached "still valid" boolean, no timer. A dirty key is never answered
+      // from here: its pending write-through must land first.
+      if (record.expiry > now && !dirty.has(key)) {
+        return record.accessToken;
       }
 
       return runSingleFlight(key, async () => {
@@ -152,20 +362,35 @@ export function createCredentialVault(
         if (current === undefined) {
           throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
         }
+        if (isApiKeyCredential(current)) {
+          return current.key;
+        }
+
+        // Retry a pending write-through before anything else: the provider
+        // already consumed the old refresh token, so the new one (held in
+        // memory) must reach the store before this call can succeed.
+        if (dirty.has(key)) {
+          await persist(leaseId, resource, key, current);
+        }
+
         if (current.expiry > now) {
           return current.accessToken;
         }
 
-        const result = await refreshAccessToken(oauthClient, current, now, refreshOpts);
+        const { oauthClient, requestOpts } = clientFor(resource, current);
+        const result = await refreshAccessToken(oauthClient, current, now, requestOpts);
 
         if (result.kind === "ok") {
-          const updated: SeededCredential = {
+          const updated: OAuthSeededCredential = {
             ...current,
             accessToken: result.accessToken,
             refreshToken: result.refreshToken ?? current.refreshToken,
             expiry: result.expiry,
           };
+          // Memory first: the old refresh token is spent, so the new one must
+          // survive in process even when persisting it fails.
           credentials.set(key, updated);
+          await persist(leaseId, resource, key, updated);
           return updated.accessToken;
         }
 
@@ -176,34 +401,134 @@ export function createCredentialVault(
       });
     },
 
+    async probeGrant(
+      leaseId: string,
+      resource: string,
+      now: number,
+      probeOpts?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+    ): Promise<ProbeGrantResult> {
+      const key = keyFor(leaseId, resource);
+      const record = credentials.get(key) ?? (await loadThrough(leaseId, resource, key));
+      if (record === undefined || isApiKeyCredential(record) || record.refreshToken === "") {
+        return { kind: "not_probeable" };
+      }
+
+      return runSingleFlight(key, async (): Promise<ProbeGrantResult> => {
+        // Re-read: a call ahead in this same-key chain may have refreshed (or a
+        // teardown discarded) the credential while this probe was queued.
+        const current = credentials.get(key);
+        if (current === undefined || isApiKeyCredential(current) || current.refreshToken === "") {
+          return { kind: "not_probeable" };
+        }
+
+        // A pending write-through lands first: memory holds the only valid
+        // refresh token, and a probe must not rotate it again before it is safe.
+        if (dirty.has(key)) {
+          try {
+            await persist(leaseId, resource, key, current);
+          } catch {
+            return { kind: "transient" };
+          }
+        }
+
+        // No expiry short-circuit: reaching the token endpoint is the point.
+        const { oauthClient, requestOpts } = clientFor(resource, current);
+        const result = await refreshAccessToken(oauthClient, current, now, {
+          ...requestOpts,
+          ...(probeOpts?.signal === undefined ? {} : { signal: probeOpts.signal }),
+          ...(probeOpts?.timeoutMs === undefined ? {} : { timeoutMs: probeOpts.timeoutMs }),
+        });
+
+        if (result.kind === "ok") {
+          const updated: OAuthSeededCredential = {
+            ...current,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken ?? current.refreshToken,
+            expiry: result.expiry,
+          };
+          // Memory first (the old refresh token is spent), then write through.
+          credentials.set(key, updated);
+          try {
+            await persist(leaseId, resource, key, updated);
+          } catch {
+            // The grant is alive, which is what the probe reports. The key is
+            // left dirty, so the next resolve or probe retries the write-through
+            // before it hands out a token or rotates again.
+          }
+          return { kind: "ok" };
+        }
+
+        if (result.kind === "provider_revoked") {
+          return { kind: "provider_revoked" };
+        }
+        return result.retryAfterSeconds === undefined
+          ? { kind: "transient" }
+          : { kind: "transient", retryAfterSeconds: result.retryAfterSeconds };
+      });
+    },
+
     async revokeAndDiscardLeaseCredentials(
       leaseId: string,
       // Accepted for interface symmetry with `resolveAccessToken`'s injected
       // clock discipline and future auditability -- the revoke call itself
       // carries no expiry/timing logic of its own, so it is unused here.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       _now: number,
+      expectedResources?: readonly string[],
     ): Promise<ReadonlyArray<{ readonly resource: string; readonly result: RevokeResult }>> {
+      // A later process (cleanup, a supervisor) holds nothing in memory: pull
+      // every expected resource missing from memory through from the store.
+      for (const resource of expectedResources ?? []) {
+        await loadThrough(leaseId, resource, keyFor(leaseId, resource));
+      }
+
       const entries = leaseCredentialEntries(credentials, leaseId);
       const outcomes: Array<{ resource: string; result: RevokeResult }> = [];
 
       for (const { key, resource, credential } of entries) {
-        const result = await revokeCredential(oauthClient, credential.refreshToken, refreshOpts);
+        let result: RevokeResult;
+        if (isApiKeyCredential(credential)) {
+          // No provider to tell and no network call: the same honest path an
+          // unrevocable OAuth grant takes (D-14).
+          result = { kind: "discarded_revocation_unsupported" };
+        } else {
+          const { oauthClient, requestOpts } = clientFor(resource, credential);
+          result = await revokeCredential(oauthClient, credential.refreshToken, requestOpts);
+        }
         // Always discard the runtime's own copy (D-22) -- regardless of
         // revoked, discarded_revocation_unsupported, or failed. This is not
         // gated on `result.kind`: even a failed revoke attempt permanently
         // ends this credential's custody in the vault.
         credentials.delete(key);
+        dirty.delete(key);
+        discardedKeys.add(key);
+        if (secrets !== undefined) {
+          try {
+            await secrets.delete(credentialSecretKey(leaseId, resource));
+          } catch {
+            // Swallowed on purpose: the outcome above is what the provider
+            // said. The step-4 purge with read-back is the authority that
+            // reports a secret left behind (D-13).
+          }
+        }
         outcomes.push({ resource, result });
       }
 
       return outcomes;
     },
 
-    discardLeaseCredentials(leaseId: string): void {
+    discardLeaseCredentials(leaseId: string): void | Promise<void> {
       for (const { key } of leaseCredentialEntries(credentials, leaseId)) {
         credentials.delete(key);
+        dirty.delete(key);
+        discardedKeys.add(key);
       }
+      if (secrets === undefined) return undefined;
+      discardedLeases.add(leaseId);
+      // A deletePrefix rejection propagates: the caller must know a stored
+      // copy may remain.
+      return Promise.resolve().then(async () => {
+        await secrets.deletePrefix(leaseSecretPrefix(leaseId));
+      });
     },
   };
 }

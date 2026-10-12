@@ -68,6 +68,12 @@ export type {
   TransitionPayload,
   TeardownStepEntry,
   TeardownStepPayload,
+  TeardownBlockedEntry,
+  TeardownBlockedPayload,
+  TeardownTakeoverEntry,
+  TeardownTakeoverPayload,
+  TeardownStuckEntry,
+  TeardownStuckPayload,
   AttestedClaimEntry,
   AttestedClaimPayload,
 } from "./generated/receipt.js";

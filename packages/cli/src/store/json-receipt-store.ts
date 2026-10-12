@@ -14,6 +14,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { ReceiptConflictError } from "@stint/core";
 import type { ReceiptStore } from "@stint/core";
 import type { Checkpoint, ReceiptChain, ReceiptEntry } from "@stint/spec";
 
@@ -68,6 +69,11 @@ export function createJsonReceiptStore(opts: JsonReceiptStoreOptions): ReceiptSt
           file,
           async (assertHeld) => {
             const existing = parseChain(await readJsonRetry(file));
+            // Sequence guard under the lock, after the re-read: two processes
+            // cannot both pass it (TEAR-06 / T-08-23).
+            if (entry.seq !== existing.length) {
+              throw new ReceiptConflictError(chain, existing.length);
+            }
             assertHeld(); // never commit after losing the lock
             await atomicWriteJson(file, [...existing, entry]);
           },

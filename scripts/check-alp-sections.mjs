@@ -79,7 +79,11 @@ const TRUST_LIMIT_PHRASES = [
   "attested, not verified",
   "operated by the user or a neutral party",
 ];
-const RECEIPTS_WORDS = ["verified", "attested", "display-only"];
+const RECEIPTS_WORDS = ["verified", "attested", "display-only", "teardown_takeover", "teardown_stuck"];
+
+// Phase 9 D-12: section 10 states the driver, fence and takeover rules as normative text.
+const SECTION10_HEADING = "## 10. Teardown";
+const SECTION10_PHRASES = ["teardown fence", "MUST NOT run steps", "MUST be receipted", "without user action"];
 const REFERENCE_RFCS = [
   "RFC 2119",
   "RFC 8174",
@@ -516,6 +520,7 @@ function main() {
   checkSectionPhrases(lines, SECTION5_HEADING, SECTION5_PHRASES, failures);
   checkSectionPhrases(lines, SECTION6_HEADING, SECTION6_PHRASES, failures);
   checkSectionPhrases(lines, SECTION15_HEADING, SECTION15_PHRASES, failures);
+  checkSectionPhrases(lines, SECTION10_HEADING, SECTION10_PHRASES, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");

@@ -23,7 +23,7 @@ Each file is `{ description, manifest, expected_errors }`. `manifest` MUST fail 
 
 ## `receipts/`
 
-- `chain-input.json`: a fixed, three-entry receipt chain (`transition`, then `call`, then `teardown_step`) on the `verified` chain, exercising the genesis link, an intermediate link and a `prevHash`-recompute walk. Each entry's `prevHash` is `jcs-sha256:` followed by the SHA-256 hex digest of the canonical serialization of the entry before it; the first entry's `prevHash` is the fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters.
+- `chain-input.json`: a fixed, three-entry receipt chain (`transition`, then `call`, then `teardown_step`) on the `verified` chain, exercising the genesis link, an intermediate link and a `prevHash`-recompute walk. Each entry's `prevHash` is `jcs-sha256:` followed by the SHA-256 hex digest of the canonical serialization of the entry before it; the first entry's `prevHash` is the fixed genesis constant, `jcs-sha256:` followed by 64 zero hex characters. The optional `resource` field on a `teardown_step` payload is absent from `chain-input.json`, so the golden hash is unchanged. The `teardown_blocked` entry type is an additive entry type under `alp/0.1`, and `chain-input.json` contains none, so the golden values are unchanged.
 - `chain-canonical.txt` / `chain-expected-hash.txt`: the canonical serialization and resulting content hash of `chain-input.json`'s last entry. As with the `jcs/` vectors, the hash was computed independently of Stint's own code, by running `sha256sum` over the committed canonical bytes and prefixing the result with `jcs-sha256:`:
 
   ```

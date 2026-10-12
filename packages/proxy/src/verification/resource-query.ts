@@ -47,7 +47,7 @@
  * for a verifier that never evaluates anything.
  */
 
-import { appendEntry, reduce, verifierEvents } from "@stint/core";
+import { reduce, verifierEvents } from "@stint/core";
 import type {
   CallPayload,
   ConnectorBinding,
@@ -61,10 +61,13 @@ import { evaluatePredicate, hashCanonical } from "@stint/spec";
 import type { PredicateAst } from "@stint/spec";
 
 import { runInLeaseTransaction } from "../concurrency/lease-serializer.js";
+import { appendReceiptEntry } from "../receipts/append.js";
 import type { CredentialVault } from "../vault/credential-vault.js";
 import { scrubCredential, scrubError } from "../vault/scrub.js";
 import type { OutboundConnector } from "../connectors/outbound-connector.js";
 import { chainTeardownIfEnded } from "../teardown/auto-chain.js";
+import { TeardownFencedError } from "../teardown/fence.js";
+import type { TeardownFenceConfig } from "../teardown/fence.js";
 import { appendTransitionReceipt, runTeardown } from "../teardown/orchestrate.js";
 import type { TeardownStep } from "../teardown/steps.js";
 
@@ -93,6 +96,14 @@ export interface VerifierCompletionDeps {
    * `runTeardown` pass in its own, separate per-lease transaction (D-30).
    */
   readonly teardownSteps?: readonly TeardownStep[];
+  /**
+   * OPTIONAL (Phase 9 D-09): the teardown fence. Every driver is fenced, the
+   * verifier completion included: when set, the full teardown pass holds the
+   * lease-record fence, and a pass another driver already owns
+   * (`TeardownFencedError`) is left to that driver without failing the
+   * completion. Absent keeps the unfenced Phase 8 behaviour.
+   */
+  readonly teardownFence?: TeardownFenceConfig;
 }
 
 /**
@@ -140,9 +151,7 @@ export async function appendVerificationReceipt(
     redactedSummary: verificationRedactedSummary(kind, outcome, reason),
     outcome: outcome === "true" ? "allowed" : "denied",
   };
-  const chain = await receiptStore.load("verified");
-  const entry = appendEntry(chain, { chain: "verified", type: "call", payload }, now);
-  await receiptStore.append("verified", entry);
+  await appendReceiptEntry(receiptStore, { chain: "verified", type: "call", payload }, now);
 }
 
 /**
@@ -206,15 +215,21 @@ export async function completeViaVerifier(deps: VerifierCompletionDeps, now: num
   );
 
   if (deps.teardownSteps !== undefined) {
-    await runTeardown(
-      {
-        leaseStore: deps.leaseStore,
-        receiptStore: deps.receiptStore,
-        leaseId: deps.leaseId,
-        steps: deps.teardownSteps,
-      },
-      now,
-    );
+    try {
+      await runTeardown(
+        {
+          leaseStore: deps.leaseStore,
+          receiptStore: deps.receiptStore,
+          leaseId: deps.leaseId,
+          steps: deps.teardownSteps,
+          ...(deps.teardownFence === undefined ? {} : { fence: deps.teardownFence }),
+        },
+        now,
+      );
+    } catch (error) {
+      // Another driver owns this teardown pass (D-09): the completion itself is already recorded.
+      if (!(error instanceof TeardownFencedError)) throw error;
+    }
   }
 }
 

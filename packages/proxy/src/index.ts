@@ -24,6 +24,7 @@ export {
 } from "./dispatch.js";
 export type {
   ApprovalDecision,
+  ApprovalRequestOptions,
   ApprovalStage,
   CallContext,
   CapCheck,
@@ -53,13 +54,18 @@ export { createCapEnforcer } from "./caps/cap-enforcer.js";
 // D-11 commitment-hash function (`hashCanonical({ args, tool, provenance,
 // leaseVersion })`) -- exported so a platform can independently verify a
 // receipted approval's commitment offline.
-export { computeApprovalHash, createApprovalDispatcher } from "./approvals/approval-dispatcher.js";
+export {
+  DEFAULT_MAX_PENDING_APPROVALS,
+  computeApprovalHash,
+  createApprovalDispatcher,
+} from "./approvals/approval-dispatcher.js";
 export type { PendingApproval } from "./approvals/approval-dispatcher.js";
 
 // Per-call receipt builder (D-13, RCPT-01). `buildCallPayload` produces the
 // secretless `CallPayload` (re-exported from `@stint/core`); `appendCallReceipt`
 // is the sole append path for a `type: "call"` verified-chain entry.
 export { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js";
+export { appendReceiptEntry, RECEIPT_APPEND_ATTEMPTS } from "./receipts/append.js";
 
 // Credential vault refresh hot path (D-02, D-04, D-09, PRXY-08).
 // `createCredentialVault` is the secretless token store keyed
@@ -69,10 +75,30 @@ export { appendCallReceipt, buildCallPayload } from "./receipts/call-receipt.js"
 // `createCredentialVault` composes. `CredentialRefreshError`'s `.kind`
 // (`"provider_revoked" | "transient_error"`) is the classification 04-07's
 // revocation wiring consumes.
-export { classifyTokenError, refreshAccessToken } from "./vault/oauth-client.js";
-export type { OAuthClient, RefreshOptions, RefreshResult, SeededCredential } from "./vault/oauth-client.js";
-export { createCredentialVault, CredentialRefreshError } from "./vault/credential-vault.js";
-export type { CredentialVault } from "./vault/credential-vault.js";
+export {
+  classifyTokenError,
+  DEFAULT_OAUTH_TIMEOUT_MS,
+  isApiKeyCredential,
+  oauthClientFromCredential,
+  refreshAccessToken,
+  retryAfterFromError,
+} from "./vault/oauth-client.js";
+export type {
+  ApiKeySeededCredential,
+  OAuthClient,
+  OAuthClientResolver,
+  OAuthSeededCredential,
+  RefreshOptions,
+  RefreshResult,
+  SeededCredential,
+} from "./vault/oauth-client.js";
+export {
+  createCredentialVault,
+  CredentialRefreshError,
+  parseStoredCredential,
+  serializeStoredCredential,
+} from "./vault/credential-vault.js";
+export type { CredentialVault, CredentialVaultOptions, ProbeGrantResult } from "./vault/credential-vault.js";
 
 // Downstream execution port + credential scrubber (D-01, D-02, PRXY-06,
 // LIC-05). `OutboundConnector` is the injected downstream-execution port --
@@ -113,10 +139,12 @@ export { applyEntitlementRevocation, applyProviderRevocation, isProviderRevocati
 // (hardened by 05-04/05-05/05-06); `TeardownDeps` is `runTeardown`'s/
 // `retryTeardown`'s construction-time dependency bag.
 export { chainTeardownIfEnded } from "./teardown/auto-chain.js";
-export { appendTransitionReceipt, retryTeardown, runTeardown } from "./teardown/orchestrate.js";
-export type { TeardownDeps } from "./teardown/orchestrate.js";
+export { appendTransitionReceipt, retryTeardown, runTeardown, TeardownBlockedError } from "./teardown/orchestrate.js";
+export type { TeardownCredentialCheck, TeardownDeps } from "./teardown/orchestrate.js";
+export { DEFAULT_FENCE_TTL_SECONDS, TeardownFencedError } from "./teardown/fence.js";
+export type { TeardownFenceConfig } from "./teardown/fence.js";
 export { createDefaultTeardownSteps, runStepOnce, TEARDOWN_STEP_ORDER } from "./teardown/steps.js";
-export type { CleanupHookConfig, LicenseCustody, TeardownStep } from "./teardown/steps.js";
+export type { CleanupHookConfig, LicenseCustody, TeardownStep, TeardownStepOptions } from "./teardown/steps.js";
 export {
   allStepsSucceeded,
   isSuccessOutcome,

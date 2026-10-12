@@ -26,7 +26,7 @@ export class LeaseBusyError extends CliError {
   constructor() {
     super(
       EXIT_CODES.leaseBusy,
-      "The lease is busy: another operation holds it (a call may be awaiting approval). Answer it or wait for its timeout, then retry.",
+      "The lease is busy: another operation holds it. Wait a moment, then retry.",
     );
     this.name = "LeaseBusyError";
   }
@@ -73,10 +73,25 @@ export async function withTransientRetry<T>(
   }
 }
 
+/** Optional write settings for `atomicWriteJson`. */
+export interface AtomicWriteOptions {
+  /** POSIX file mode for the written file (for example `0o600`); ignored where the OS does not honour it. */
+  readonly mode?: number;
+}
+
 /** Atomically replaces `file` with `value` as JSON (temp file + rename, fsync'd), with transient retry. */
-export function atomicWriteJson(file: string, value: unknown): Promise<void> {
+export function atomicWriteJson(
+  file: string,
+  value: unknown,
+  opts: AtomicWriteOptions = {},
+): Promise<void> {
   // write-file-atomic unlinks its temp file in `finally`, so retrying the whole call is safe.
-  return withTransientRetry(() => writeFileAtomic(file, JSON.stringify(value), { fsync: true }));
+  return withTransientRetry(() =>
+    writeFileAtomic(file, JSON.stringify(value), {
+      fsync: true,
+      ...(opts.mode === undefined ? {} : { mode: opts.mode }),
+    }),
+  );
 }
 
 /**
@@ -119,6 +134,12 @@ export function createKeyedQueue(): <T>(key: string, work: () => Promise<T>) => 
 export interface FileLockOptions {
   /** Total time to wait for the lock before throwing `LeaseBusyError`. */
   readonly timeoutMs?: number;
+  /**
+   * How long a lock whose holder stopped heartbeating (a killed process) is
+   * kept before another process may take it over. Default 10000 ms; never
+   * below 5000 ms (the library floor), so a value under that is raised to it.
+   */
+  readonly staleMs?: number;
 }
 
 /**
@@ -143,7 +164,7 @@ export async function withFileLock<T>(
     try {
       release = await lockfile.lock(file, {
         realpath: false, // lock target may not exist yet (first save)
-        stale: 10_000, // heartbeat keeps a live holder fresh through long approval waits
+        stale: Math.max(5000, opts.staleMs ?? 10_000), // heartbeat keeps a live holder fresh through long approval waits
         retries: 0, // we own the retry loop so the total budget is exact
         onCompromised: (e) => {
           compromised = e;

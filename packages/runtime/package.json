@@ -1,0 +1,29 @@
+{
+  "name": "@stint/runtime",
+  "version": "0.1.0",
+  "description": "Experimental host-agnostic runtime for the Agent Lease Protocol: lease lifecycle entry points that any host can call.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "@stint/core": "workspace:*",
+    "@stint/proxy": "workspace:*",
+    "@stint/spec": "workspace:*"
+  }
+}

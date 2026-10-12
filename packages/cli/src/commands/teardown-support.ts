@@ -1,214 +1,134 @@
 /**
- * Shared wiring for `revoke` and `cleanup`. Both are thin drivers over the
- * Phase-5 teardown orchestrator: this file only assembles its inputs (a REAL
- * credential vault, the runtime signing key, the manifest's cleanup hook) and
- * reports its result. There is no teardown logic here.
+ * Shared wiring for `revoke` and `cleanup`. Both are thin hosts over
+ * `@stint/runtime`: `resolveLeaseTeardown` asks the runtime to assemble the
+ * lease's teardown (`resolveTeardown`) from the CLI's storage ports, and
+ * `reportTeardown` prints the result. There is no teardown logic, no vault and
+ * no step construction here.
  *
- * The vault matters: `createDefaultTeardownSteps` called without one swaps in
- * a happy-path placeholder that would receipt a false `revoked`. With a real
- * vault, `revoke_oauth` records what actually happened (`revoked`,
- * `discarded_revocation_unsupported` or `failed`) or `not_applicable` when the
- * vault holds nothing. Credentials live only in that in-memory vault; they are
- * never stored, receipted or printed.
+ * Credentials live in the `SecretStore`, not in this process: the optional
+ * `--credentials` file is parsed here (a malformed file fails before any
+ * prompt) but only copied into the store, by the calling command, once the user
+ * has confirmed. A credential the store cannot produce makes the runtime's
+ * preflight block the teardown honestly instead of receipting a false success.
  */
 
-import { resolveAuthMode } from "@stint/spec";
-import type { AuthMode } from "@stint/spec";
-import type { Lease, LicenseIssuer } from "@stint/core";
-import { createCredentialVault, createDefaultTeardownSteps } from "@stint/proxy";
-import type { LicenseCustody, OAuthClient, TeardownDeps } from "@stint/proxy";
+import { setTimeout as delay } from "node:timers/promises";
+
+import type { Lease, LeaseStore } from "@stint/core";
+import { DEFAULT_FENCE_TTL_SECONDS, TeardownFencedError } from "@stint/proxy";
+import { resolveTeardown } from "@stint/runtime";
+import type { ResolvedTeardown, RuntimePorts } from "@stint/runtime";
 
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
+import { runTeardownUnfinishedLine, teardownBusyMessage } from "../messages.js";
+import { isUnrevokedCleanup, rotateCaveat, stateLabel, unrevokedResources } from "../render/caveat.js";
 import type { LoadedCredential } from "../run/credentials.js";
-import { createPublisherClient } from "../run/license-http.js";
-import { isLoopbackHttp } from "../run/loopback.js";
-import { loadStoredManifest } from "../store/envelope.js";
-import { loadPublisherBinding } from "../store/publisher-binding.js";
+import { buildRuntimePorts } from "../runtime-ports.js";
+import { toCliError } from "../runtime-errors.js";
 
 export interface TeardownCommandOpts extends GlobalOpts {
   readonly yes?: boolean | undefined;
   readonly credentials?: string | undefined;
 }
 
-/** Placeholder identity for a vault that holds no credential; never used on the wire. */
-const NO_CREDENTIAL_CLIENT: OAuthClient = {
-  as: { issuer: "https://stint.invalid", token_endpoint: "https://stint.invalid/token" },
-  client: { client_id: "stint" },
-  clientAuth: (_as, client, body) => {
-    body.set("client_id", client.client_id);
-  },
-};
-
 /**
- * Builds the OAuth client the vault uses to revoke, from the non-secret AS
- * details in the credentials file. The vault holds one client, so a file that
- * mixes authorization servers is refused up front rather than revoked against
- * the wrong one. Without a `revocationEndpoint` the resulting receipt is
- * honestly `discarded_revocation_unsupported`.
+ * Resolves the runtime teardown for one lease and parses the optional
+ * credentials file. Does NOT seed the store: the caller does that after the
+ * user confirms, so declining leaves nothing written. A thrown `RuntimeError`
+ * becomes the matching `CliError`.
  */
-function oauthClientFor(creds: Readonly<Record<string, LoadedCredential>>): OAuthClient {
-  const distinct = new Map<string, LoadedCredential>();
-  for (const cred of Object.values(creds)) {
-    const key = JSON.stringify([cred.tokenEndpoint, cred.revocationEndpoint, cred.clientId]);
-    distinct.set(key, cred);
-  }
-  if (distinct.size === 0) return NO_CREDENTIAL_CLIENT;
-  if (distinct.size > 1) {
-    throw new CliError(
-      EXIT_CODES.usage,
-      "The credentials file mixes authorization servers; revoke and cleanup support one.",
-    );
-  }
-  const [only] = [...distinct.values()];
-  if (only === undefined) return NO_CREDENTIAL_CLIENT;
-  return {
-    as: {
-      issuer: new URL(only.tokenEndpoint).origin,
-      token_endpoint: only.tokenEndpoint,
-      ...(only.revocationEndpoint === undefined
-        ? {}
-        : { revocation_endpoint: only.revocationEndpoint }),
-    },
-    client: { client_id: only.clientId ?? "stint" },
-    // RFC 6749 public client: identify by client_id only.
-    clientAuth: (_as, client, body) => {
-      body.set("client_id", client.client_id);
-    },
-  };
-}
-
-const NO_LICENSE_IN_TEARDOWN = "License issuance is not available during teardown.";
-
-/**
- * The `invalidate_license` collaborator for one lease (D-14, Pitfall 4). Teardown
- * runs in its own process (`revoke`/`cleanup`), so there is no in-memory
- * `HeldLicense` to consult: the publisher holds the truth, and the step must
- * ACTUALLY tell it.
- *
- *  - delegated: custody reports no license, so the step is honestly
- *    `not_applicable` and never calls out (without a collaborator the step would
- *    be a happy-path placeholder that receipts a false `ok`).
- *  - hosted/hybrid with a persisted binding: `custody.hasLicense` is true, so the
- *    step calls the publisher's `/license/invalidate` through the verify-then-mint
- *    client; `discard` is a no-op (no license lives in this process).
- *  - hosted/hybrid with NO binding: the publisher cannot be told, so invalidation
- *    fails honestly (`failed` -> `cleanup_incomplete`) rather than receipting `ok`.
- *
- * Only `invalidate` is ever reachable; `issue`/`reissue` refuse.
- */
-async function licenseCollaborator(
-  root: string,
-  leaseId: string,
-  mode: AuthMode,
-  specVersion: string,
-  kid: string,
-): Promise<{ readonly issuer: LicenseIssuer; readonly custody: LicenseCustody }> {
-  const refuse = (): Promise<never> => Promise.reject(new Error(NO_LICENSE_IN_TEARDOWN));
-  const base = { kid, issue: refuse, reissue: refuse };
-  const discard = (): void => undefined;
-
-  if (mode === "delegated") {
-    return {
-      issuer: { ...base, invalidate: () => Promise.resolve() },
-      custody: { hasLicense: () => false, discard },
-    };
-  }
-  const binding = await loadPublisherBinding(root, leaseId);
-  if (binding === undefined) {
-    return {
-      issuer: {
-        ...base,
-        invalidate: () =>
-          Promise.reject(new Error("No publisher binding is stored for the lease.")),
-      },
-      custody: { hasLicense: () => true, discard },
-    };
-  }
-  const client = await createPublisherClient(binding, specVersion);
-  return {
-    issuer: { ...base, invalidate: (id) => client.invalidate(id) },
-    custody: { hasLicense: () => true, discard },
-  };
-}
-
-/**
- * Whether the vault may speak plain http (D-16). Derived from the ONE
- * authorization server the credentials name, never a blanket switch: true only
- * when at least one of its endpoints is loopback http AND every endpoint is
- * either https or loopback http. A non-loopback http endpoint anywhere keeps
- * the HTTPS-only guard fully on.
- */
-function allowInsecureFor(client: OAuthClient): boolean {
-  const endpoints = [client.as.token_endpoint, client.as.revocation_endpoint].filter(
-    (url): url is string => url !== undefined,
-  );
-  const secureOrLoopback = endpoints.every(
-    (url) => isLoopbackHttp(url) || (URL.canParse(url) && new URL(url).protocol === "https:"),
-  );
-  return secureOrLoopback && endpoints.some((url) => isLoopbackHttp(url));
-}
-
-/**
- * Assembles `TeardownDeps` for one lease. `needsCredentials` is true whenever
- * `revoke_oauth` has yet to run: for a delegated or hybrid lease the credentials file is
- * then required, so that step cannot silently report nothing to revoke.
- */
-export async function buildTeardownDeps(
+export async function resolveLeaseTeardown(
   deps: CliDeps,
   root: string,
   leaseId: string,
   opts: TeardownCommandOpts,
-  needsCredentials: boolean,
-): Promise<TeardownDeps> {
-  const verified = await loadStoredManifest(deps, root, leaseId);
-  // Hybrid carries `auth.delegated` grants too; only a purely hosted lease has none.
-  const mode = resolveAuthMode(verified.manifest);
-  const hasOAuthGrants = mode !== "hosted";
-  const credentialsFile =
-    opts.credentials === undefined || opts.credentials === "" ? undefined : opts.credentials;
-
-  if (hasOAuthGrants && needsCredentials && credentialsFile === undefined) {
-    throw new CliError(
-      EXIT_CODES.usage,
-      "--credentials <file> is required so the lease's OAuth grants can be revoked.",
-    );
+): Promise<{
+  readonly ports: RuntimePorts;
+  readonly resolved: ResolvedTeardown;
+  readonly fileCredentials: Readonly<Record<string, LoadedCredential>> | undefined;
+}> {
+  const ports = buildRuntimePorts(deps, root);
+  const fileCredentials =
+    opts.credentials === undefined || opts.credentials === ""
+      ? undefined
+      : await deps.credentials.load(opts.credentials);
+  try {
+    const resolved = await resolveTeardown(ports, {
+      leaseId,
+      ...(deps.teardown?.decorateSteps === undefined
+        ? {}
+        : { decorateSteps: deps.teardown.decorateSteps }),
+    });
+    return { ports, resolved, fileCredentials };
+  } catch (error) {
+    throw toCliError(error);
   }
+}
 
-  const credentials =
-    hasOAuthGrants && credentialsFile !== undefined
-      ? await deps.credentials.load(credentialsFile)
-      : undefined;
-  const oauthClient =
-    credentials === undefined ? NO_CREDENTIAL_CLIENT : oauthClientFor(credentials);
-  const vault = createCredentialVault(
-    oauthClient,
-    deps.clock,
-    allowInsecureFor(oauthClient) ? { allowInsecureRequests: true } : {},
-  );
-  if (credentials !== undefined) deps.credentials.seedVault(vault, leaseId, credentials);
+/** One poll of the fence wait: a second, matching the one-second granularity of lease time. */
+const FENCE_POLL_MS = 1000;
+/** Total wait for another driver's live fence: the same budget as the lease lock (user resolution 5). */
+const DEFAULT_FENCE_WAIT_MS = 30_000;
 
-  const { privateKey } = await deps.keys.loadOrCreate(root);
-  const receiptStore = deps.receiptStoreFactory(root, leaseId);
-  const cleanup = {
-    url: verified.manifest.cleanup === null ? null : verified.manifest.cleanup.hook.url,
-  };
-  const license = await licenseCollaborator(
-    root,
-    leaseId,
-    mode,
-    verified.manifest.spec_version,
-    verified.manifest.auth.hosted?.kid ?? "publisher",
-  );
-  const defaults = createDefaultTeardownSteps(receiptStore, privateKey, vault, license, cleanup);
+/**
+ * Runs one teardown attempt for a user's `revoke` or `cleanup` (D-13). When
+ * another driver (a supervisor, a live `run`, another command) holds a live
+ * teardown fence the attempt is refused with `TeardownFencedError("held")` before
+ * any step runs; this waits for that driver quietly, polling once a second for
+ * at most 30 s, and then:
+ *
+ * - the other driver landed the lease (fence released, state `cleaned_up` or
+ *   `cleanup_incomplete`): that lease is returned, so the user sees one honest
+ *   outcome and no step ran here;
+ * - the fence was released without landing, or expired (a crashed holder): the
+ *   attempt runs again, taking the fence over with a receipt;
+ * - the fence is still live when the wait runs out: exit 8 with the fixed
+ *   `teardownBusyMessage` naming `stint-cli cleanup <id>`.
+ *
+ * A `stale` fence error and every other error propagate unchanged. Nothing is
+ * printed while waiting.
+ */
+export async function withFenceWait(
+  deps: CliDeps,
+  store: LeaseStore,
+  leaseId: string,
+  attempt: () => Promise<Lease>,
+): Promise<Lease> {
+  const sleep = deps.teardown?.sleep ?? ((ms: number) => delay(ms));
+  const budgetMs = deps.teardown?.fenceWaitMs ?? DEFAULT_FENCE_WAIT_MS;
+  let waitedMs = 0;
 
-  return {
-    leaseStore: deps.storeFactory(root),
-    receiptStore,
-    leaseId,
-    steps: deps.teardown?.decorateSteps?.(defaults) ?? defaults,
-    signingKey: privateKey,
-  };
+  for (;;) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof TeardownFencedError) || error.kind !== "held") throw error;
+    }
+
+    // Wait until the other driver lets go, lands the lease, or its fence lapses.
+    for (;;) {
+      if (waitedMs >= budgetMs) {
+        throw new CliError(EXIT_CODES.leaseBusy, teardownBusyMessage(leaseId));
+      }
+      await sleep(FENCE_POLL_MS);
+      waitedMs += FENCE_POLL_MS;
+
+      const current = await store.load(leaseId);
+      if (current === undefined) throw new CliError(EXIT_CODES.leaseNotFound, "Lease not found.");
+      const fence = current.fence;
+      const at = deps.clock();
+      // Mirrors the proxy's rule: live means in the future and no more than one TTL ahead.
+      const live =
+        fence !== undefined && fence.expiresAt > at && fence.expiresAt - at <= DEFAULT_FENCE_TTL_SECONDS;
+      if (live) continue;
+      const released = fence === undefined || fence.expiresAt === 0;
+      if (released && (current.state === "cleaned_up" || current.state === "cleanup_incomplete")) {
+        return current;
+      }
+      break;
+    }
+  }
 }
 
 /**
@@ -237,32 +157,39 @@ export async function confirmOrDecline(
 }
 
 /** Prints the resulting state and points at the signed trail; maps it to an exit code. */
-export function reportTeardown(
+export async function reportTeardown(
   deps: CliDeps,
   opts: GlobalOpts,
+  root: string,
   lease: Lease,
   extra: Readonly<Record<string, unknown>> = {},
-): number {
+): Promise<number> {
   const done = lease.state === "cleaned_up";
   const incomplete = lease.state === "cleanup_incomplete";
   if (!done && !incomplete) {
     throw new CliError(EXIT_CODES.internal, "Internal error.");
   }
   const progress = lease.teardownProgress ?? {};
+  // SPEC-07: a cleaned-up lease can still hold a credential that was never revoked upstream.
+  // Exit 0 is always paired with this caveat, derived from the verified chain.
+  const unrevoked = isUnrevokedCleanup(lease)
+    ? unrevokedResources(await deps.receiptStoreFactory(root, lease.id).load("verified"))
+    : [];
 
   if (opts.json === true) {
     deps.io.out(
-      `${JSON.stringify({ leaseId: lease.id, state: lease.state, teardown: progress, ...extra })}\n`,
+      `${JSON.stringify({ leaseId: lease.id, state: lease.state, teardown: progress, unrevoked, ...extra })}\n`,
     );
   } else {
-    deps.io.out(`Lease ${lease.id}: ${lease.state}\n`);
+    deps.io.out(`Lease ${lease.id}: ${stateLabel(lease)}\n`);
     for (const [step, outcome] of Object.entries(progress)) {
       deps.io.out(`  ${step}: ${outcome}\n`);
     }
+    for (const resource of unrevoked) {
+      deps.io.err(`stint: ${rotateCaveat(resource)}\n`);
+    }
     if (incomplete) {
-      deps.io.err(
-        `stint: Teardown did not finish. Run "stint-cli cleanup ${lease.id}" to resume it.\n`,
-      );
+      deps.io.err(`stint: ${runTeardownUnfinishedLine(lease.id)}\n`);
     }
     deps.io.err(
       `stint: See the signed per-step trail with "stint-cli receipts ${lease.id}" and "stint-cli verify ${lease.id}".\n`,

@@ -1,10 +1,14 @@
 /**
  * The commander@15 program factory and the top-level `main` (Pattern 2).
  *
- * This file is the single command-registration surface: all seven commands are
- * registered here with their positional args and flags (D-03). It is FROZEN
- * after plan 06-04 — later plans replace only their own `commands/*.ts`
- * bodies and never re-register anything here.
+ * This file is the single command-registration surface: the seven original
+ * commands are registered here with their positional args and flags (D-03). It
+ * was FROZEN after plan 06-04, and later plans replace only their own
+ * `commands/*.ts` bodies and never re-register anything here. The exceptions:
+ * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option)
+ * and Phase 9 D-21 (an eighth command, `supervise`: one sweep with `--once`,
+ * otherwise a long-running loop that sweeps every `--sweep-interval` seconds
+ * until it is stopped).
  *
  * No action calls `process.exit`, and library code never touches
  * `process.exitCode`: an action stores its result in an `ExitSink` and `main`
@@ -26,6 +30,8 @@ import { revokeCommand } from "./commands/revoke.js";
 import type { RevokeOpts } from "./commands/revoke.js";
 import { runCommand } from "./commands/run.js";
 import type { RunOpts } from "./commands/run.js";
+import { superviseCommand } from "./commands/supervise.js";
+import type { SuperviseOpts } from "./commands/supervise.js";
 import { verifyCommand } from "./commands/verify.js";
 import type { VerifyOpts } from "./commands/verify.js";
 import type { CliDeps, GlobalOpts } from "./deps.js";
@@ -65,6 +71,10 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option(
       "--publisher <file>",
       "publisher binding file (issue/reissue/invalidate URLs + license public key) for hosted/hybrid leases",
+    )
+    .option(
+      "--credentials <file>",
+      "credentials file, so consent can say which credentials cannot be revoked; stored for the lease",
     )
     .action(async (manifestPath: string, _opts: unknown, cmd: Command) => {
       sink.code = await createCommand(deps, manifestPath, cmd.optsWithGlobals<CreateOpts>());
@@ -123,6 +133,22 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .argument("<leaseId>", "lease id")
     .action(async (leaseId: string, _opts: unknown, cmd: Command) => {
       sink.code = await verifyCommand(deps, leaseId, cmd.optsWithGlobals<VerifyOpts>());
+    });
+
+  program
+    .command("supervise")
+    .description("Settle, retry and tear down ended leases in this store (runs until stopped; --once for one sweep)")
+    .option("--once", "run a single sweep and exit (default: keep sweeping until stopped)")
+    .option("--sweep-interval <seconds>", "seconds between sweeps when running until stopped (default 30)")
+    .option("--retry-base <seconds>", "first wait before retrying an incomplete teardown (default 60)")
+    .option("--retry-max <seconds>", "longest wait between retries (default 3600)")
+    .option("--retry-cap <count>", "retries before a lease is marked stuck (default 8)")
+    .option("--probe-interval <seconds>", "seconds between grant probes of an idle lease; 0 disables (default 900)")
+    .option("--corrupt-repeat <seconds>", "seconds before an unchanged corrupt record is reported again (default 86400)")
+    .option("--clock-jump-threshold <seconds>", "forward clock jump, beyond elapsed time, that pauses lease expiry (default 3600)")
+    .option("--confirm-clock", "confirm the system clock after a reported jump; resumes lease expiry")
+    .action(async (_opts: unknown, cmd: Command) => {
+      sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
     });
 
   return program;

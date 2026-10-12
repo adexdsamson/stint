@@ -1,9 +1,9 @@
 /**
  * Shared credentials-file parser and vault seeder (D-02, A5), used by
  * run/revoke/cleanup. The file holds SECRETS (access/refresh tokens): its
- * contents go only into the in-memory vault and are never persisted to the
- * store or receipts, and never echoed in an error. No OAuth acquisition flow
- * lives here (D-02).
+ * contents go into the vault, never into receipts, and are never echoed in an
+ * error. This module never persists them: durable storage is the SecretStore's
+ * job and is wired in plan 08-09. No OAuth acquisition flow lives here (D-02).
  *
  * File shape: `{ "<resource>": { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator,
  * clientId?, revocationEndpoint? } }`. `clientId` and `revocationEndpoint` are the non-secret
@@ -14,7 +14,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import type { CredentialVault, SeededCredential } from "@stint/proxy";
+import type { CredentialVault, OAuthSeededCredential, SeededCredential } from "@stint/proxy";
 
 import { CliError, EXIT_CODES } from "../exit.js";
 
@@ -30,11 +30,8 @@ function isUrl(v: string): boolean {
   return URL.canParse(v);
 }
 
-/** A seeded credential plus the optional non-secret AS details used only to attempt revocation. */
-export interface LoadedCredential extends SeededCredential {
-  readonly clientId?: string;
-  readonly revocationEndpoint?: string;
-}
+/** A seeded OAuth grant plus the optional non-secret AS details used to build its per-credential revocation client. */
+export type LoadedCredential = OAuthSeededCredential;
 
 function parseSeeded(raw: unknown): LoadedCredential | undefined {
   if (!isRecord(raw)) return undefined;
@@ -103,17 +100,12 @@ export async function loadCredentials(file: string): Promise<Record<string, Load
 export function seedVaultFromCredentials(
   vault: CredentialVault,
   leaseId: string,
-  creds: Readonly<Record<string, LoadedCredential>>,
+  creds: Readonly<Record<string, SeededCredential>>,
 ): void {
-  for (const [resource, loaded] of Object.entries(creds)) {
-    // Only the vault's own shape goes in; the AS details are used to build the revocation client.
-    const { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator } = loaded;
-    vault.seedCredential(leaseId, resource, {
-      accessToken,
-      refreshToken,
-      expiry,
-      tokenEndpoint,
-      resourceIndicator,
-    });
+  for (const [resource, credential] of Object.entries(creds)) {
+    // The entry goes in as its own fields (including the non-secret clientId and
+    // revocationEndpoint when present) so the vault can build a client per credential.
+    // No `kind` is added: an entry without one is an OAuth grant.
+    vault.seedCredential(leaseId, resource, { ...credential });
   }
 }

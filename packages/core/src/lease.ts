@@ -55,6 +55,17 @@ export type TeardownProgress = {
 };
 
 /**
+ * Phase 9 D-09: the teardown fence. `epoch` counts the drivers that have taken
+ * the teardown (1 for the first). `expiresAt` is epoch seconds; `0` means the
+ * fence is released. Only the teardown orchestrator writes it, always inside a
+ * lease transaction, so the fence commits atomically with each step outcome.
+ */
+export interface TeardownFence {
+  readonly epoch: number;
+  readonly expiresAt: number;
+}
+
+/**
  * The canonical, immutable lease shape (D-01, D-04, D-06, D-20). `boundHash`
  * is the prefixed `jcs-sha256:` content hash captured at consent — never
  * the manifest itself (D-20). `grantedAt`/`expiresAt` are epoch seconds,
@@ -73,6 +84,13 @@ export interface Lease {
   readonly maxDurationSeconds: number;
   readonly counters: LeaseCounters;
   readonly teardownProgress?: TeardownProgress;
+  /**
+   * Phase 9 D-09: the lease-record teardown fence. Only the teardown
+   * orchestrator writes it, inside a lease transaction; `reduce()` carries it
+   * unchanged through the `{ ...lease }` spread and never bumps `version` for
+   * it. Absent until the first fenced teardown pass.
+   */
+  readonly fence?: TeardownFence;
 }
 
 /** D-02: at minimum these five fields; the caller persists it and Phase 3 receipts consume it. */

@@ -221,3 +221,30 @@ describe("stint cleanup", () => {
     );
   });
 });
+
+describe("stint cleanup: SPEC-07 caveat", () => {
+  it("an unrevocable credential exits 0 with the label and caveat, and a re-run repeats the caveat", async () => {
+    rig = await createTeardownRig();
+    await rig.setLease({ state: "completed" });
+    const code = await main(
+      rig.argv("cleanup", "--yes", "--credentials", rig.fx.credentialsPath),
+      rig.deps,
+    );
+
+    expect(code).toBe(EXIT_CODES.ok);
+    expect(rig.fx.harness.stdout.join("")).toContain(
+      "cleaned_up (credential not revoked upstream)",
+    );
+    expect(rig.fx.harness.stderr.join("")).toContain(
+      "The credential for sheets.orders was not revoked upstream. Rotate it in the provider dashboard.",
+    );
+
+    // The idempotent no-op path derives the same caveat from the stored receipts.
+    rig.clearOutput();
+    expect(await main(rig.argv("cleanup"), rig.deps)).toBe(EXIT_CODES.ok);
+    expect(rig.fx.harness.stdout.join("")).toContain(
+      "cleaned_up (credential not revoked upstream)",
+    );
+    expect(rig.fx.harness.stderr.join("")).toContain("sheets.orders was not revoked upstream");
+  });
+});

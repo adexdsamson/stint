@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { appendEntry } from "@stint/core";
 import type { Lease } from "@stint/core";
+import type { ReceiptEntry } from "@stint/spec";
 
 import { EXIT_CODES } from "../src/exit.js";
 import { main } from "../src/program.js";
@@ -95,5 +97,67 @@ describe("stint inspect", () => {
     );
     await main(["--store", harness.root, "inspect", "lease-abc"], harness.deps);
     expect(harness.stdout.join("")).toContain("revoke_oauth: revoked");
+  });
+});
+
+describe("stint inspect: SPEC-07 caveat", () => {
+  const caveated = (): Lease =>
+    lease({
+      state: "cleaned_up",
+      teardownProgress: { revoke_oauth: "discarded_revocation_unsupported" },
+    });
+
+  async function seedUnrevoked(harness: Harness, resources: readonly string[]): Promise<void> {
+    const store = harness.deps.receiptStoreFactory(harness.root, "lease-abc");
+    const chain: ReceiptEntry[] = [];
+    for (const resource of resources) {
+      const entry = appendEntry(
+        chain,
+        {
+          chain: "verified",
+          type: "teardown_step",
+          payload: { step: "revoke_oauth", outcome: "discarded_revocation_unsupported", resource },
+        },
+        NOW,
+      );
+      chain.push(entry);
+      await store.append("verified", entry);
+    }
+  }
+
+  it("labels the state and names each credential to rotate", async () => {
+    const harness = await saved(caveated());
+    await seedUnrevoked(harness, ["sheets.orders"]);
+    expect(await main(["--store", harness.root, "inspect", "lease-abc"], harness.deps)).toBe(0);
+    const out = harness.stdout.join("");
+    expect(out).toContain("state: cleaned_up (credential not revoked upstream)");
+    expect(out).toContain("Teardown caveat");
+    expect(out).toContain(
+      "The credential for sheets.orders was not revoked upstream. Rotate it in the provider dashboard.",
+    );
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  it("--json prints the raw lease with the plain cleaned_up state", async () => {
+    const l = caveated();
+    const harness = await saved(l);
+    await seedUnrevoked(harness, ["sheets.orders"]);
+    expect(
+      await main(["--store", harness.root, "inspect", "lease-abc", "--json"], harness.deps),
+    ).toBe(0);
+    const parsed = JSON.parse(harness.stdout.join("")) as Lease;
+    expect(parsed.state).toBe("cleaned_up");
+    expect(parsed).toEqual(l);
+  });
+
+  it("a fully revoked cleanup shows the plain state and no caveat section", async () => {
+    const harness = await saved(
+      lease({ state: "cleaned_up", teardownProgress: { revoke_oauth: "revoked" } }),
+    );
+    await main(["--store", harness.root, "inspect", "lease-abc"], harness.deps);
+    const out = harness.stdout.join("");
+    expect(out).toMatch(/state: cleaned_up(\r?\n)/);
+    expect(out).not.toContain("not revoked upstream");
+    expect(out).not.toContain("Teardown caveat");
   });
 });

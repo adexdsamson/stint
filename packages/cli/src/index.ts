@@ -4,6 +4,11 @@ export { createJsonLeaseStore } from "./store/json-lease-store.js";
 export type { JsonLeaseStoreOptions } from "./store/json-lease-store.js";
 export { createJsonReceiptStore } from "./store/json-receipt-store.js";
 export type { JsonReceiptStoreOptions } from "./store/json-receipt-store.js";
+export { createFileSecretStore } from "./store/file-secret-store.js";
+export type { FileSecretStoreOptions } from "./store/file-secret-store.js";
+export { createFileLeaseArtifactStore } from "./store/file-artifact-store.js";
+export type { FileLeaseArtifactStoreOptions } from "./store/file-artifact-store.js";
+export { buildRuntimePorts } from "./runtime-ports.js";
 
 export {
   createTerminalHostAdapter,
@@ -27,7 +32,11 @@ export type {
   TeardownSeams,
 } from "./deps.js";
 export { EXIT_CODES, CliError } from "./exit.js";
-export { loadOrCreateRuntimeKey, loadCheckpointPublicKey } from "./keys/runtime-key.js";
+export {
+  loadOrCreateRuntimeKey,
+  loadCheckpointPublicKey,
+  createFileKeyProvider,
+} from "./keys/runtime-key.js";
 export type { RuntimeKey, RuntimePublicJwk } from "./keys/runtime-key.js";
 export { loadTrustStore } from "./trust/trust-store.js";
 export { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";

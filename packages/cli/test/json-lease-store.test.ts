@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -134,5 +134,77 @@ describe("createJsonLeaseStore (JSON-store specifics)", () => {
         "version",
       ].sort(),
     );
+  });
+
+  it("a fence round-trips through save, load and transaction (Phase 9 D-09)", async () => {
+    const store = createJsonLeaseStore({ root: freshRoot() });
+    const fence = { epoch: 2, expiresAt: 100 };
+    await store.save(makeTestLease("lease-fence", { fence }));
+    expect((await store.load("lease-fence"))?.fence).toEqual(fence);
+
+    const moved = await store.transaction("lease-fence", (cur) => ({
+      ...cur,
+      fence: { epoch: 2, expiresAt: 0 },
+    }));
+    expect(moved.fence).toEqual({ epoch: 2, expiresAt: 0 });
+    expect((await store.load("lease-fence"))?.fence).toEqual({ epoch: 2, expiresAt: 0 });
+  });
+
+  it.each([
+    ["a string epoch", { epoch: "2", expiresAt: 100 }],
+    ["a fractional epoch", { epoch: 1.5, expiresAt: 100 }],
+    ["an epoch of 0", { epoch: 0, expiresAt: 100 }],
+    ["a negative expiry", { epoch: 1, expiresAt: -1 }],
+    ["a missing expiry", { epoch: 1 }],
+    ["a non-object fence", "released"],
+  ])("a lease.json with %s loads as StoreCorruptError", async (_name, fence) => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    await store.save(makeTestLease("lease-badfence"));
+    const stored = JSON.parse(await readFile(leaseFile(root, "lease-badfence"), "utf8")) as Record<string, unknown>;
+    await writeFile(leaseFile(root, "lease-badfence"), JSON.stringify({ ...stored, fence }));
+    await expect(store.load("lease-badfence")).rejects.toBeInstanceOf(StoreCorruptError);
+  });
+
+  it("scan() is tolerant: a torn record is reported by id, sorted, and its bytes are untouched", async () => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    await store.save(makeTestLease("lease-b"));
+    await store.save(makeTestLease("lease-a"));
+    const tornFile = leaseFile(root, "lease-a");
+    await writeFile(tornFile, '{"id": "lease-a", ');
+    const before = await readFile(tornFile);
+
+    const scanned = await store.scan();
+
+    expect(scanned.map((entry) => entry.id)).toEqual(["lease-a", "lease-b"]);
+    const [torn, ok] = scanned;
+    expect(torn).toMatchObject({ id: "lease-a", unreadable: "corrupt" });
+    expect((torn as { fingerprint: string }).fingerprint).not.toBe("");
+    expect(ok).toMatchObject({ id: "lease-b", lease: { id: "lease-b" } });
+    expect((await readFile(tornFile)).equals(before)).toBe(true);
+  });
+
+  it("scan() of a missing store root is empty and skips stray names and empty directories", async () => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    expect(await store.scan()).toEqual([]);
+
+    await store.save(makeTestLease("lease-1"));
+    await mkdir(path.join(root, "leases", "no-record"), { recursive: true });
+    await mkdir(path.join(root, "leases", ".hidden"), { recursive: true });
+    await writeFile(path.join(root, "leases", "stray-file"), "x");
+
+    const scanned = await store.scan();
+    expect(scanned.map((entry) => entry.id)).toEqual(["lease-1"]);
+  });
+
+  it("scan() reports a record that fails strict validation as corrupt, never as a lease", async () => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    await store.save(makeTestLease("lease-v"));
+    await writeFile(leaseFile(root, "lease-v"), JSON.stringify({ id: "lease-v", state: "nonsense" }));
+    const [entry] = await store.scan();
+    expect(entry).toMatchObject({ id: "lease-v", unreadable: "corrupt" });
   });
 });

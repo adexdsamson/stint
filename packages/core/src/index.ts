@@ -12,7 +12,15 @@ export { userEvents, clockEvents, policyEvents, providerEvents, publisherEvents,
 export type { LeaseEvent } from "./events.js";
 
 export { reduce } from "./lease.js";
-export type { Lease, LeaseCounters, TransitionRecord, TeardownStepName, TeardownStepOutcome, TeardownProgress } from "./lease.js";
+export type {
+  Lease,
+  LeaseCounters,
+  TransitionRecord,
+  TeardownStepName,
+  TeardownStepOutcome,
+  TeardownProgress,
+  TeardownFence,
+} from "./lease.js";
 
 export { createBindingSet, resolveBinding } from "./bindings.js";
 export type {
@@ -31,19 +39,55 @@ export { verifyBoundHash } from "./hash-guard.js";
 
 export { activateLease, resumeLease } from "./activate.js";
 
-export { awaitConsentDecision, awaitApprovalDecision, awaitOutcomeConfirmDecision } from "./host-adapter.js";
+export {
+  awaitConsentDecision,
+  awaitApprovalDecision,
+  awaitOutcomeConfirmDecision,
+  LEASE_ENDED_REASON,
+  createLeaseEndedReason,
+  isLeaseEndedSignal,
+} from "./host-adapter.js";
 export type {
   HostAdapter,
   LifecycleEvent,
   ConsentRequest,
+  ConsentCustody,
+  ConsentCredential,
   ConsentDecision,
   ApprovalRequest,
   ApprovalDecision,
+  ApprovalVoidReason,
+  TeardownStuckReason,
   OutcomeConfirmRequest,
   OutcomeConfirmDecision,
 } from "./host-adapter.js";
 
-export type { LeaseStore, LeaseMutator } from "./lease-store.js";
+export type { LeaseStore, LeaseMutator, LeaseScanEntry } from "./lease-store.js";
+
+// Telemetry port (D-25): closed scalar-only event union, no-op sink, throw-swallowing emit.
+export { NOOP_TELEMETRY, safeEmit } from "./ports/telemetry.js";
+export type { Telemetry, TelemetryEvent } from "./ports/telemetry.js";
+
+// Storage ports (RT-02): secrets, signing keys and per-lease artifacts. Their
+// in-memory doubles and contract suites live in `@stint/core/testing` only and
+// are deliberately NOT re-exported here.
+export {
+  SecretKeyError,
+  assertValidSecretKey,
+  assertValidSecretPrefix,
+  leaseSecretPrefix,
+  credentialSecretKey,
+} from "./ports/secret-store.js";
+export type { SecretStore } from "./ports/secret-store.js";
+export type { KeyProvider, RuntimeKey, RuntimePublicJwk, RuntimeVerificationKey } from "./ports/key-provider.js";
+export { parseGrantsArtifact, parseRunHeartbeat } from "./ports/lease-artifact-store.js";
+export type {
+  LeaseArtifactStore,
+  LeaseArtifactName,
+  GrantRecord,
+  GrantsArtifact,
+  RunHeartbeat,
+} from "./ports/lease-artifact-store.js";
 
 // License public surface (LIC-01, LIC-02, LIC-03, D-11, D-13, D-15). The
 // reference `issueLicense` secret-signing path and `@stint/core/testing`'s
@@ -73,6 +117,7 @@ export type { TimelineEntry, TimelineOrigin } from "./receipts/merge.js";
 export { RECEIPT_VERIFY_REASONS } from "./receipts/errors.js";
 export type { ReceiptVerifyReason, ChainVerifyFailure } from "./receipts/errors.js";
 export type { ReceiptStore } from "./receipts/receipt-store.js";
+export { ReceiptConflictError } from "./receipts/receipt-store.js";
 export type {
   ReceiptEntry,
   ReceiptChain,
@@ -82,6 +127,8 @@ export type {
   TransitionPayload,
   TeardownStepEntry,
   TeardownStepPayload,
+  TeardownBlockedEntry,
+  TeardownBlockedPayload,
   AttestedClaimEntry,
   AttestedClaimPayload,
   Checkpoint,
