@@ -6,6 +6,7 @@
  */
 
 export type Identifier = string;
+export type ParameterType = "string" | "integer" | "currency";
 export type Verifier = ResourceQueryVerifier | UserConfirmVerifier | NoneVerifier;
 export type Access = "read" | "write" | "send" | "pay";
 export type ApprovalTrigger = "send" | "pay" | "irreversible";
@@ -64,9 +65,149 @@ export interface Publisher {
 }
 export interface Job {
   description: string;
+  /**
+   * @minItems 1
+   * @maxItems 16
+   */
+  parameters?:
+    | [JobParameter]
+    | [JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter, JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter]
+    | [JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter, JobParameter]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ]
+    | [
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter,
+        JobParameter
+      ];
   verifier: Verifier;
   /**
    * This interface was referenced by `Job`'s JSON-Schema definition
+   * via the `patternProperty` "^x-".
+   */
+  [k: string]: unknown;
+}
+export interface JobParameter {
+  name: Identifier;
+  type: ParameterType;
+  description?: string;
+  required?: boolean;
+  /**
+   * This interface was referenced by `JobParameter`'s JSON-Schema definition
    * via the `patternProperty` "^x-".
    */
   [k: string]: unknown;

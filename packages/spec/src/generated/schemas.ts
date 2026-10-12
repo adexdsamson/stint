@@ -65,6 +65,43 @@ export const manifestSchema = {
       },
       "additionalProperties": false
     },
+    "JobParameter": {
+      "title": "JobParameter",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/Identifier"
+        },
+        "type": {
+          "$ref": "#/definitions/ParameterType"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    },
+    "ParameterType": {
+      "title": "ParameterType",
+      "type": "string",
+      "enum": [
+        "string",
+        "integer",
+        "currency"
+      ]
+    },
     "Job": {
       "title": "Job",
       "type": "object",
@@ -73,6 +110,14 @@ export const manifestSchema = {
           "type": "string",
           "minLength": 1,
           "maxLength": 2000
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/JobParameter"
+          },
+          "minItems": 1,
+          "maxItems": 16
         },
         "verifier": {
           "$ref": "#/definitions/Verifier"

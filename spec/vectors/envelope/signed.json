@@ -13,6 +13,20 @@
     "version": "0.1.0",
     "job": {
       "description": "Match settled Paystack transactions to open orders and mark matched orders as paid.",
+      "parameters": [
+        {
+          "name": "reference",
+          "type": "string"
+        },
+        {
+          "name": "expected_amount_kobo",
+          "type": "integer"
+        },
+        {
+          "name": "currency",
+          "type": "currency"
+        }
+      ],
       "verifier": {
         "type": "resource_query",
         "resource": "sheets.orders",
@@ -82,6 +96,6 @@
   "signature": {
     "alg": "EdDSA",
     "kid": "rfc8037-a1",
-    "sig": "HDqxSFz9vcJdBYdaErkLbgysUkX6YS02jSUqD7JtSq4chxx86tcdMj9ax8qHjS4_U2Bnsp2ABr1r5O0x-tFYCA"
+    "sig": "zrx6oYoGPKDVnkChkCtQS0XM2LvL9Mvxz1yYy3jQ0lyLUix2H3sJyKNM1SnX-3_dkQH6V5jB44YI2G7SVNDyAA"
   }
 }

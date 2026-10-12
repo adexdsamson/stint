@@ -309,6 +309,96 @@ describe("validateManifest", () => {
     }
   });
 
+  it("job.parameters: accepts the declared parameters and their absence", () => {
+    expect(validateManifest(paymentReconcilerManifest()).ok).toBe(true);
+
+    const withoutParameters = cloneManifest(paymentReconcilerManifest());
+    delete withoutParameters.job.parameters;
+    expect(validateManifest(withoutParameters).ok).toBe(true);
+  });
+
+  it("job.parameters: rejects a type outside string, integer and currency", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "reference", type: "number" }];
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        {
+          path: "/job/parameters/0/type",
+          code: "invalid_enum",
+          message: expect.any(String) as string,
+          allowed: ["string", "integer", "currency"],
+        },
+      ]);
+    }
+  });
+
+  it("job.parameters: rejects an unknown field in a parameter object", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "reference", type: "string", foo: 1 }];
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        { path: "/job/parameters/0/foo", code: "unknown_field", message: expect.any(String) as string },
+      ]);
+    }
+  });
+
+  it("job.parameters: rejects a name outside the Identifier charset", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "Bad Name", type: "string" }];
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        { path: "/job/parameters/0/name", code: "invalid_format", message: expect.any(String) as string },
+      ]);
+    }
+  });
+
+  it("job.parameters: rejects more than 16 parameters and an empty list", () => {
+    const seventeen = cloneManifest(paymentReconcilerManifest());
+    (seventeen.job as { parameters: unknown[] }).parameters = Array.from({ length: 17 }, (_, i) => ({
+      name: `p${String(i)}`,
+      type: "string",
+    }));
+    const resultSeventeen = validateManifest(seventeen);
+    expect(resultSeventeen.ok).toBe(false);
+    if (!resultSeventeen.ok) {
+      expect(resultSeventeen.errors).toEqual([
+        { path: "/job/parameters", code: "out_of_range", message: expect.any(String) as string },
+      ]);
+    }
+
+    const empty = cloneManifest(paymentReconcilerManifest());
+    (empty.job as { parameters: unknown[] }).parameters = [];
+    const resultEmpty = validateManifest(empty);
+    expect(resultEmpty.ok).toBe(false);
+    if (!resultEmpty.ok) {
+      expect(resultEmpty.errors).toEqual([
+        { path: "/job/parameters", code: "out_of_range", message: expect.any(String) as string },
+      ]);
+    }
+  });
+
+  it("semantic: duplicate job parameter names", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [
+      { name: "reference", type: "string" },
+      { name: "expected_amount_kobo", type: "integer" },
+      { name: "reference", type: "string" },
+    ];
+    const result = validateManifest(manifest);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        { path: "/job/parameters/2/name", code: "duplicate_item", message: expect.any(String) as string },
+      ]);
+    }
+  });
+
   it("semantic: resource_query verifier with a valid predicate passes", () => {
     const manifest = cloneManifest(paymentReconcilerManifest());
     expect(manifest.job.verifier.type).toBe("resource_query");

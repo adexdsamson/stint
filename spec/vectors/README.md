@@ -4,7 +4,7 @@ This directory holds the conformance vectors referenced by [spec/ALP.md](../ALP.
 
 ## `valid/`
 
-Each file is `{ description, manifest }`. `manifest` MUST validate against [spec/manifest.schema.json](../manifest.schema.json), including every conditional (`if`/`then`) rule and the two semantic rules ALP.md Section 4 states: delegated resources reference only scope resources, and scope resources are unique. `payment-reconciler.json` is, byte for byte, the annotated example in ALP.md Section 4; an automated check in `scripts/check-alp-sections.mjs` keeps the two from ever drifting apart.
+Each file is `{ description, manifest }`. `manifest` MUST validate against [spec/manifest.schema.json](../manifest.schema.json), including every conditional (`if`/`then`) rule and the three semantic rules ALP.md Section 4 states: delegated resources reference only scope resources, scope resources are unique, and job parameter names are unique. `payment-reconciler.json` is, byte for byte, the annotated example in ALP.md Section 4; an automated check in `scripts/check-alp-sections.mjs` keeps the two from ever drifting apart.
 
 ## `invalid/`
 
