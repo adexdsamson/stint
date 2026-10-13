@@ -136,6 +136,67 @@ describe("createJsonLeaseStore (JSON-store specifics)", () => {
     );
   });
 
+  it("jobParameters round-trips through save, load and transaction (10-05, SPEC-08)", async () => {
+    const store = createJsonLeaseStore({ root: freshRoot() });
+    const jobParameters = { reference: "ref_1001", expected_amount_kobo: 30050, currency: "NGN" };
+    await store.save(makeTestLease("lease-params", { jobParameters }));
+    expect((await store.load("lease-params"))?.jobParameters).toEqual(jobParameters);
+
+    const moved = await store.transaction("lease-params", (cur) => ({
+      ...cur,
+      version: cur.version + 1,
+    }));
+    expect(moved.jobParameters).toEqual(jobParameters);
+    expect((await store.load("lease-params"))?.jobParameters).toEqual(jobParameters);
+  });
+
+  it("a pre-phase lease without jobParameters loads exactly as before", async () => {
+    const store = createJsonLeaseStore({ root: freshRoot() });
+    await store.save(makeTestLease("lease-prephase"));
+    const loaded = await store.load("lease-prephase");
+    expect(loaded).toEqual(makeTestLease("lease-prephase"));
+    expect(loaded?.jobParameters).toBeUndefined();
+    expect("jobParameters" in (loaded ?? {})).toBe(false);
+  });
+
+  it("accepts the identifier-scale name boundaries: a 128-char name loads, a 129-char name is corrupt", async () => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    await store.save(makeTestLease("lease-name", { jobParameters: { ok: "x" } }));
+    const stored = JSON.parse(await readFile(leaseFile(root, "lease-name"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+
+    await writeFile(
+      leaseFile(root, "lease-name"),
+      JSON.stringify({ ...stored, jobParameters: { ["a".repeat(128)]: "x" } }),
+    );
+    expect((await store.load("lease-name"))?.jobParameters).toEqual({ ["a".repeat(128)]: "x" });
+
+    await writeFile(
+      leaseFile(root, "lease-name"),
+      JSON.stringify({ ...stored, jobParameters: { ["a".repeat(129)]: "x" } }),
+    );
+    await expect(store.load("lease-name")).rejects.toBeInstanceOf(StoreCorruptError);
+  });
+
+  it.each([
+    ["a float value", { reference: 12.5 }],
+    ["an unsafe name", { "bad name": "x" }],
+    ["a non-record shape", ["reference", "NGN"]],
+    ["a null value", { reference: null }],
+    ["a boolean value", { currency: true }],
+    ["an empty name", { "": "x" }],
+  ])("a lease.json whose jobParameters has %s loads as StoreCorruptError", async (_name, jobParameters) => {
+    const root = freshRoot();
+    const store = createJsonLeaseStore({ root });
+    await store.save(makeTestLease("lease-badparams"));
+    const stored = JSON.parse(await readFile(leaseFile(root, "lease-badparams"), "utf8")) as Record<string, unknown>;
+    await writeFile(leaseFile(root, "lease-badparams"), JSON.stringify({ ...stored, jobParameters }));
+    await expect(store.load("lease-badparams")).rejects.toBeInstanceOf(StoreCorruptError);
+  });
+
   it("a fence round-trips through save, load and transaction (Phase 9 D-09)", async () => {
     const store = createJsonLeaseStore({ root: freshRoot() });
     const fence = { epoch: 2, expiresAt: 100 };

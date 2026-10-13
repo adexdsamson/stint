@@ -91,6 +91,15 @@ export interface Lease {
    * it. Absent until the first fenced teardown pass.
    */
   readonly fence?: TeardownFence;
+  /**
+   * Phase 10 (SPEC-08): the job's create-bound parameter values, entered by
+   * the user at consent. Written exactly ONCE, at activation, by `create`;
+   * `reduce()` never touches it, and no command, tool call or verifier read
+   * can update it, so immutability is structural (no writer exists). The
+   * types live in the manifest's `job.parameters` declarations, not here.
+   * Absent for pre-phase leases and manifests without parameters.
+   */
+  readonly jobParameters?: Readonly<Record<string, string | number>>;
 }
 
 /** D-02: at minimum these five fields; the caller persists it and Phase 3 receipts consume it. */

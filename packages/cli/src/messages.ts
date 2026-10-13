@@ -131,6 +131,46 @@ export function apiKeyPrompt(resource: string): string {
   return `Enter the API key for ${sanitizeForTerminal(resource)} (not shown as you type): `;
 }
 
+/**
+ * The typed-entry prompt for one job parameter at `create` (10-05, SPEC-08).
+ * Fixed text: the type is a closed enum value, the name is sanitized here,
+ * and the description (publisher text) is sanitized. The value is NOT a
+ * secret: the line says it will be shown at consent and bound to the lease,
+ * so a user typing a secret into it sees that promise on the screen.
+ */
+export function jobParameterPromptLine(ask: {
+  readonly name: string;
+  readonly type: string;
+  readonly description?: string;
+  readonly required: boolean;
+  readonly invalidRetryMessage?: string;
+}): string {
+  const lines: string[] = [];
+  if (ask.invalidRetryMessage !== undefined) lines.push(ask.invalidRetryMessage);
+  if (ask.description !== undefined) lines.push(sanitizeForTerminal(ask.description));
+  lines.push(
+    `Enter the ${ask.type} value for ${sanitizeForTerminal(ask.name)}${ask.required ? "" : " (optional; press Enter to skip)"}; it will be shown at consent and bound to the lease: `,
+  );
+  return lines.join("\n");
+}
+
+/**
+ * The fixed line shown before the single re-ask after an invalid answer
+ * (10-05, SPEC-08). Only the closed type value names the expectation; the
+ * answer itself is never echoed back.
+ */
+export function jobParameterInvalidMessage(type: string): string {
+  const lines: Readonly<Record<string, string>> = {
+    string: "That was not a valid string value (1 to 128 characters). Try again; a second invalid answer declines the lease.",
+    integer: "That was not a valid integer value (whole kobo, at least 1). Try again; a second invalid answer declines the lease.",
+    currency: "That was not a valid currency value (three uppercase letters, for example NGN). Try again; a second invalid answer declines the lease.",
+  };
+  return (
+    lines[type] ??
+    "That was not a valid value for this parameter. Try again; a second invalid answer declines the lease."
+  );
+}
+
 /** One `supervise` line when a lease could not be processed. Never includes error text. */
 export function sweepLeaseErrorLine(leaseId: string): string {
   return `Lease ${leaseId} could not be processed in this sweep.`;

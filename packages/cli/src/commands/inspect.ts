@@ -98,6 +98,16 @@ function renderLease(
   row(`recent denial errors: ${String(lease.counters.denialErrorTimestamps.length)}`);
   row(`actions in rate window: ${String(lease.counters.actionTimestamps.length)}`);
 
+  // The create-bound job parameters (10-05, SPEC-08), one row per bound value in
+  // declaration order; absent entirely for pre-phase leases. The values are not
+  // secrets (they were shown at consent), and both name and value are sanitized.
+  if (lease.jobParameters !== undefined) {
+    section("Job parameters");
+    for (const [name, value] of Object.entries(lease.jobParameters)) {
+      row(`${s(name)}: ${s(typeof value === "number" ? String(value) : value)}`);
+    }
+  }
+
   if (lease.teardownProgress !== undefined) {
     section("Teardown");
     for (const [step, outcome] of Object.entries(lease.teardownProgress)) {

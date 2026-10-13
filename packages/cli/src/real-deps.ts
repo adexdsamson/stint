@@ -7,8 +7,10 @@ import { askLine, askSecret } from "./adapter/prompt.js";
 import { createTerminalHostAdapter } from "./adapter/terminal-host-adapter.js";
 import type { CliDeps, SuperviseSeams } from "./deps.js";
 import { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
+import { jobParameterPromptLine } from "./messages.js";
 import { colorDecision, createStyle } from "./render/style.js";
 import { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
+import type { JobParameterAsk } from "./run/job-parameters.js";
 import { openControllingTerminal } from "./run/terminal.js";
 import { abortableSleep } from "./supervise-timing.js";
 import { createJsonLeaseStore } from "./store/json-lease-store.js";
@@ -18,6 +20,8 @@ import { loadTrustStore } from "./trust/trust-store.js";
 const DEFAULT_APPROVAL_TIMEOUT_SECONDS = 60;
 /** ASSUMED (A3): matches create's consent timeout; the secret prompt shares its discipline. */
 const DEFAULT_ASK_SECRET_TIMEOUT_SECONDS = 120;
+/** ASSUMED (A3): the parameter asks share the secret prompt's timeout discipline. */
+const DEFAULT_ASK_JOB_PARAMETER_TIMEOUT_SECONDS = 120;
 
 /** `[y/N]` on the real terminal; the question goes to stderr so `--json` stdout stays clean. */
 async function confirmOnTerminal(question: string): Promise<boolean | undefined> {
@@ -47,6 +51,36 @@ async function askSecretOnTerminal(prompt: string): Promise<string | undefined> 
   }, DEFAULT_ASK_SECRET_TIMEOUT_SECONDS * 1000);
   try {
     return await askSecret(terminal.input, terminal.output, prompt, controller.signal);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+    terminal.close();
+  }
+}
+
+/**
+ * The typed job-parameter prompt on the controlling terminal (10-05,
+ * SPEC-08): one line per declaration over `askLine`, the description shown
+ * when present, the answer trimmed. Arms the same AbortController-plus-timer
+ * discipline the consent block uses; no terminal resolves `undefined` so the
+ * caller can decline. The value is not a secret; the fixed prompt says it
+ * will be shown at consent and bound to the lease.
+ */
+async function askJobParameterOnTerminal(ask: JobParameterAsk): Promise<string | undefined> {
+  const terminal = openControllingTerminal();
+  if (terminal === undefined) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, DEFAULT_ASK_JOB_PARAMETER_TIMEOUT_SECONDS * 1000);
+  try {
+    const answer = await askLine(
+      terminal.input,
+      terminal.output,
+      jobParameterPromptLine(ask),
+      controller.signal,
+    );
+    return answer === undefined ? undefined : answer.trim();
   } finally {
     clearTimeout(timer);
     controller.abort();
@@ -138,6 +172,7 @@ export function createRealDeps(): CliDeps {
     credentials: { load: loadCredentials, seedVault: seedVaultFromCredentials },
     confirm: confirmOnTerminal,
     askSecret: askSecretOnTerminal,
+    askJobParameter: askJobParameterOnTerminal,
     supervise: {
       shutdown: () => createSuperviseShutdown(),
       sleep: abortableSleep,

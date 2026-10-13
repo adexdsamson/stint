@@ -1,4 +1,4 @@
-import type { ConsentCustody } from "@stint/core";
+import type { ConsentCustody, ConsentParameter } from "@stint/core";
 import { resolveAuthMode } from "@stint/spec";
 import type { Manifest } from "@stint/spec";
 
@@ -16,12 +16,15 @@ import { sanitizeForTerminal } from "./sanitize.js";
  * Renders the ALP section 6 consent summary as a sectioned, single-line-per-fact
  * string. Every manifest-derived value passes through `sanitizeForTerminal`
  * (T-06-09). Cleanup behaviour is labelled an attested publisher claim, never a
- * runtime-verified guarantee (section 6 / 13).
+ * runtime-verified guarantee (section 6 / 13). The entered job parameters
+ * (10-05, SPEC-08) render above the credentials block, in declaration order:
+ * the user sees exactly the values that will bind, non-secret by design.
  */
 export function renderConsent(
   manifest: Manifest,
   style: Style = createStyle(false),
   custody?: ConsentCustody,
+  parameters?: readonly ConsentParameter[],
 ): string {
   const s = sanitizeForTerminal;
   const lines: string[] = [];
@@ -74,6 +77,18 @@ export function renderConsent(
   }
   if (manifest.auth.hosted !== undefined) {
     row(`hosted license issuer: ${s(manifest.auth.hosted.license_issuer)}`);
+  }
+
+  if (parameters !== undefined && parameters.length > 0) {
+    section("Job parameters");
+    for (const parameter of parameters) {
+      // The type is a closed enum, so it renders raw beside the sanitized name and
+      // value (the credential-kind precedent below). The value is shown verbatim by
+      // design: seeing what binds is the anti-phishing property (T-10-21).
+      const value =
+        typeof parameter.value === "number" ? String(parameter.value) : parameter.value;
+      row(`${s(parameter.name)} (${parameter.type}): ${s(value)}`);
+    }
   }
 
   if (custody !== undefined && custody.storage === "plaintext_file") {

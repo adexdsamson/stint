@@ -62,6 +62,29 @@ function isValidFence(v: unknown): boolean {
   );
 }
 
+/** Parameter names must be identifier-scale (the manifest's `Identifier` grammar's safe subset): 1..128 of [a-zA-Z0-9._-]. */
+const SAFE_PARAMETER_NAME = /^[a-zA-Z0-9._-]{1,128}$/;
+
+/**
+ * The optional create-bound job parameters (10-05, SPEC-08): a record whose
+ * every name is identifier-scale and whose every value is a string or a
+ * whole number. The closed parameter type set (`string`/`integer`/`currency`,
+ * with integers as whole kobo) can never produce a float, so a fractional
+ * value fails closed as corrupt. Anything else unexpected does too.
+ */
+function isValidJobParameters(v: unknown): boolean {
+  if (!isRecord(v)) return false;
+  for (const [name, value] of Object.entries(v)) {
+    if (!SAFE_PARAMETER_NAME.test(name)) return false;
+    if (typeof value === "number") {
+      if (!Number.isInteger(value)) return false;
+    } else if (typeof value !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Validates parsed JSON is a `Lease`; throws `StoreCorruptError` (fixed message) otherwise. */
 function parseLease(raw: unknown, expectedId?: string): Lease {
   if (!isRecord(raw)) throw new StoreCorruptError();
@@ -76,6 +99,7 @@ function parseLease(raw: unknown, expectedId?: string): Lease {
     counters,
     teardownProgress,
     fence,
+    jobParameters,
   } = raw;
   if (
     typeof id !== "string" ||
@@ -93,7 +117,8 @@ function parseLease(raw: unknown, expectedId?: string): Lease {
     !isNumberArray(counters.denialErrorTimestamps) ||
     !isNumberArray(counters.actionTimestamps) ||
     (teardownProgress !== undefined && !isRecord(teardownProgress)) ||
-    (fence !== undefined && !isValidFence(fence))
+    (fence !== undefined && !isValidFence(fence)) ||
+    (jobParameters !== undefined && !isValidJobParameters(jobParameters))
   ) {
     throw new StoreCorruptError();
   }

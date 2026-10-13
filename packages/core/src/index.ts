@@ -53,6 +53,7 @@ export type {
   ConsentRequest,
   ConsentCustody,
   ConsentCredential,
+  ConsentParameter,
   ConsentDecision,
   ApprovalRequest,
   ApprovalDecision,

@@ -51,12 +51,26 @@ export interface ConsentCustody {
   readonly credentials: readonly ConsentCredential[];
 }
 
+/**
+ * One entered job parameter as the consent screen shows it (Phase 10,
+ * SPEC-08): the declaration's name and type beside the value the user typed.
+ * Non-secret by spec (ALP Section 4): the user entered it precisely so it can
+ * be shown before the grant and bound to the lease.
+ */
+export interface ConsentParameter {
+  readonly name: string;
+  readonly type: string;
+  readonly value: string | number;
+}
+
 /** A request to grant or decline the whole lease at consent time (ALP.md Section 6). */
 export interface ConsentRequest {
   readonly consentId: string;
   readonly manifest: VerifiedManifest;
   /** Absent when the runtime has nothing to say about credential custody. */
   readonly custody?: ConsentCustody;
+  /** Absent when the manifest declares no job parameters or none were entered. */
+  readonly parameters?: readonly ConsentParameter[];
 }
 
 /** `grant` accepts; `decline` carries why — `user_declined` (explicit) or `timeout` (core-decided, D-17). */

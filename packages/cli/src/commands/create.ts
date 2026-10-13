@@ -2,9 +2,9 @@
  * `stint create <manifest-path>`: verify, consent, activate.
  *
  *   read -> parseEnvelope -> verifyEnvelope(trustStore) -> [publisher gate] ->
- *   [API-key entry, no echo, before consent] -> renderConsent (via the adapter) ->
- *   awaitConsentDecision -> reduce(consentGranted) -> [issue license once] ->
- *   activateLease -> save
+ *   [typed job-parameter entry] -> [API-key entry, no echo] -> renderConsent
+ *   (via the adapter) -> awaitConsentDecision -> reduce(consentGranted) ->
+ *   [bind jobParameters once] -> [issue license once] -> activateLease -> save
  *
  * Deny by default: an unparseable, tampered, or untrusted manifest fails
  * BEFORE any consent is shown, and every non-grant (decline, timeout, adapter
@@ -24,7 +24,7 @@ import {
   runtimeEvents,
   userEvents,
 } from "@stint/core";
-import type { Lease } from "@stint/core";
+import type { ConsentParameter, Lease } from "@stint/core";
 import { API_KEY_PROVIDERS, delegatedApiKeyProviders } from "@stint/runtime";
 import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } from "@stint/spec";
 import type { Manifest } from "@stint/spec";
@@ -32,9 +32,15 @@ import type { Manifest } from "@stint/spec";
 import { buildConsentCustody, grantsFromCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
-import { apiKeyPrompt } from "../messages.js";
+import { apiKeyPrompt, jobParameterInvalidMessage } from "../messages.js";
 import { resolveStoreRoot } from "../paths.js";
 import { buildRuntimePorts } from "../runtime-ports.js";
+import type { JobParameterAsk } from "../run/job-parameters.js";
+import {
+  bindJobParameters,
+  interpretJobParameterAnswer,
+  orderParameterDeclarations,
+} from "../run/job-parameters.js";
 import { createPublisherClient, licenseClaimsFromManifest } from "../run/license-http.js";
 import type { LoadedCredential } from "../run/credentials.js";
 import { saveEnvelope } from "../store/envelope.js";
@@ -226,6 +232,36 @@ export async function createCommand(
     return answer.trim();
   };
 
+  // Typed parameter entry (10-05, SPEC-08), BEFORE the API-key prompt and consent: for
+  // each declaration, in manifest order, the user types the job's fixed inputs. The
+  // values are not secrets; each is shown on the consent screen and bound once, at
+  // activation. An unanswered ask (no terminal, EOF, abort) or a second invalid answer
+  // declines the lease: an empty answer is the explicit skip for an optional parameter,
+  // never a value, and the job cannot run honestly without the inputs its publisher
+  // declared. No seam means no terminal, which declines the same way.
+  const declarations = orderParameterDeclarations(manifest.job.parameters);
+  const enteredValues: Record<string, string | number> = {};
+  if (declarations.length > 0) {
+    const askParameter = deps.askJobParameter;
+    if (askParameter === undefined) return await declineLease();
+    for (const declaration of declarations) {
+      let interpreted = interpretJobParameterAnswer(declaration, await askParameter(declaration));
+      if (interpreted.kind === "invalid") {
+        // One re-ask with the fixed invalid-value line, then a decline (T-10-21: the
+        // re-ask shows the expectation; the answer itself is never echoed back).
+        const retry: JobParameterAsk = {
+          ...declaration,
+          invalidRetryMessage: jobParameterInvalidMessage(declaration.type),
+        };
+        interpreted = interpretJobParameterAnswer(declaration, await askParameter(retry));
+      }
+      if (interpreted.kind === "declined" || interpreted.kind === "invalid") {
+        return await declineLease();
+      }
+      if (interpreted.kind === "value") enteredValues[declaration.name] = interpreted.value;
+    }
+  }
+
   // Opt-in API-key entry (10-02, D-A), BEFORE consent and only under --api-key: each
   // delegated resource that takes an API key and is covered by neither the credentials
   // file nor the store is asked for exactly once. Without the flag nothing is ever
@@ -252,6 +288,17 @@ export async function createCommand(
   const seededCredentials: Record<string, LoadedCredential> = { ...(credentials ?? {}), ...entered };
   const custody = buildConsentCustody(manifest, seededCredentials);
 
+  // The consent screen shows exactly what will bind, in declaration order (SPEC-08):
+  // one `name (type): value` row per entered parameter. Optionals the user skipped
+  // are omitted; a manifest with nothing bound carries no parameters at all.
+  const consentParameters: ConsentParameter[] = [];
+  for (const declaration of declarations) {
+    const value = enteredValues[declaration.name];
+    if (value !== undefined) {
+      consentParameters.push({ name: declaration.name, type: declaration.type, value });
+    }
+  }
+
   // 5. Consent, with the timeout armed here and the outcome decided by core.
   const adapter = deps.adapterFactory(deps.io, {
     json,
@@ -267,7 +314,12 @@ export async function createCommand(
   try {
     decision = await awaitConsentDecision(
       adapter,
-      { consentId: randomUUID(), manifest: verified.value, custody },
+      {
+        consentId: randomUUID(),
+        manifest: verified.value,
+        custody,
+        ...(consentParameters.length === 0 ? {} : { parameters: consentParameters }),
+      },
       controller.signal,
     );
   } finally {
@@ -316,7 +368,19 @@ export async function createCommand(
     }
   }
 
-  const activated = activateLease(granted.value.lease, verified.value, now);
+  // Write-once parameter binding (10-05, SPEC-08): re-validate the entered values
+  // against the declarations (an unreachable-by-UI defense; the entry loop already
+  // parsed each answer) and attach them to the record being activated. This is the
+  // ONLY write to jobParameters anywhere: no command, tool call or verifier read can
+  // update the field afterwards. An all-skipped optional set binds nothing.
+  const boundParameters = bindJobParameters(declarations, enteredValues);
+  if (boundParameters === undefined) throw new CliError(EXIT_CODES.internal, "Internal error.");
+  const activating: Lease =
+    Object.keys(boundParameters).length === 0
+      ? granted.value.lease
+      : { ...granted.value.lease, jobParameters: boundParameters };
+
+  const activated = activateLease(activating, verified.value, now);
   if (!activated.ok) throw new CliError(EXIT_CODES.internal, "Internal error.");
   const lease = activated.value.lease;
   await store.save(lease);

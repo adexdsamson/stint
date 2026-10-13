@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { reduce } from "../src/lease.js";
 import type { Lease } from "../src/lease.js";
-import { userEvents } from "../src/events.js";
+import { runtimeEvents, userEvents } from "../src/events.js";
 
 function proposedLease(): Lease {
   return {
@@ -68,5 +68,23 @@ describe("reduce", () => {
     const second = reduce(proposed, userEvents.consentGranted(), 1000);
 
     expect(first).toEqual(second);
+  });
+
+  it("CARRY: jobParameters survive consent_granted and activate unchanged and frozen (10-05, SPEC-08)", () => {
+    const jobParameters = { reference: "ref_1001", expected_amount_kobo: 30050, currency: "NGN" };
+    const proposed: Lease = { ...proposedLease(), jobParameters };
+
+    const granted = reduce(proposed, userEvents.consentGranted(), 1000);
+    expect(granted.ok).toBe(true);
+    if (!granted.ok) return;
+    expect(granted.value.lease.state).toBe("granted");
+    expect(granted.value.lease.jobParameters).toEqual(jobParameters);
+
+    const active = reduce(granted.value.lease, runtimeEvents.activate(), 1001);
+    expect(active.ok).toBe(true);
+    if (!active.ok) return;
+    expect(active.value.lease.state).toBe("active");
+    expect(active.value.lease.jobParameters).toEqual(jobParameters);
+    expect(Object.isFrozen(active.value.lease.jobParameters)).toBe(true);
   });
 });

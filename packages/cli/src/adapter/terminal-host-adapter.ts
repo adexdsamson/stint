@@ -184,7 +184,7 @@ export function createTerminalHostAdapter(options: TerminalHostAdapterOptions): 
       // One deadline for both questions: the consent window is not restarted by the acknowledgement.
       const deadline = clock() + consentTimeout;
       const yes = await ask(
-        renderConsent(request.manifest.manifest, style, request.custody),
+        renderConsent(request.manifest.manifest, style, request.custody, request.parameters),
         "Grant this lease? [y/N] ",
         deadline,
         signal,
