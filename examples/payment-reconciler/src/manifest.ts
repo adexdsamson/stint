@@ -69,6 +69,11 @@ export async function buildSignedManifest(options: BuildSignedManifestOptions): 
     },
   };
 
+  return await signBuilt(manifest);
+}
+
+/** Signs `manifest` with a fresh publisher key and packages everything a harness needs. */
+async function signBuilt(manifest: Manifest): Promise<BuiltManifest> {
   const { envelope, trustStore, privateKey } = await signManifestForTest(manifest, {
     kid: PUBLISHER_KID,
   });
@@ -81,6 +86,52 @@ export async function buildSignedManifest(options: BuildSignedManifestOptions): 
     trustJson: JSON.stringify(trustStore),
     publisherPrivateKey: privateKey,
   };
+}
+
+/** Options for {@link buildSignedPaymentManifest}. */
+export interface BuildSignedPaymentManifestOptions {
+  /** `approvals.timeout_seconds`: also bounds the user-confirmation prompt, so tests keep it modest. */
+  readonly approvalTimeoutSeconds: number;
+}
+
+/**
+ * The payment-confirmation manifest (Phase 10, PSTK-06): the vector's identity,
+ * limits and approvals, narrowed to one delegated, read-only Paystack grant. The
+ * job fixes its three inputs at create (`reference`, `expected_amount_kobo`,
+ * `currency`) and is verified by the connector-computed verdict, never by the
+ * agent: `exists(rows where verdict = 'confirmed') >= 1` over
+ * `paystack.transactions`. There is no hosted license and no cleanup hook (the
+ * lease is purely delegated), so it needs no publisher. Signed through the same
+ * path as {@link buildSignedManifest}.
+ */
+export async function buildSignedPaymentManifest(
+  options: BuildSignedPaymentManifestOptions,
+): Promise<BuiltManifest> {
+  const base = await loadVectorManifest();
+  const manifest: Manifest = {
+    ...base,
+    job: {
+      description: "Confirm that the expected Paystack payment arrived.",
+      parameters: [
+        { name: "reference", type: "string" },
+        { name: "expected_amount_kobo", type: "integer" },
+        { name: "currency", type: "currency" },
+      ],
+      verifier: {
+        type: "resource_query",
+        resource: "paystack.transactions",
+        predicate: "exists(rows where verdict = 'confirmed') >= 1",
+      },
+    },
+    scopes: [{ resource: "paystack.transactions", access: ["read"] }],
+    approvals: { ...base.approvals, timeout_seconds: options.approvalTimeoutSeconds },
+    auth: {
+      mode: "delegated",
+      delegated: [{ provider: "paystack", resources: ["paystack.transactions"] }],
+    },
+    cleanup: null,
+  };
+  return await signBuilt(manifest);
 }
 
 /**
