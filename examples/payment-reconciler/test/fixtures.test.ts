@@ -12,7 +12,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 
 import { importLicensePublicKey, createLicenseIssuerClient } from "@stint/core/license-issuer";
 import { httpIssuerTransport, loadRunProfile, parseRunProfile } from "@stint/cli";
-import type { LoadedCredential } from "@stint/cli";
 import { mintCleanupToken } from "@stint/proxy";
 import type { OAuthSeededCredential } from "@stint/proxy";
 import { startMockAuthServer } from "@stint/proxy/testing";
