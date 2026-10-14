@@ -14,15 +14,18 @@
  *   "endpoints": { "<resource identifier>": "<https or loopback http URL>" }   // optional
  * }
  * ```
- * `bindings` carry no `rowAdapter` (a function is not JSON). Confidential-client
- * auth methods need a secret and are therefore not expressible in a profile.
+ * A binding carries no row-adapter FUNCTION (a function is not JSON), but it may NAME the one built-in
+ * adapter: `"rowAdapter": "verdict"` maps to the proxy's `verdictRowAdapter`, which lets the
+ * verifier read serve a resource_query verifier over the Paystack verify route (Phase 10). Any other
+ * name is the bad-shape error. Confidential-client auth methods need a secret and are therefore not
+ * expressible in a profile.
  */
 
 import { readFile } from "node:fs/promises";
 
 import { createBindingSet } from "@stint/core";
 import type { ConnectorBinding } from "@stint/core";
-import { createToolCatalog } from "@stint/proxy";
+import { createToolCatalog, verdictRowAdapter } from "@stint/proxy";
 import type { OAuthClient, ToolCatalogEntry } from "@stint/proxy";
 import type { RunProfile } from "@stint/runtime";
 import type { Access } from "@stint/spec";
@@ -87,18 +90,23 @@ function parseCatalogEntry(raw: unknown): ToolCatalogEntry {
   };
 }
 
+/** The only row adapter a JSON profile may name. 10-07's `writeJsonProfile` emits this same name. */
+const VERDICT_ROW_ADAPTER_NAME = "verdict";
+
 function parseBinding(raw: unknown): ConnectorBinding {
   if (!isRecord(raw)) throw bad();
   const access = str(raw.access);
   const provenance = str(raw.provenance);
   if (!ACCESS.includes(access) || !PROVENANCE.includes(provenance)) throw bad();
   if (typeof raw.irreversible !== "boolean") throw bad();
+  if (raw.rowAdapter !== undefined && raw.rowAdapter !== VERDICT_ROW_ADAPTER_NAME) throw bad();
   return {
     tool: str(raw.tool),
     resource: str(raw.resource),
     access: access as Access,
     irreversible: raw.irreversible,
     provenance: provenance as ConnectorBinding["provenance"],
+    ...(raw.rowAdapter === VERDICT_ROW_ADAPTER_NAME ? { rowAdapter: verdictRowAdapter } : {}),
   };
 }
 
