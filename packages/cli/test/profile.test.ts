@@ -20,8 +20,8 @@ function withBinding(extra: Record<string, unknown>): unknown {
 describe("parseRunProfile: the named verdict row adapter", () => {
   it('maps "rowAdapter": "verdict" to the exported verdictRowAdapter (identity, not shape)', () => {
     const profile = parseRunProfile(withBinding({ rowAdapter: "verdict" }));
-    const first = PROFILE_JSON.bindings[0];
-    expect(profile.bindings[first?.tool ?? ""]?.rowAdapter).toBe(verdictRowAdapter);
+    const [first] = PROFILE_JSON.bindings;
+    expect(profile.bindings[first.tool]?.rowAdapter).toBe(verdictRowAdapter);
   });
 
   it("leaves a binding with no rowAdapter exactly as before (no adapter member)", () => {
