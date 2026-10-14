@@ -1,6 +1,72 @@
 # @stint/cli
 
-`stint-cli` installs, runs and cleanly uninstalls specialist AI agents under a lease. The lifecycle commands are `create`, `run`, `revoke`, `cleanup`, `receipts` and `verify`, and `inspect` shows one lease. The root [README](../../README.md) walks through them with a runnable example. This page is the operator guide for the eighth command, `stint-cli supervise`.
+`stint-cli` installs, runs and cleanly uninstalls specialist AI agents under a lease. The lifecycle commands are `create`, `run`, `revoke`, `cleanup`, `receipts` and `verify`, and `inspect` shows one lease. The root [README](../../README.md) walks through them with a runnable example. This page is the guide for two commands that go beyond that walkthrough: the ninth command, `stint-cli verify-outcome`, which is how you complete a lease whose job is done, and the eighth, `stint-cli supervise`, the operator guide for a store that keeps leases for a long time. It also states, in one place, what happens to an API key you give Stint.
+
+## Checking an outcome with `stint-cli verify-outcome`
+
+```sh
+stint-cli verify-outcome <leaseId> [--profile <file>]
+```
+
+`verify-outcome` evaluates the lease's outcome verifier once, on your say-so. A pass completes the lease through the same receipted path as any other completion and runs teardown, and the command prints `Outcome verified for lease <id>; the lease is now <state>.` A check that does not pass changes nothing about the lease: it stays `active`, you can fix the cause and run the check again, and the only trace is one denied receipt.
+
+Only you complete a lease this way. An agent can ask for the check, but it cannot run one and it cannot complete the lease (see the agent signal below).
+
+What it evaluates depends on the manifest's `job.verifier`:
+
+- `resource_query`: the runtime reads through the lease's read binding and judges the answer in code. For a payment-confirmation job the read is a Paystack transaction lookup, and the runtime computes a closed verdict from the answer and the job parameters you entered at consent. The agent's own words are never an input. This verifier needs the run profile that names the read binding, so `--profile <file>` is required.
+- `user_confirm`: Stint asks you at the terminal and a yes completes the lease. It needs no profile. The prompt is bounded by the manifest's `approvals.timeout_seconds`, and no answer in time is a failed check.
+- `none`: there is nothing to check. The command exits 2 and points you at `stint-cli revoke`.
+
+The global flags work as for every command (`--store <dir>`, `--json`). The command has one option of its own:
+
+| Option | Meaning |
+| --- | --- |
+| `--profile <file>` | The run profile, as for `stint-cli run`. Required for a `resource_query` verifier, ignored for `user_confirm`. For the payment job it binds the read tool to the built-in `"rowAdapter": "verdict"` adapter. |
+
+### What it prints and the exit codes
+
+Every line is fixed text. A lease id, a lease state and the closed verdict value are the only values it ever shows. It never prints the reference, an amount, a customer detail, the API key or any text from the provider.
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The check passed, the lease is completed and teardown ran. A rotate line follows on stderr for a credential that cannot be revoked upstream. |
+| 9 | The check did not pass and the lease stays `active`, or the lease is not active, so there is nothing to check. |
+| 2 | Usage error: `--profile` is missing for a `resource_query` verifier, or the verifier is `none`. |
+| 4 | The lease does not exist. |
+
+A failed check with a verdict prints, on stderr:
+
+```text
+stint: The outcome check for lease <id> did not pass (verdict: amount_mismatch); the lease stays active.
+```
+
+The verdict is one of `confirmed`, `amount_mismatch`, `currency_mismatch`, `not_success`, `not_found` or `unknown`. Only `confirmed` passes. `unknown` is the fail-closed answer: the provider reported a status or a shape Stint does not recognize, so the check does not pass rather than guess. A failed check with no verdict (a rejected confirmation, a timeout, or a provider read that failed) prints the same line without the parenthesis. A read that failed (a rate limit, an outage, a network error) is a failed check too, exit 9: it never ends the lease, and you can run the command again.
+
+Under `--json` the command prints one object on stdout instead: `{"leaseId":"...","outcome":"verified","state":"..."}` on a pass, and `{"leaseId":"...","outcome":"not_passed","verdict":"..."}` otherwise, with `verdict` present only when there is one.
+
+### The agent can only ask
+
+An agent connected through `stint-cli run` has one extra tool, `request_outcome_check`. Calling it writes a receipt and prints a notice on the terminal where the run is served:
+
+```text
+stint: the agent asked for an outcome check; run: stint-cli verify-outcome <id>
+```
+
+That is all it does. It is notice-only: it reads nothing, completes nothing and starts no teardown, so a prompt-injected agent cannot declare its own job done. The notice names the command without `--profile`, so add it yourself for a `resource_query` verifier. On a lease that is not active the call is denied and no notice is shown.
+
+## API keys: what Stint does with the one you give it
+
+Some providers use a static API key instead of an OAuth grant. Paystack is the one provider Stint knows by name. The contract is the same everywhere a key appears:
+
+1. **You enter it once.** At `create`, pass `--api-key` and Stint asks for the key for each delegated provider that uses one, with the answer not shown as you type (the prompt reads `Enter the API key for <resource> (not shown as you type):`). `--api-key` is a switch: it takes no value, and there is no flag, argument or environment variable that carries a key. For a script, put the key in the credentials file you pass with `--credentials <file>`, as an entry `{ "<resource>": { "kind": "api_key", "key": "sk_test_..." } }`. Keep that file readable by you only and delete it when you are done. Without `--api-key` nothing is asked, and a prompt you leave unanswered skips that credential rather than failing the create.
+2. **Only the runtime holds it.** It is copied into the credential store (a plaintext file store for now, and the command says so on stderr), never into a receipt, a lease record, the manifest or any output. Receipts hold hashes and redacted summaries only.
+3. **It goes to one origin.** At create time the key is bound to a single provider origin: the entry's `origin` if you set one (https, or loopback http for a test), else the run profile's `providerOrigins`, else Stint's built-in table, which maps `paystack` to `https://api.paystack.co`. A key with no origin it can be bound to is refused before consent. At call time a request to any other origin is refused before it is sent.
+4. **It never follows a redirect.** Every outbound request, with a key or an OAuth token attached, refuses a redirect instead of following it, so a provider cannot bounce the key to another host.
+5. **The agent never sees it.** It is never returned to the agent, never in a tool result, and the Paystack verification the agent can trigger returns a short allowlist of fields plus the verdict, not the provider's response.
+6. **You rotate it, after teardown.** An API key cannot be revoked through Stint. Consent shows it as a credential that cannot be revoked and asks you to acknowledge that. When the lease ends, teardown drops Stint's copy, records `discarded_revocation_unsupported`, and the lease ends `cleaned_up (credential not revoked upstream)` with one rotate line per resource. The key stays valid at the provider until you rotate it in the provider's dashboard. Do that after teardown.
+
+Job parameters work the other way round. A manifest can declare typed inputs (`job.parameters`: a `string`, an `integer` or a `currency`) that you type at `create`. Each is validated, shown on the consent screen, and bound to the lease for good. They are not secrets, and an agent can never supply or change them.
 
 ## What `stint-cli supervise` does
 
