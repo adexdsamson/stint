@@ -21,17 +21,27 @@ import { parseEnvelope, verifyEnvelope } from "@stint/spec";
 import { generateKeyPair } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildSignedManifest } from "../src/manifest.js";
+import { verdictRowAdapter } from "@stint/proxy";
+import { validateManifest } from "@stint/spec";
+
+import { buildSignedManifest, buildSignedPaymentManifest } from "../src/manifest.js";
 import { startMockPublisher } from "../src/mocks/publisher.js";
 import type { MockPublisher } from "../src/mocks/publisher.js";
 import {
   assertNoLicenseLeak,
+  PAYSTACK_HIDDEN_MARKERS,
+  paystackVerifyFixture,
   startOrdersSheetMock,
   startPaystackMock,
 } from "../src/mocks/services.js";
 import type { ServiceMock } from "../src/mocks/services.js";
 import { acquireCredentialsFile, acquireGrant, writeCredentialsFile } from "../src/oauth/acquire.js";
-import { buildRunProfile, writeJsonProfile } from "../src/profile.js";
+import {
+  buildPaymentRunProfile,
+  buildRunProfile,
+  PAYMENT_TOOL,
+  writeJsonProfile,
+} from "../src/profile.js";
 
 const PAYSTACK = "paystack.transactions";
 const SHEETS = "sheets.orders";
@@ -385,5 +395,141 @@ describe("signed hybrid manifest and run profiles", () => {
 
     // parseRunProfile accepts the same JSON directly.
     expect(() => parseRunProfile(JSON.parse(text))).not.toThrow();
+  });
+});
+
+describe("the verify-capable Paystack mock (10-07, additive to the POST flow)", () => {
+  const verifyUrl = (mock: ServiceMock, reference: string): string =>
+    `${mock.url}transaction/verify/${encodeURIComponent(reference)}`;
+  const getVerify = (mock: ServiceMock, reference: string, key = "sk_test_fixture"): Promise<Response> =>
+    fetch(verifyUrl(mock, reference), { headers: { authorization: `Bearer ${key}` } });
+
+  it("answers GET /transaction/verify/:ref with an R1 envelope carrying the allowlisted and the hidden fields", async () => {
+    const paystack = track(await startPaystackMock());
+    const response = await getVerify(paystack, "ref_1001");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: boolean; message: string; data: Record<string, unknown> };
+
+    expect(body.status).toBe(true);
+    expect(typeof body.message).toBe("string");
+    expect(body.data["status"]).toBe("success");
+    expect(body.data["reference"]).toBe("ref_1001");
+    expect(body.data["requested_amount"]).toBe(30_050);
+    expect(body.data["currency"]).toBe("NGN");
+    // `amount` includes fees (R4): it must differ from requested_amount in the default fixture.
+    expect(body.data["amount"]).not.toBe(body.data["requested_amount"]);
+    // The hidden fields exist so a leak assertion has teeth.
+    const text = JSON.stringify(body);
+    for (const marker of PAYSTACK_HIDDEN_MARKERS) expect(text).toContain(marker);
+
+    expect(paystack.requests).toHaveLength(1);
+    expect(paystack.requests[0]?.method).toBe("GET");
+    expect(paystack.requests[0]?.authorization).toBe("Bearer sk_test_fixture");
+  });
+
+  it("leaves the POST behavior byte-identical: every POST still returns the settled transactions list", async () => {
+    const paystack = track(await startPaystackMock());
+    const response = await postJson(paystack.url, { anything: 1 }, { authorization: "Bearer at" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      transactions: [
+        { id: "t_1001", reference: "ref_1001", amount: 250_000, currency: "NGN", status: "success", order_id: "ord_1001" },
+      ],
+    });
+  });
+
+  it("answers 404 { status: false } for an unknown reference", async () => {
+    const paystack = track(await startPaystackMock());
+    const response = await getVerify(paystack, "ref_unknown");
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { status: boolean }).status).toBe(false);
+  });
+
+  it("builds every status, mismatch and trap fixture from the config alone", async () => {
+    const paystack = track(
+      await startPaystackMock({
+        verify: {
+          ref_abandoned: paystackVerifyFixture({ reference: "ref_abandoned", status: "abandoned" }),
+          ref_amount: paystackVerifyFixture({ reference: "ref_amount", requested_amount: 99_999 }),
+          ref_envelope_false: paystackVerifyFixture({ reference: "ref_envelope_false" }, { envelopeStatus: false }),
+        },
+      }),
+    );
+    const read = async (reference: string): Promise<{ status: boolean; data: Record<string, unknown> }> =>
+      (await (await getVerify(paystack, reference)).json()) as { status: boolean; data: Record<string, unknown> };
+
+    expect((await read("ref_abandoned")).data["status"]).toBe("abandoned");
+    expect((await read("ref_amount")).data["requested_amount"]).toBe(99_999);
+    expect((await read("ref_envelope_false")).status).toBe(false);
+    // A config that names its own references does not serve the default one.
+    expect((await getVerify(paystack, "ref_1001")).status).toBe(404);
+  });
+
+  it("setVerifyFixture replaces the answer between checks", async () => {
+    const paystack = track(await startPaystackMock());
+    paystack.setVerifyFixture("ref_1001", paystackVerifyFixture({ requested_amount: 1 }));
+    const first = (await (await getVerify(paystack, "ref_1001")).json()) as { data: { requested_amount: number } };
+    expect(first.data.requested_amount).toBe(1);
+    paystack.setVerifyFixture("ref_1001", paystackVerifyFixture());
+    const second = (await (await getVerify(paystack, "ref_1001")).json()) as { data: { requested_amount: number } };
+    expect(second.data.requested_amount).toBe(30_050);
+  });
+
+  it("failNextVerify arms exactly one 429 or 500, then the fixture answers again", async () => {
+    const paystack = track(await startPaystackMock());
+    paystack.failNextVerify(429);
+    expect((await getVerify(paystack, "ref_1001")).status).toBe(429);
+    expect((await getVerify(paystack, "ref_1001")).status).toBe(200);
+    paystack.failNextVerify(500);
+    expect((await getVerify(paystack, "ref_1001")).status).toBe(500);
+    expect((await getVerify(paystack, "ref_1001")).status).toBe(200);
+    expect(paystack.verifyRequests).toHaveLength(4);
+  });
+});
+
+describe("the payment-confirmation manifest and profile (10-07)", () => {
+  it("is a legal manifest: delegated paystack read-only, three parameters, the verdict verifier", async () => {
+    const built = await buildSignedPaymentManifest({ approvalTimeoutSeconds: 5 });
+    expect(validateManifest(built.manifest).ok).toBe(true);
+
+    const parsed = parseEnvelope(built.envelopeBytes);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const verified = await verifyEnvelope(parsed.value, built.trustEntry);
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+
+    const { manifest } = verified.value;
+    expect(manifest.auth.mode).toBe("delegated");
+    expect(manifest.auth.delegated).toEqual([{ provider: "paystack", resources: [PAYSTACK] }]);
+    expect(manifest.scopes).toEqual([{ resource: PAYSTACK, access: ["read"] }]);
+    expect((manifest.job.parameters ?? []).map((p) => [p.name, p.type])).toEqual([
+      ["reference", "string"],
+      ["expected_amount_kobo", "integer"],
+      ["currency", "currency"],
+    ]);
+    expect(manifest.job.verifier).toEqual({
+      type: "resource_query",
+      resource: PAYSTACK,
+      predicate: "exists(rows where verdict = 'confirmed') >= 1",
+    });
+    expect(manifest.approvals.timeout_seconds).toBe(5);
+  });
+
+  it("the in-code payment profile binds one read tool with the verdict adapter; the JSON twin names it", async () => {
+    const as = track(await startMockAuthServer());
+    const profile = buildPaymentRunProfile({ mockAs: as });
+    expect(Object.keys(profile.catalog)).toEqual([PAYMENT_TOOL]);
+    expect(profile.bindings[PAYMENT_TOOL]?.resource).toBe(PAYSTACK);
+    expect(profile.bindings[PAYMENT_TOOL]?.access).toBe("read");
+    expect(profile.bindings[PAYMENT_TOOL]?.rowAdapter).toBe(verdictRowAdapter);
+
+    const dir = await tempDir();
+    const file = await writeJsonProfile(profile, path.join(dir, "payment-profile.json"));
+    const json = JSON.parse(await readFile(file, "utf8")) as { bindings: Array<Record<string, unknown>> };
+    expect(json.bindings[0]?.["rowAdapter"]).toBe("verdict");
+
+    const loaded = await loadRunProfile(file);
+    expect(loaded.bindings[PAYMENT_TOOL]?.rowAdapter).toBe(verdictRowAdapter);
   });
 });
