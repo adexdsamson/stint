@@ -5,6 +5,7 @@
  * `assertSafeLeaseId` and resource names that go through `sanitizeForTerminal`.
  */
 
+import type { TransactionVerdict } from "@stint/proxy";
 import type { LeaseEndReason } from "@stint/runtime";
 import type { TeardownStuckPayload } from "@stint/spec";
 
@@ -215,3 +216,36 @@ export function supervisorLockLostMessage(): string {
 export function sweepFailedLine(): string {
   return "The sweep could not read the store; it will try again at the next interval.";
 }
+
+/**
+ * `verify-outcome` messages (10-06, CLI-03). Every line is fixed text. The only values
+ * interpolated are a lease id that already passed `assertSafeLeaseId`, a lease state label
+ * (a closed enum, with a fixed suffix) and the closed `TransactionVerdict` enum. A reference,
+ * an amount, an e-mail, a key or any upstream text is never shown.
+ */
+
+/** The pass line: the check completed the lease. */
+export function verifyOutcomePassedLine(leaseId: string, state: string): string {
+  return `Outcome verified for lease ${leaseId}; the lease is now ${state}.`;
+}
+
+/** The fail line when a verdict row exists (the payment case): the closed verdict enum is the only value shown. */
+export function verifyOutcomeVerdictLine(leaseId: string, verdict: TransactionVerdict): string {
+  return `The outcome check for lease ${leaseId} did not pass (verdict: ${verdict}); the lease stays active.`;
+}
+
+/** The generic fail line: a rejected confirmation, a timeout, a false predicate with no verdict, or a read that failed. */
+export function verifyOutcomeFailedLine(leaseId: string): string {
+  return `The outcome check for lease ${leaseId} did not pass; the lease stays active.`;
+}
+
+/** The exit-2 message for a resource_query verifier with no run profile. */
+export const verifyOutcomeNeedsProfile =
+  "--profile <file> is required to check a resource_query verifier.";
+
+/** The exit-2 message for a lease whose verifier is none. */
+export const verifyOutcomeNoneVerifier =
+  "This lease has no verifier to check; end it with stint-cli revoke.";
+
+/** The exit-9 message for a lease that is not active. */
+export const verifyOutcomeNotActive = "The lease is not active, so its outcome cannot be checked.";

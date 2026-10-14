@@ -21,12 +21,14 @@ const program = readFileSync(join(cliRoot, "src", "program.ts"), "utf8");
 const messages = readFileSync(join(cliRoot, "src", "messages.ts"), "utf8");
 const rootReadme = readFileSync(join(repoRoot, "README.md"), "utf8");
 
-/** The source text of the `supervise` registration: from its `.command(...)` to the end of the factory. */
+/** The source text of the `supervise` registration: from its `.command(...)` to the next registration (or the end of the factory). */
 function superviseBlock(): string {
   const start = program.indexOf('.command("supervise")');
   expect(start, "supervise is not registered in program.ts").toBeGreaterThanOrEqual(0);
-  const end = program.indexOf("return program;", start);
-  expect(end).toBeGreaterThan(start);
+  const nextCommand = program.indexOf(".command(", start + 1);
+  const factoryEnd = program.indexOf("return program;", start);
+  expect(factoryEnd).toBeGreaterThan(start);
+  const end = nextCommand === -1 ? factoryEnd : Math.min(nextCommand, factoryEnd);
   return program.slice(start, end);
 }
 

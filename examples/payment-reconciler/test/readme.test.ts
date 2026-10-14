@@ -118,7 +118,7 @@ describe("README drift (DOC-01)", () => {
     const documented = stintCommands.map((command) => command.split(/\s+/)[1] ?? "");
     const real = cliSubcommands();
 
-    expect(documented).toEqual(["create", "run", "revoke", "cleanup", "receipts", "verify"]);
+    expect(documented).toEqual(["create", "run", "revoke", "cleanup", "receipts", "verify", "verify-outcome"]);
     for (const name of documented) {
       expect(real.has(name), `stint ${name} is not a real CLI subcommand`).toBe(true);
     }

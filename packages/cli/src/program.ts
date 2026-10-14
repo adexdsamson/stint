@@ -8,7 +8,10 @@
  * D-28 in Phase 8 (`create` gained an optional `--credentials <file>` option) and D-A in Phase 10 (`create` gained an opt-in `--api-key` flag)
  * and Phase 9 D-21 (an eighth command, `supervise`: one sweep with `--once`,
  * otherwise a long-running loop that sweeps every `--sweep-interval` seconds
- * until it is stopped).
+ * until it is stopped) and Phase 10 D-E (a ninth command, `verify-outcome`:
+ * evaluates a lease's verifier once, with an optional `--profile <file>`; a
+ * pass completes the lease through the existing receipted path). There is no
+ * tenth command.
  *
  * No action calls `process.exit`, and library code never touches
  * `process.exitCode`: an action stores its result in an `ExitSink` and `main`
@@ -34,6 +37,8 @@ import { superviseCommand } from "./commands/supervise.js";
 import type { SuperviseOpts } from "./commands/supervise.js";
 import { verifyCommand } from "./commands/verify.js";
 import type { VerifyOpts } from "./commands/verify.js";
+import { verifyOutcomeCommand } from "./commands/verify-outcome.js";
+import type { VerifyOutcomeOpts } from "./commands/verify-outcome.js";
 import type { CliDeps, GlobalOpts } from "./deps.js";
 import { CliError, EXIT_CODES } from "./exit.js";
 
@@ -153,6 +158,15 @@ export function buildProgram(deps: CliDeps, sink: ExitSink = { code: 0 }): Comma
     .option("--confirm-clock", "confirm the system clock after a reported jump; resumes lease expiry")
     .action(async (_opts: unknown, cmd: Command) => {
       sink.code = await superviseCommand(deps, cmd.optsWithGlobals<SuperviseOpts>());
+    });
+
+  program
+    .command("verify-outcome")
+    .description("Check a lease's outcome verifier; a pass completes the lease, a fail changes nothing")
+    .argument("<leaseId>", "lease id")
+    .option("--profile <file>", "run profile (read binding for a resource_query verifier)")
+    .action(async (leaseId: string, _opts: unknown, cmd: Command) => {
+      sink.code = await verifyOutcomeCommand(deps, leaseId, cmd.optsWithGlobals<VerifyOutcomeOpts>());
     });
 
   return program;

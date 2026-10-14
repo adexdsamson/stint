@@ -118,6 +118,7 @@ stint-cli revoke <id> --yes
 stint-cli cleanup <id>
 stint-cli receipts <id>
 stint-cli verify <id>
+stint-cli verify-outcome <id> --profile <file>
 ```
 
 - `stint-cli create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
@@ -125,6 +126,7 @@ stint-cli verify <id>
 - `stint-cli revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
 - `stint-cli cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
 - `stint-cli receipts` prints the merged timeline, and `stint-cli verify` (or `stint-cli receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
+- `stint-cli verify-outcome` checks the lease's outcome verifier on demand. A pass completes the lease and runs teardown, a fail shows the verdict and changes nothing. An agent can ask for the check, but only you can run it.
 - `stint-cli supervise` looks after every lease in a store with no other action from you. It settles leases whose time ran out, tears ended leases down, retries a teardown that did not finish and resumes one that a crash cut short. It runs until you stop it, or once with `--once`.
 
 You do not need `supervise` for the example above. It is for a machine that keeps leases for a long time. Run it as a background service under Windows Task Scheduler, systemd or launchd, or run `stint-cli supervise --once` from cron. It also probes idle leases for grants the provider revoked, reports lease records it cannot read, and pauses lease expiry after a forward jump of the system clock until you confirm the clock. Expiry is still enforced on every call whether or not a supervisor runs. A lease that cannot finish teardown by itself is marked stuck, and there is no command to abandon one. The setup steps for each scheduler, every flag with its default, the exit codes and the limits are in the operator guide, [packages/cli/README.md](packages/cli/README.md).
