@@ -35,6 +35,10 @@ function data(overrides: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
+function without(record: Record<string, unknown>, key: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([name]) => name !== key));
+}
+
 describe("computeTransactionVerdict: the closed R3 status list", () => {
   it("covers exactly the eight documented statuses", () => {
     expect([...PAYSTACK_TRANSACTION_STATUSES].sort()).toEqual(
@@ -112,7 +116,7 @@ describe("computeTransactionVerdict: fail closed to unknown", () => {
   const cases: ReadonlyArray<readonly [string, unknown]> = [
     ["data.status in the wrong case (SUCCESS)", envelope(data({ status: "SUCCESS" }))],
     ["an undocumented data.status (settled)", envelope(data({ status: "settled" }))],
-    ["data.status missing", envelope((({ status: _s, ...rest }) => rest)(data()))],
+    ["data.status missing", envelope(without(data(), "status"))],
     ["data.status not a string", envelope(data({ status: true }))],
     ["data absent", { status: true, message: "ok" }],
     ["data an array", { status: true, message: "ok", data: [data()] }],
@@ -120,9 +124,9 @@ describe("computeTransactionVerdict: fail closed to unknown", () => {
     ["data a string", { status: true, message: "ok", data: "success" }],
     ["requested_amount a float", envelope(data({ requested_amount: 30050.5 }))],
     ["requested_amount a string", envelope(data({ requested_amount: "30050" }))],
-    ["requested_amount absent", envelope((({ requested_amount: _r, ...rest }) => rest)(data()))],
+    ["requested_amount absent", envelope(without(data(), "requested_amount"))],
     ["requested_amount beyond the safe integer range", envelope(data({ requested_amount: 2 ** 60 }))],
-    ["currency absent", envelope((({ currency: _c, ...rest }) => rest)(data()))],
+    ["currency absent", envelope(without(data(), "currency"))],
     ["currency not a string", envelope(data({ currency: 566 }))],
     ["envelope status not a boolean", { status: "true", message: "ok", data: data() }],
     ["the body a string", "success"],
@@ -139,13 +143,11 @@ describe("computeTransactionVerdict: fail closed to unknown", () => {
   }
 
   it("an absent reference in data is tolerated (the lookup was by reference)", () => {
-    const { reference: _ref, ...rest } = data();
-    expect(computeTransactionVerdict(envelope(rest), EXPECTED)).toBe("confirmed");
+    expect(computeTransactionVerdict(envelope(without(data(), "reference")), EXPECTED)).toBe("confirmed");
   });
 
   it("never reads the fees-inclusive amount: amount absent, requested_amount matching -> confirmed", () => {
-    const { amount: _amount, ...rest } = data();
-    expect(computeTransactionVerdict(envelope(rest), EXPECTED)).toBe("confirmed");
+    expect(computeTransactionVerdict(envelope(without(data(), "amount")), EXPECTED)).toBe("confirmed");
   });
 });
 

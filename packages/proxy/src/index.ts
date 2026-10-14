@@ -116,6 +116,17 @@ export {
   createRestOutboundConnector,
 } from "./connectors/outbound-connector.js";
 export type { FetchLike, OutboundConnector, OutboundCredential, RestRoute } from "./connectors/outbound-connector.js";
+export {
+  ALLOWLISTED_TRANSACTION_FIELDS,
+  PAYSTACK_TRANSACTION_STATUSES,
+  TRANSACTION_VERDICTS,
+  allowlistTransactionData,
+  computeTransactionVerdict,
+  isValidTransactionReference,
+  transactionExpectationFromParameters,
+} from "./connectors/paystack-verify.js";
+export type { TransactionExpectation, TransactionVerdict } from "./connectors/paystack-verify.js";
+export { verdictRowAdapter } from "./connectors/verdict-rows.js";
 export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";
 export type { LicenseAccessor } from "./vault/execute-stage.js";
