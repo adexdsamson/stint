@@ -110,8 +110,12 @@ export type { CredentialVault, CredentialVaultOptions, ProbeGrantResult } from "
 // vault, hands it to the injected port as `{ accessToken }` only -- never
 // the publisher license -- and wraps the port call in `scrubCredential` so
 // no token can cross the agent-facing boundary in a response or an error.
-export { createRestOutboundConnector } from "./connectors/outbound-connector.js";
-export type { FetchLike, OutboundConnector, OutboundCredential } from "./connectors/outbound-connector.js";
+export {
+  API_KEY_RESOURCE_ROUTES,
+  OutboundOriginError,
+  createRestOutboundConnector,
+} from "./connectors/outbound-connector.js";
+export type { FetchLike, OutboundConnector, OutboundCredential, RestRoute } from "./connectors/outbound-connector.js";
 export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";
 export type { LicenseAccessor } from "./vault/execute-stage.js";

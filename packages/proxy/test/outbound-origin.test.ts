@@ -96,7 +96,8 @@ describe("api_key origin enforcement on the final URL", () => {
         (e: unknown) => e,
       );
     expect(err).toBeInstanceOf(OutboundOriginError);
-    const text = `${(err as Error).name} ${(err as Error).message} ${String((err as Error).stack ?? "").split("\n")[0]}`;
+    const failure = err as Error;
+    const text = `${failure.name} ${failure.message}`;
     expect(text).not.toContain("evil.example.test");
     expect(text).not.toContain("steal");
     expect(text).not.toContain("paystack");
@@ -167,9 +168,7 @@ describe("the default-constructed connector carries the same hardening", () => {
   });
 
   it("uses the global fetch and passes redirect: error", async () => {
-    const globalFetch = vi.fn((_input: string, _init?: RequestInit) =>
-      Promise.resolve(new Response(JSON.stringify({}), { status: 200 })),
-    );
+    const globalFetch = vi.fn<FetchLike>(() => Promise.resolve(new Response(JSON.stringify({}), { status: 200 })));
     vi.stubGlobal("fetch", globalFetch);
     const connector = createRestOutboundConnector();
     await connector.execute(binding("https://api.example.test/x"), {}, { accessToken: "t", kind: "oauth" });
@@ -178,9 +177,7 @@ describe("the default-constructed connector carries the same hardening", () => {
   });
 
   it("refuses a cross-origin key without touching the global fetch", async () => {
-    const globalFetch = vi.fn((_input: string, _init?: RequestInit) =>
-      Promise.resolve(new Response("{}", { status: 200 })),
-    );
+    const globalFetch = vi.fn<FetchLike>(() => Promise.resolve(new Response("{}", { status: 200 })));
     vi.stubGlobal("fetch", globalFetch);
     const connector = createRestOutboundConnector();
     await expect(
@@ -211,7 +208,7 @@ const UNUSED_OAUTH: OAuthClient = {
   as: { issuer: "https://as.origin-test.example" },
   client: { client_id: "c" },
   clientAuth: () => undefined,
-} as unknown as OAuthClient;
+};
 
 describe("the call sites pass the widened credential through", () => {
   function capturingConnector(): { readonly connector: OutboundConnector; readonly seen: OutboundCredential[] } {
