@@ -47,6 +47,8 @@ export { resolveTeardown } from "./resolve-teardown.js";
 export type { ResolveTeardownInput, ResolvedTeardown } from "./resolve-teardown.js";
 export { createLeaseRuntime, LICENSE_REFRESH_BEFORE_SECONDS } from "./lease-runtime.js";
 export type { LeaseEnded, LeaseEndReason, LeaseRuntimeOptions, RunningLease } from "./lease-runtime.js";
+export { runOutcomeCheck } from "./verify-outcome.js";
+export type { OutcomeCheckOptions, OutcomeCheckResult } from "./verify-outcome.js";
 export { enrichFromProfile } from "./profile.js";
 export type { RunProfile } from "./profile.js";
 export {

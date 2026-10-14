@@ -95,11 +95,11 @@ const reject = (): Promise<OutcomeConfirmDecision> => Promise.resolve({ decision
 const unusedAdapter: HostAdapter = scripted(() => Promise.reject(new Error("unused")));
 
 /** A fetch double answering the verify-connector row shape the verdict adapter reads. */
-function verdictFetch(verdict: string, status = 200): { readonly fetchImpl: FetchLike; readonly calls: () => number } {
+function verdictFetch(verdict: string): { readonly fetchImpl: FetchLike; readonly calls: () => number } {
   let calls = 0;
   const fetchImpl: FetchLike = () => {
     calls += 1;
-    return Promise.resolve(new Response(JSON.stringify({ rows: [{ verdict }] }), { status }));
+    return Promise.resolve(new Response(JSON.stringify({ rows: [{ verdict }] }), { status: 200 }));
   };
   return { fetchImpl, calls: () => calls };
 }
@@ -166,7 +166,7 @@ describe("runOutcomeCheck: resource_query", () => {
 
   it("a read error is outcome error with no verdict, a denied verification_read_error receipt and an active lease", async () => {
     const rig = await setup(resourceQueryManifest());
-    const { fetchImpl } = verdictFetch("confirmed", 429);
+    const fetchImpl: FetchLike = () => Promise.reject(new Error("connection reset"));
 
     const result = await runOutcomeCheck(rig.ports, {
       leaseId: LEASE,

@@ -120,6 +120,14 @@ export interface ResourceQueryDeps extends VerifierCompletionDeps {
   readonly connector: OutboundConnector;
   readonly binding: ConnectorBinding;
   readonly ast: PredicateAst;
+  /**
+   * OPTIONAL observer (Phase 10): called with the adapter's normalized rows after a SUCCESSFUL read
+   * and row adaptation, before the predicate is evaluated. It never fires on the error path, it
+   * cannot change the outcome (a throwing observer is ignored), and absent means today's behavior.
+   * A caller uses it to read a closed value (for example the verdict) out of the rows it already
+   * trusts; nothing from the rows reaches a receipt.
+   */
+  readonly onRows?: (rows: readonly Record<string, unknown>[]) => void;
 }
 
 /** Builds the secretless verification receipt's `redactedSummary` (D-07) -- never a raw row/value/query result, only the closed outcome + a stable reason. */
@@ -271,6 +279,11 @@ export async function runResourceQueryVerification(
       );
     }
     const { rows } = deps.binding.rowAdapter(execResult);
+    try {
+      deps.onRows?.(rows);
+    } catch {
+      // An observer is advisory: it can never turn a read into an error or change the outcome.
+    }
     const matched = evaluatePredicate(deps.ast, rows);
     outcome = matched ? "true" : "false";
     reason = matched ? "predicate_true" : "predicate_false";
