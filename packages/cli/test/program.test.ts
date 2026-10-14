@@ -13,10 +13,20 @@ afterEach(async () => {
 });
 
 describe("buildProgram / main", () => {
-  it("registers the seven D-03 commands followed by supervise (Phase 9 D-21)", async () => {
+  it("registers the seven D-03 commands, then supervise (Phase 9 D-21) and verify-outcome as the ninth (Phase 10 D-E)", async () => {
     h = await createHarness();
     const names = buildProgram(h.deps).commands.map((c) => c.name());
-    expect(names).toEqual(["create", "inspect", "run", "revoke", "cleanup", "receipts", "verify", "supervise"]);
+    expect(names).toEqual([
+      "create",
+      "inspect",
+      "run",
+      "revoke",
+      "cleanup",
+      "receipts",
+      "verify",
+      "supervise",
+      "verify-outcome",
+    ]);
   });
 
   it("--help resolves to exit 0 through mapCommander and writes via the injected io", async () => {
