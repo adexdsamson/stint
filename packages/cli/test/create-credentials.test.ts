@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { credentialSecretKey, parseGrantsArtifact } from "@stint/core";
 import type { ConsentDecision, ConsentRequest, HostAdapter } from "@stint/core";
+import { parseStoredCredential } from "@stint/proxy";
 import type { Manifest } from "@stint/spec";
 
 import { EXIT_CODES } from "../src/exit.js";
@@ -22,11 +23,12 @@ import { buildRuntimePorts } from "../src/runtime-ports.js";
 import { renderConsent } from "../src/adapter/consent-view.js";
 import { createStyle } from "../src/render/style.js";
 import { loadCredentials } from "../src/run/credentials.js";
+import { parseRunProfile } from "../src/run/profile.js";
 import { createHarness, delegatedManifest, writeSignedManifest } from "./helpers/cli-harness.js";
 import type { Harness, HarnessOptions } from "./helpers/cli-harness.js";
 import { startPublisherStub } from "./helpers/publisher-stub.js";
 import type { PublisherStub } from "./helpers/publisher-stub.js";
-import { ORDERS } from "./helpers/run-fixture.js";
+import { ORDERS, PROFILE_JSON } from "./helpers/run-fixture.js";
 
 let h: Harness | undefined;
 afterEach(async () => {
@@ -283,10 +285,27 @@ describe("create --credentials with api_key entries", () => {
     await s.harness.cleanup();
   });
 
-  it("rejects an api_key entry with an empty key or an origin field with the fixed message", async () => {
+  it("accepts an api_key entry carrying an https or loopback origin (the 10-02 rejection flipped by 10-03)", async () => {
+    const s = await setup(grant, paystackManifest(), { [PAYSTACK]: API_KEY_ENTRY });
+    for (const origin of ["https://api.paystack.co", "http://127.0.0.1:3999", "http://localhost:4000/"]) {
+      const file = path.join(s.harness.root, "api-key-origin.json");
+      await writeFile(file, JSON.stringify({ [PAYSTACK]: { kind: "api_key", key: "sk_test_x", origin } }));
+      await expect(loadCredentials(file)).resolves.toEqual({
+        [PAYSTACK]: { kind: "api_key", key: "sk_test_x", origin },
+      });
+    }
+    await s.harness.cleanup();
+  });
+
+  it("rejects an api_key entry with an empty key, a bad origin or an unknown member with the fixed message", async () => {
     for (const entry of [
       { kind: "api_key", key: "", origin: "https://api.paystack.co" },
-      { kind: "api_key", key: "sk_test_x", origin: "https://api.paystack.co" },
+      { kind: "api_key", key: "sk_test_x", origin: "http://10.0.0.5:1/" },
+      { kind: "api_key", key: "sk_test_x", origin: "http://api.paystack.co" },
+      { kind: "api_key", key: "sk_test_x", origin: "not a url" },
+      { kind: "api_key", key: "sk_test_x", origin: "" },
+      { kind: "api_key", key: "sk_test_x", origin: 5 },
+      { kind: "api_key", key: "sk_test_x", extra: "member" },
       { kind: "api_key" },
       { kind: "api_key", key: 7 },
       { kind: "basic", key: "sk_test_x" },
@@ -386,6 +405,93 @@ describe("create --credentials with api_key entries", () => {
       .split("\n")
       .filter((line) => line.includes(PLAINTEXT_WARNING));
     expect(warnings).toHaveLength(1);
+    await s.harness.cleanup();
+  });
+});
+
+describe("providerOrigins in the run profile (10-03)", () => {
+  it("accepts https and loopback http origins and returns them on the profile", () => {
+    const profile = parseRunProfile({
+      ...PROFILE_JSON,
+      providerOrigins: { paystack: "http://127.0.0.1:3999/", other: "https://api.other.example" },
+    });
+    expect(profile.providerOrigins).toEqual({
+      paystack: "http://127.0.0.1:3999/",
+      other: "https://api.other.example",
+    });
+  });
+
+  it("omits the member when the profile has none", () => {
+    expect(parseRunProfile(PROFILE_JSON).providerOrigins).toBeUndefined();
+  });
+
+  it.each([
+    ["a LAN origin", { paystack: "http://10.0.0.5:1/" }],
+    ["a plain-http public origin", { paystack: "http://api.paystack.co" }],
+    ["a non-URL", { paystack: "not a url" }],
+    ["a non-string", { paystack: 7 }],
+    ["an empty provider name", { "": "https://api.paystack.co" }],
+    ["a non-object", "https://api.paystack.co"],
+  ])("rejects %s with the fixed bad-shape message", (_label, providerOrigins) => {
+    let thrown: unknown;
+    try {
+      parseRunProfile({ ...PROFILE_JSON, providerOrigins });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toMatchObject({
+      code: EXIT_CODES.usage,
+      safeMessage: "The run profile has an unexpected shape.",
+    });
+  });
+});
+
+async function storedApiKey(s: Setup, leaseId: string) {
+  const ports = buildRuntimePorts(s.harness.deps, s.harness.root);
+  return parseStoredCredential((await ports.secrets.get(credentialSecretKey(leaseId, PAYSTACK))) ?? "");
+}
+
+describe("create seeds an api_key with exactly one recorded origin (10-03)", () => {
+  it("a file entry with an explicit origin seeds exactly that origin", async () => {
+    const s = await setup(grant, paystackManifest(), {
+      [PAYSTACK]: { ...API_KEY_ENTRY, origin: "http://127.0.0.1:3999" },
+    });
+    expect(await create(s, "--credentials", s.credentialsPath)).toBe(EXIT_CODES.ok);
+    const lease = await onlyLease(s);
+    expect(await storedApiKey(s, lease.id)).toEqual({
+      kind: "api_key",
+      key: "sk_test_fixture_do_not_leak",
+      origin: "http://127.0.0.1:3999",
+    });
+    await s.harness.cleanup();
+  });
+
+  it("an entry without an origin gets the closed table's https://api.paystack.co", async () => {
+    const s = await setup(grant, paystackManifest(), { [PAYSTACK]: API_KEY_ENTRY });
+    expect(await create(s, "--credentials", s.credentialsPath)).toBe(EXIT_CODES.ok);
+    const lease = await onlyLease(s);
+    expect(await storedApiKey(s, lease.id)).toEqual({
+      kind: "api_key",
+      key: "sk_test_fixture_do_not_leak",
+      origin: "https://api.paystack.co",
+    });
+    await s.harness.cleanup();
+  });
+
+  it("a resource with no resolvable origin is refused before consent with a fixed usage message", async () => {
+    const manifest = delegatedManifest({
+      auth: { mode: "delegated", delegated: [{ provider: "google", resources: [ORDERS] }] },
+      scopes: [{ resource: ORDERS, access: ["read"] }],
+    });
+    const s = await setup(grant, manifest, { [ORDERS]: API_KEY_ENTRY });
+    const code = await create(s, "--credentials", s.credentialsPath);
+
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(s.requests).toHaveLength(0);
+    expect(s.harness.stderr.join("")).toContain("An API key has no provider origin to be bound to");
+    expect(s.harness.allOutput()).not.toContain("sk_test_fixture_do_not_leak");
+    expect(await s.harness.deps.storeFactory(s.harness.root).list()).toHaveLength(0);
+    expect(existsSync(path.join(s.harness.root, "secrets"))).toBe(false);
     await s.harness.cleanup();
   });
 });
