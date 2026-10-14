@@ -289,6 +289,7 @@ describe("create with typed job parameters", () => {
     const order: string[] = [];
     const ask = askJobParameterDouble(["ref_1001", "30050", "NGN"]);
     const wrapped = {
+      ...ask,
       fn: (entry: JobParameterAsk): Promise<string | undefined> => {
         order.push(`param:${entry.name}`);
         return ask.fn(entry);
