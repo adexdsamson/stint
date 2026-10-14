@@ -20,9 +20,20 @@
  *   fails closed.
  *
  * HTTP 404 (an unknown reference) is mapped to `not_found` by the CONNECTOR
- * (Task 2), not here: this function is body-only and a `not_found` verdict
- * never comes out of it.
+ * ({@link createPaystackVerifyConnector}), not by the pure function: that is
+ * body-only and a `not_found` verdict never comes out of it.
+ *
+ * The connector half follows the closed route in `API_KEY_RESOURCE_ROUTES`.
+ * Its URL is the credential's recorded origin plus the route path, built only
+ * from the lease-bound expectation: the agent's arguments and the binding's
+ * resource name never reach the URL (PSTK-04, T-10-15, T-10-16).
  */
+
+import type { ConnectorBinding } from "@stint/core";
+
+import { isSecureOrLoopbackOrigin } from "../vault/oauth-client.js";
+import { API_KEY_RESOURCE_ROUTES, OutboundOriginError } from "./outbound-connector.js";
+import type { FetchLike, OutboundConnector, OutboundCredential } from "./outbound-connector.js";
 
 /** The closed verdict list (PSTK-02). 10-06 interpolates a member into a fixed line. */
 export type TransactionVerdict =
@@ -161,4 +172,110 @@ export function transactionExpectationFromParameters(parameters: unknown): Trans
   if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 1) return undefined;
   if (typeof currency !== "string" || !CURRENCY_PATTERN.test(currency)) return undefined;
   return { reference, expectedAmountKobo: amount, currency };
+}
+
+/** The verify read is the same class of call as a token refresh, so it mirrors `DEFAULT_OAUTH_TIMEOUT_MS`. */
+export const PAYSTACK_VERIFY_TIMEOUT_MS = 15_000;
+
+/**
+ * Thrown when the upstream could not give a trustworthy answer: a 429, a 5xx,
+ * any other non-success non-404 status, a network error, a timeout, a refused
+ * redirect, or an unparseable body (PSTK-05). Callers DENY the call and never
+ * end, fail or transition the lease on it. The message is fixed text: it names
+ * no URL, host, reference, status text or key.
+ */
+export class TransientUpstreamError extends Error {
+  constructor() {
+    super("@stint/proxy: the payment provider could not be read right now; try again later.");
+    this.name = "TransientUpstreamError";
+  }
+}
+
+/**
+ * Thrown BEFORE any request when the verify route cannot be called safely: the
+ * lease carries no usable expectation (or its reference fails the charset), or
+ * the credential is not an API key. Fixed text, so neither the reference nor
+ * the key can ride up toward the agent. Callers deny, never end leases.
+ */
+export class PaystackVerifyUsageError extends Error {
+  constructor() {
+    super("@stint/proxy: the payment verification is not configured for this lease.");
+    this.name = "PaystackVerifyUsageError";
+  }
+}
+
+/** What `createPaystackVerifyConnector` needs beyond its fetch. */
+export interface PaystackVerifyOptions {
+  /** Reads the lease-bound expectation at call time; `undefined` refuses the call (fail closed). */
+  readonly expectation: () => TransactionExpectation | undefined;
+  /** Test seam only: overrides {@link PAYSTACK_VERIFY_TIMEOUT_MS}. */
+  readonly timeoutMs?: number;
+}
+
+/**
+ * The closed-route Paystack verify connector (PSTK-01, PSTK-04, PSTK-05). One
+ * GET `{credential.origin}/transaction/verify/{reference}` with a bearer key,
+ * `redirect: "error"` and a 15 s timeout. It returns `{ status, body: { rows:
+ * [{ verdict, ...allowlisted }] } }` and never the raw upstream body.
+ *
+ * @param fetchImpl the injected fetch (a double in tests; never reached with a bad reference)
+ * @param options the lease-bound expectation provider
+ */
+export function createPaystackVerifyConnector(
+  fetchImpl: FetchLike,
+  options: PaystackVerifyOptions,
+): OutboundConnector {
+  return {
+    async execute(
+      _binding: ConnectorBinding,
+      _resolvedArgs: Readonly<Record<string, unknown>>,
+      credential: OutboundCredential,
+    ): Promise<{ readonly status: number; readonly body: unknown }> {
+      // The agent's arguments and the binding are deliberately unread: the request is a function of
+      // the lease-bound expectation and the credential's recorded origin alone (T-10-15).
+      if (credential.kind !== "api_key") throw new PaystackVerifyUsageError();
+      const expected = options.expectation();
+      if (expected === undefined || !isValidTransactionReference(expected.reference)) {
+        throw new PaystackVerifyUsageError();
+      }
+      const origin = credential.origin;
+      if (origin === undefined || !isSecureOrLoopbackOrigin(origin)) throw new OutboundOriginError();
+
+      const route = API_KEY_RESOURCE_ROUTES["paystack.transactions"];
+      if (route === undefined) throw new PaystackVerifyUsageError();
+      const url = `${new URL(origin).origin}${route.path.replace(":reference", encodeURIComponent(expected.reference))}`;
+
+      let response: Response;
+      try {
+        response = await fetchImpl(url, {
+          method: route.method,
+          headers: { authorization: `Bearer ${credential.accessToken}`, accept: "application/json" },
+          // A redirect is an upstream attempt to move the key: an error, never a hop (CRED-02).
+          redirect: "error",
+          signal: AbortSignal.timeout(options.timeoutMs ?? PAYSTACK_VERIFY_TIMEOUT_MS),
+        });
+      } catch {
+        // Network error, refused redirect or timeout: the cause text is dropped on purpose.
+        throw new TransientUpstreamError();
+      }
+
+      if (response.status === 404) {
+        return { status: 404, body: { rows: [{ verdict: "not_found" satisfies TransactionVerdict }] } };
+      }
+      // Deliberately broader than 429/5xx: a surprising 3xx or 4xx can never mint a verdict.
+      if (response.status < 200 || response.status > 299) throw new TransientUpstreamError();
+
+      let parsed: unknown;
+      try {
+        parsed = await response.json();
+      } catch {
+        // An unparseable body is not a verdict.
+        throw new TransientUpstreamError();
+      }
+
+      const verdict = computeTransactionVerdict(parsed, expected);
+      const data = isRecord(parsed) ? parsed["data"] : undefined;
+      return { status: response.status, body: { rows: [{ verdict, ...allowlistTransactionData(data) }] } };
+    },
+  };
 }

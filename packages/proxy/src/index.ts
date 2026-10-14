@@ -119,13 +119,21 @@ export type { FetchLike, OutboundConnector, OutboundCredential, RestRoute } from
 export {
   ALLOWLISTED_TRANSACTION_FIELDS,
   PAYSTACK_TRANSACTION_STATUSES,
+  PAYSTACK_VERIFY_TIMEOUT_MS,
+  PaystackVerifyUsageError,
   TRANSACTION_VERDICTS,
+  TransientUpstreamError,
   allowlistTransactionData,
   computeTransactionVerdict,
+  createPaystackVerifyConnector,
   isValidTransactionReference,
   transactionExpectationFromParameters,
 } from "./connectors/paystack-verify.js";
-export type { TransactionExpectation, TransactionVerdict } from "./connectors/paystack-verify.js";
+export type {
+  PaystackVerifyOptions,
+  TransactionExpectation,
+  TransactionVerdict,
+} from "./connectors/paystack-verify.js";
 export { verdictRowAdapter } from "./connectors/verdict-rows.js";
 export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";

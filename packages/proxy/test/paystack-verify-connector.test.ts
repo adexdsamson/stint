@@ -74,8 +74,10 @@ const WIRE = {
   },
 };
 
-const connectorOver = (fetchImpl: FetchLike, expectation: TransactionExpectation | undefined = EXPECTED) =>
-  createPaystackVerifyConnector(fetchImpl, { expectation: () => expectation });
+const connectorOver = (fetchImpl: FetchLike, ...rest: [] | [TransactionExpectation | undefined]) => {
+  const expectation = rest.length === 0 ? EXPECTED : rest[0];
+  return createPaystackVerifyConnector(fetchImpl, { expectation: () => expectation });
+};
 
 describe("createPaystackVerifyConnector: the closed GET", () => {
   it("issues one GET to origin + /transaction/verify/{reference} with a bearer key, redirect error and a timeout signal", async () => {
@@ -196,7 +198,10 @@ describe("createPaystackVerifyConnector: refusals before any fetch", () => {
     const { fetchImpl } = recording(json(200, WIRE));
     const error = await connectorOver(fetchImpl, { ...EXPECTED, reference: "../evil" })
       .execute(BINDING, {}, CREDENTIAL)
-      .catch((e: unknown) => e as Error);
+      .then(
+        () => new Error("resolved"),
+        (e: unknown) => e as Error,
+      );
     expect(error.message).not.toContain("evil");
     expect(error.message).not.toContain(KEY);
   });
@@ -235,11 +240,14 @@ describe("createPaystackVerifyConnector: 404 and transient failures", () => {
   });
 
   for (const status of [429, 500, 502, 503, 400, 401, 403]) {
-    it(`HTTP ${status} is a TransientUpstreamError with no row and a fixed message`, async () => {
+    it(`HTTP ${String(status)} is a TransientUpstreamError with no row and a fixed message`, async () => {
       const { fetchImpl } = recording(json(status, { message: "secret detail" }));
       const error = await connectorOver(fetchImpl)
         .execute(BINDING, {}, CREDENTIAL)
-        .catch((e: unknown) => e as Error);
+        .then(
+        () => new Error("resolved"),
+        (e: unknown) => e as Error,
+      );
       expect(error).toBeInstanceOf(TransientUpstreamError);
       expect(error.message).not.toContain("secret detail");
       expect(error.message).not.toContain(KEY);
@@ -257,7 +265,10 @@ describe("createPaystackVerifyConnector: 404 and transient failures", () => {
     const { fetchImpl } = recording(() => Promise.reject(new TypeError(`fetch failed for ${KEY}`)));
     const error = await connectorOver(fetchImpl)
       .execute(BINDING, {}, CREDENTIAL)
-      .catch((e: unknown) => e as Error);
+      .then(
+        () => new Error("resolved"),
+        (e: unknown) => e as Error,
+      );
     expect(error).toBeInstanceOf(TransientUpstreamError);
     expect(error.message).not.toContain(KEY);
   });
@@ -272,7 +283,9 @@ describe("createPaystackVerifyConnector: 404 and transient failures", () => {
   it("a request that never settles is cut by the timeout signal and becomes a TransientUpstreamError", async () => {
     const hanging: FetchLike = (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        init?.signal?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        });
       });
     const connector = createPaystackVerifyConnector(hanging, { expectation: () => EXPECTED, timeoutMs: 20 });
     await expect(connector.execute(BINDING, {}, CREDENTIAL)).rejects.toBeInstanceOf(TransientUpstreamError);
