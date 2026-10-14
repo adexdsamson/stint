@@ -137,17 +137,36 @@ function parseEndpoints(raw: unknown): Readonly<Record<string, string>> | undefi
   return endpoints;
 }
 
+/**
+ * `providerOrigins`: provider name -> the origin its API key is bound to at seed time (10-03, CRED-02).
+ * Validated exactly like `endpoints`: `https:` or loopback `http:` only; content is never echoed.
+ */
+function parseProviderOrigins(raw: unknown): Readonly<Record<string, string>> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) throw bad();
+  const origins: Record<string, string> = {};
+  for (const [provider, value] of Object.entries(raw)) {
+    const url = str(value);
+    if (provider === "" || !URL.canParse(url)) throw bad();
+    if (new URL(url).protocol !== "https:" && !isLoopbackHttp(url)) throw bad();
+    origins[provider] = url;
+  }
+  return origins;
+}
+
 /** Parses already-decoded profile JSON. Throws `CliError(usage)` with a fixed message on any malformed shape. */
 export function parseRunProfile(parsed: unknown): RunProfile {
   if (!isRecord(parsed)) throw bad();
   if (!Array.isArray(parsed.catalog) || !Array.isArray(parsed.bindings)) throw bad();
   try {
     const endpoints = parseEndpoints(parsed.endpoints);
+    const providerOrigins = parseProviderOrigins(parsed.providerOrigins);
     return {
       catalog: createToolCatalog((parsed.catalog as unknown[]).map(parseCatalogEntry)),
       bindings: createBindingSet((parsed.bindings as unknown[]).map(parseBinding)),
       oauth: parseOAuth(parsed.oauth),
       ...(endpoints === undefined ? {} : { endpoints }),
+      ...(providerOrigins === undefined ? {} : { providerOrigins }),
     };
   } catch (e) {
     // Duplicate tool names surface as a plain Error from the builders; never echo its text.

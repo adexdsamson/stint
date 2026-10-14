@@ -292,7 +292,7 @@ describe("create with an interactively entered API key", () => {
     const ports = buildRuntimePorts(s.harness.deps, s.harness.root);
     await ports.secrets.put(
       credentialSecretKey(FIXED_LEASE_ID, PAYSTACK),
-      serializeStoredCredential({ kind: "api_key", key: PRESEEDED }),
+      serializeStoredCredential({ kind: "api_key", key: PRESEEDED, origin: "https://api.paystack.co" }),
     );
 
     const code = await s.create();

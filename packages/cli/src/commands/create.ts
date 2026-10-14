@@ -25,7 +25,12 @@ import {
   userEvents,
 } from "@stint/core";
 import type { ConsentParameter, Lease } from "@stint/core";
-import { API_KEY_PROVIDERS, delegatedApiKeyProviders } from "@stint/runtime";
+import {
+  API_KEY_ORIGIN_UNRESOLVED,
+  API_KEY_PROVIDERS,
+  apiKeyOriginFor,
+  delegatedApiKeyProviders,
+} from "@stint/runtime";
 import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } from "@stint/spec";
 import type { Manifest } from "@stint/spec";
 
@@ -286,6 +291,19 @@ export async function createCommand(
   // shows each credential's kind and revocation capability (SPEC-10); no secret value
   // crosses into the custody object.
   const seededCredentials: Record<string, LoadedCredential> = { ...(credentials ?? {}), ...entered };
+  // Origin pinning (10-03, CRED-02, D-B): every API key is bound at seed time to exactly one
+  // origin (its own entry, else the closed provider table). One that resolves to none is
+  // refused here, before consent, with fixed text: nothing is shown, written or activated.
+  // (`create` holds no run profile, so a profile `providerOrigins` override only applies at `run`.)
+  for (const [resource, credential] of Object.entries(seededCredentials)) {
+    if (
+      credential.kind === "api_key" &&
+      credential.origin === undefined &&
+      apiKeyOriginFor(manifest, resource) === undefined
+    ) {
+      throw new CliError(EXIT_CODES.usage, API_KEY_ORIGIN_UNRESOLVED);
+    }
+  }
   const custody = buildConsentCustody(manifest, seededCredentials);
 
   // The consent screen shows exactly what will bind, in declaration order (SPEC-08):
@@ -399,7 +417,7 @@ export async function createCommand(
   // after consent and activation.
   await ports.artifacts.put(lease.id, "grants", grantsFromCustody(custody));
   if (Object.keys(seededCredentials).length > 0) {
-    await seedFromCredentials(deps, ports, lease.id, seededCredentials);
+    await seedFromCredentials(deps, ports, lease.id, seededCredentials, { manifest });
   }
 
   if (json) {

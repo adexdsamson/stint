@@ -114,7 +114,7 @@ describe("seedLeaseCredentials", () => {
     const result = await seedLeaseCredentials(rig.ports, LEASE, {
       b: oauthCredential(TOKEN, undefined),
       a: oauthCredential(TOKEN, REVOKE),
-      k: { kind: "api_key", key: "sk-live-1" },
+      k: { kind: "api_key", key: "sk-live-1", origin: "https://api.sheets.example" },
     });
     expect(result).toEqual({ written: ["a", "b", "k"], skipped: [] });
     expect(await rig.ports.artifacts.get(LEASE, "grants")).toEqual({

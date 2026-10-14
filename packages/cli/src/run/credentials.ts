@@ -6,8 +6,9 @@
  * job and is wired in plan 08-09. No OAuth acquisition flow lives here (D-02).
  *
  * File shape: `{ "<resource>": { accessToken, refreshToken, expiry, tokenEndpoint, resourceIndicator,
- * clientId?, revocationEndpoint? } }`, or `{ "<resource>": { kind: "api_key", key } }` for a
- * static API key (10-02; the key is a SECRET exactly like the tokens). `clientId` and
+ * clientId?, revocationEndpoint? } }`, or `{ "<resource>": { kind: "api_key", key, origin? } }` for a
+ * static API key (10-02; the key is a SECRET exactly like the tokens; the optional `origin`, 10-03,
+ * is the one origin the key may be sent to, https or loopback http only) `clientId` and
  * `revocationEndpoint` are the non-secret
  * authorization-server details `revoke`/`cleanup` need to attempt RFC 7009 revocation (they have
  * no run profile): `revocationEndpoint` requires `clientId`, and without it revocation is
@@ -16,12 +17,9 @@
 
 import { readFile } from "node:fs/promises";
 
-import type {
-  ApiKeySeededCredential,
-  CredentialVault,
-  OAuthSeededCredential,
-  SeededCredential,
-} from "@stint/proxy";
+import { isSecureOrLoopbackOrigin } from "@stint/proxy";
+import type { CredentialVault, OAuthSeededCredential, SeededCredential } from "@stint/proxy";
+import type { UnboundApiKeyCredential } from "@stint/runtime";
 
 import { CliError, EXIT_CODES } from "../exit.js";
 
@@ -39,19 +37,22 @@ function isUrl(v: string): boolean {
 
 /**
  * One credentials-file entry: an OAuth grant (with its optional non-secret AS
- * details) or a static API key (10-02, D-A). An `api_key` entry is exactly
- * `{ kind: "api_key", key }`; the optional `origin` member is plan 10-03 and is
- * rejected as an unknown field until then.
+ * details) or a static API key (10-02, D-A). An `api_key` entry is
+ * `{ kind: "api_key", key, origin? }`; the `origin` (10-03, D-B) is the one origin
+ * the key is bound to, and when absent the seed resolves it (run profile
+ * `providerOrigins`, then the closed provider table) or refuses.
  */
-export type LoadedCredential = OAuthSeededCredential | ApiKeySeededCredential;
+export type LoadedCredential = OAuthSeededCredential | UnboundApiKeyCredential;
 
-/** Parses one `api_key` entry: a non-empty `key` and no other member (an `origin` arrives in 10-03). */
-function parseApiKeyEntry(raw: Record<string, unknown>): ApiKeySeededCredential | undefined {
+/** Parses one `api_key` entry: a non-empty `key`, an optional https-or-loopback `origin`, and no other member. */
+function parseApiKeyEntry(raw: Record<string, unknown>): UnboundApiKeyCredential | undefined {
   if (!isNonEmptyString(raw.key)) return undefined;
   for (const member of Object.keys(raw)) {
-    if (member !== "kind" && member !== "key") return undefined;
+    if (member !== "kind" && member !== "key" && member !== "origin") return undefined;
   }
-  return { kind: "api_key", key: raw.key };
+  if (raw.origin === undefined) return { kind: "api_key", key: raw.key };
+  if (!isNonEmptyString(raw.origin) || !isSecureOrLoopbackOrigin(raw.origin)) return undefined;
+  return { kind: "api_key", key: raw.key, origin: raw.origin };
 }
 
 function parseSeeded(raw: unknown): LoadedCredential | undefined {

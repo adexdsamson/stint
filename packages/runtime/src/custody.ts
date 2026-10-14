@@ -20,9 +20,10 @@
 import { SecretKeyError, credentialSecretKey, parseGrantsArtifact } from "@stint/core";
 import type { GrantRecord } from "@stint/core";
 import { isApiKeyCredential, serializeStoredCredential } from "@stint/proxy";
-import type { SeededCredential } from "@stint/proxy";
+import type { OAuthSeededCredential, SeededCredential } from "@stint/proxy";
 import type { Manifest } from "@stint/spec";
 
+import { API_KEY_ORIGIN_UNRESOLVED, apiKeyOriginFor, normalizeApiKeyOrigin } from "./api-key-providers.js";
 import { RuntimeError } from "./errors.js";
 import type { RuntimePorts } from "./ports.js";
 
@@ -33,8 +34,45 @@ export interface SeedResult {
   readonly skipped: readonly string[];
 }
 
+/**
+ * An API key as a host holds it BEFORE seeding: the `origin` is optional
+ * because a credentials-file entry or an interactively entered key names none.
+ * Seeding binds exactly one origin to it (`seedLeaseCredentials`) or refuses.
+ */
+export interface UnboundApiKeyCredential {
+  readonly kind: "api_key";
+  readonly key: string;
+  readonly origin?: string;
+}
+
+/** What a host may hand to {@link seedLeaseCredentials}: an OAuth grant, or an API key with or without its origin. */
+export type SeedableCredential = OAuthSeededCredential | UnboundApiKeyCredential;
+
 function byName(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The stored form of one credential. An API key leaves here with exactly one
+ * normalized origin (D-B): its own when it carries one (which must be https or
+ * loopback http), else the closed-table origin for its resource's provider
+ * (`enrich` has already applied a profile override). No resolvable origin is a
+ * fixed usage error before anything is written. Never interpolates a value.
+ */
+function bindCredential(
+  resource: string,
+  credential: SeedableCredential,
+  manifest: Manifest | undefined,
+): SeededCredential {
+  if (credential.kind !== "api_key") return credential;
+  const origin =
+    credential.origin !== undefined
+      ? normalizeApiKeyOrigin(credential.origin)
+      : manifest === undefined
+        ? undefined
+        : apiKeyOriginFor(manifest, resource);
+  if (origin === undefined) throw new RuntimeError("usage", API_KEY_ORIGIN_UNRESOLVED);
+  return { kind: "api_key", key: credential.key, origin };
 }
 
 /** Every credential resource the lease is expected to hold, de-duplicated and sorted ascending. */
@@ -87,12 +125,19 @@ function grantFor(resource: string, credential: SeededCredential): GrantRecord {
  * Writes each credential the store does not already hold and records every
  * seeded resource (kind and revocation capability) in the grants artifact.
  * `enrich` runs before the write, for a host that fills in non-secret fields.
+ * An API key is bound to exactly one origin first (file entry, then `enrich`,
+ * then the closed table via `manifest`); one that resolves to none refuses the
+ * whole call with a fixed usage error before any write.
  */
 export async function seedLeaseCredentials(
   ports: Pick<RuntimePorts, "secrets" | "artifacts">,
   leaseId: string,
-  credentials: Readonly<Record<string, SeededCredential>>,
-  opts: { readonly enrich?: (resource: string, credential: SeededCredential) => SeededCredential } = {},
+  credentials: Readonly<Record<string, SeedableCredential>>,
+  opts: {
+    readonly enrich?: (resource: string, credential: SeedableCredential) => SeedableCredential;
+    /** The lease's verified manifest: how an API key without an origin finds its provider's table origin. */
+    readonly manifest?: Manifest;
+  } = {},
 ): Promise<SeedResult> {
   const written: string[] = [];
   const skipped: string[] = [];
@@ -106,7 +151,11 @@ export async function seedLeaseCredentials(
   for (const resource of Object.keys(credentials).sort(byName)) {
     const raw = credentials[resource];
     if (raw === undefined) continue;
-    const credential = opts.enrich === undefined ? raw : opts.enrich(resource, raw);
+    const credential = bindCredential(
+      resource,
+      opts.enrich === undefined ? raw : opts.enrich(resource, raw),
+      opts.manifest,
+    );
     try {
       plan.push({ resource, key: credentialSecretKey(leaseId, resource), credential });
     } catch (err) {

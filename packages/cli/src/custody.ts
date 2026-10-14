@@ -8,10 +8,8 @@
  */
 
 import type { ConsentCredential, ConsentCustody, GrantRecord, GrantsArtifact } from "@stint/core";
-import { isApiKeyCredential } from "@stint/proxy";
-import type { SeededCredential } from "@stint/proxy";
 import { seedLeaseCredentials } from "@stint/runtime";
-import type { RuntimePorts, SeedResult } from "@stint/runtime";
+import type { RuntimePorts, SeedResult, SeedableCredential } from "@stint/runtime";
 import type { Manifest } from "@stint/spec";
 
 import type { CliDeps } from "./deps.js";
@@ -47,7 +45,7 @@ export function buildConsentCustody(
     const entry = credentials?.[resource];
     // An API key has no revocation endpoint to call, so consent is always honest
     // about it: kind api_key, revocation unsupported (SPEC-10, 10-02).
-    if (entry !== undefined && isApiKeyCredential(entry)) {
+    if (entry !== undefined && entry.kind === "api_key") {
       return { resource, kind: "api_key", revocation: "unsupported" } as const;
     }
     const revocation =
@@ -75,10 +73,12 @@ export async function seedFromCredentials(
   deps: CliDeps,
   ports: RuntimePorts,
   leaseId: string,
-  credentials: Readonly<Record<string, SeededCredential>>,
+  credentials: Readonly<Record<string, SeedableCredential>>,
   opts: {
     /** Fills in non-secret fields before each credential is written (for example from a run profile). */
-    readonly enrich?: (resource: string, credential: SeededCredential) => SeededCredential;
+    readonly enrich?: (resource: string, credential: SeedableCredential) => SeedableCredential;
+    /** The lease's manifest: how an API key with no origin finds its provider's table origin (10-03). */
+    readonly manifest?: Manifest;
   } = {},
 ): Promise<SeedResult> {
   let result: SeedResult;
@@ -87,7 +87,10 @@ export async function seedFromCredentials(
       ports,
       leaseId,
       credentials,
-      opts.enrich === undefined ? {} : { enrich: opts.enrich },
+      {
+        ...(opts.enrich === undefined ? {} : { enrich: opts.enrich }),
+        ...(opts.manifest === undefined ? {} : { manifest: opts.manifest }),
+      },
     );
   } catch (error) {
     throw toCliError(error);

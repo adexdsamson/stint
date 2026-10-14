@@ -363,7 +363,8 @@ export async function createLeaseRuntime(
   // loopback token endpoint; never a blanket switch.
   if (options.credentials !== undefined) {
     await seedLeaseCredentials(ports, leaseId, options.credentials, {
-      enrich: enrichFromProfile(profile),
+      enrich: enrichFromProfile(profile, verified.manifest),
+      manifest: verified.manifest,
     });
   }
   const vault = createCredentialVault(() => profile.oauth, clock, {
