@@ -116,7 +116,7 @@ describe("createRestOutboundConnector", () => {
       provenance: "built_in" as const,
     };
 
-    const result = await connector.execute(binding, {}, { accessToken: SECRET_TOKEN });
+    const result = await connector.execute(binding, {}, { accessToken: SECRET_TOKEN, kind: "oauth" });
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ ok: true });

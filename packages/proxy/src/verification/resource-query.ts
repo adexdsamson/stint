@@ -252,13 +252,14 @@ export async function runResourceQueryVerification(
     // The ONLY token read path (D-02) -- the exact same call
     // `vault/execute-stage.ts`'s `createVaultExecuteStage` makes for a real
     // tool call, never a second credential seam.
-    const accessToken = await deps.vault.resolveAccessToken(deps.leaseId, deps.binding.resource, now);
+    const credential = await deps.vault.resolveOutboundCredential(deps.leaseId, deps.binding.resource, now);
+    const accessToken = credential.accessToken;
 
     let execResult: { readonly status: number; readonly body: unknown };
     try {
       // A verifier-actor SYNTHETIC read: no agent-supplied args, never
       // registered in tools/list, never touching action/spend counters.
-      const rawResult = await deps.connector.execute(deps.binding, {}, { accessToken });
+      const rawResult = await deps.connector.execute(deps.binding, {}, credential);
       execResult = scrubCredential(rawResult, [accessToken]);
     } catch (err) {
       throw scrubError(err, [accessToken]);

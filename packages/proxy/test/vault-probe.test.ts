@@ -153,7 +153,7 @@ describe("CredentialVault.probeGrant", () => {
   });
 
   it("an API key is not_probeable and makes no request", async () => {
-    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-probe-key" });
+    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-probe-key", origin: "https://api.probe-test.example" });
     const before = harness.tokenEndpointHits;
     await expect(probe("res-key")).resolves.toEqual({ kind: "not_probeable" });
     expect(harness.tokenEndpointHits).toBe(before);

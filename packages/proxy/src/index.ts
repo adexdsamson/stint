@@ -79,6 +79,7 @@ export {
   classifyTokenError,
   DEFAULT_OAUTH_TIMEOUT_MS,
   isApiKeyCredential,
+  isSecureOrLoopbackOrigin,
   oauthClientFromCredential,
   refreshAccessToken,
   retryAfterFromError,

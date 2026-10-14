@@ -23,9 +23,17 @@
 
 import type { ConnectorBinding } from "@stint/core";
 
-/** The raw OAuth credential the vault resolved for this call -- the access token shape ONLY, never the publisher license (LIC-05, D-15). */
+/**
+ * The credential the vault resolved for this call -- the access token (or API
+ * key) and its kind ONLY, never the publisher license (LIC-05, D-15). `origin`
+ * is present whenever `kind` is `"api_key"`: the one origin the key was bound
+ * to at seed time (CRED-02, D-B). An `api_key` with no `origin` is a hard
+ * connector error (fail closed).
+ */
 export interface OutboundCredential {
   readonly accessToken: string;
+  readonly kind: "oauth" | "api_key";
+  readonly origin?: string;
 }
 
 /**
