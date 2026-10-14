@@ -38,6 +38,8 @@ export {
 } from "./license-http.js";
 export { parsePublisherBinding } from "./publisher-binding.js";
 export type { PublisherBinding } from "./publisher-binding.js";
+export { createRuntimeOutboundConnector } from "./outbound.js";
+export type { RuntimeConnectorOptions } from "./outbound.js";
 export { loadLeaseManifest } from "./manifest.js";
 export { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
 export type { SeedableCredential, SeedResult, UnboundApiKeyCredential } from "./custody.js";

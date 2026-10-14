@@ -7,7 +7,7 @@
  */
 
 import { createBindingSet } from "@stint/core";
-import type { ConnectorBinding, Receipt } from "@stint/core";
+import type { ConnectorBinding } from "@stint/core";
 import {
   createInMemoryKeyProvider,
   createInMemoryLeaseStore,
@@ -22,6 +22,7 @@ import {
 } from "@stint/proxy";
 import type { FetchLike, OAuthClient, OutboundConnector, OutboundCredential } from "@stint/proxy";
 import { parsePredicate } from "@stint/spec";
+import type { ReceiptEntry } from "@stint/spec";
 import { describe, expect, it } from "vitest";
 
 import { createRuntimeOutboundConnector } from "../src/index.js";
@@ -150,10 +151,10 @@ describe("createRuntimeOutboundConnector: the closed-table dispatch", () => {
 
   it("reads the parameters at call time (the provider is a function, not a snapshot)", async () => {
     const { fetchImpl, calls } = recording(confirmedEnvelope);
-    let current: Record<string, string | number> | undefined;
-    const connector = createRuntimeOutboundConnector({ fetchImpl, jobParameters: () => current });
+    const state: { current: Record<string, string | number> | undefined } = { current: undefined };
+    const connector = createRuntimeOutboundConnector({ fetchImpl, jobParameters: () => state.current });
     await expect(connector.execute(binding(PAYSTACK), {}, apiKey)).rejects.toThrow();
-    current = { ...PARAMETERS };
+    state.current = { ...PARAMETERS };
     await connector.execute(binding(PAYSTACK), {}, apiKey);
     expect(calls).toHaveLength(1);
   });
@@ -218,7 +219,7 @@ describe("the verifier path through the composed connector (PSTK-05)", () => {
     expect((await leaseStore.load(LEASE))?.state).toBe("cleaned_up");
     const chain = await receiptStore.load("verified");
     const completed = chain.some(
-      (entry: Receipt) =>
+      (entry: ReceiptEntry) =>
         entry.type === "transition" && (entry.payload as { to?: string }).to === "completed",
     );
     expect(completed).toBe(true);
@@ -248,7 +249,7 @@ describe("the verifier path through the composed connector (PSTK-05)", () => {
 
     expect((await leaseStore.load(LEASE))?.state).toBe("active");
     const chain = await receiptStore.load("verified");
-    expect(chain.some((entry: Receipt) => entry.type === "transition")).toBe(false);
+    expect(chain.some((entry: ReceiptEntry) => entry.type === "transition")).toBe(false);
     const newest = chain[chain.length - 1];
     expect(newest?.type).toBe("call");
     const payload = newest?.payload as { outcome?: string; redactedSummary?: string };
