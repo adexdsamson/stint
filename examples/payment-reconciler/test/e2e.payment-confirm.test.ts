@@ -199,7 +199,7 @@ describe("payment confirmation: a failed check is not terminal", () => {
         {},
         {
           before: (context) => {
-            context.paystack.setVerifyFixture(REFERENCE, paystackVerifyFixture());
+            context.paystack?.setVerifyFixture(REFERENCE, paystackVerifyFixture());
           },
         },
       ],
@@ -211,7 +211,7 @@ describe("payment confirmation: a failed check is not terminal", () => {
     expect(run.checks[0]?.err).toContain(run.leaseId);
     expect(run.checks[0]?.stateAfter).toBe("active");
     // The differing value never reaches a terminal.
-    expect(run.checks[0]?.out + (run.checks[0]?.err ?? "")).not.toContain("99999");
+    expect(`${run.checks[0]?.out ?? ""}${run.checks[0]?.err ?? ""}`).not.toContain("99999");
 
     expect(run.checks[1]?.code).toBe(0);
     expect(run.lease?.state).toBe("cleaned_up");
@@ -232,15 +232,12 @@ describe("payment confirmation: a failed check is not terminal", () => {
     expectNothingLeaks(run.cliOutput, "command output");
   });
 
-  it.each([
-    [429, "rate limited"],
-    [500, "server error"],
-  ] as const)("a transient %i (%s) is the generic failed line, a denied read-error receipt, lease active", async (status) => {
+  it.each([429, 500] as const)("a transient %i is the generic failed line, a denied read-error receipt, lease active", async (status) => {
     const run = await scenario({
       checks: [
         {
           before: (context) => {
-            context.paystack.failNextVerify(status);
+            context.paystack?.failNextVerify(status);
           },
         },
       ],
@@ -252,8 +249,13 @@ describe("payment confirmation: a failed check is not terminal", () => {
     expect(run.checks[0]?.err).not.toContain("Injected failure");
     expect(run.lease?.state).toBe("active");
 
-    // The agent's own earlier read was allowed; the check's read was denied and nothing transitioned.
-    expect(chain(run.verifiedReceipts)).toEqual([`call:${PAYSTACK}:allowed`, `call:${PAYSTACK}:denied`]);
+    // The agent's own earlier read and its check request were allowed; the check's read was denied
+    // and nothing transitioned.
+    expect(chain(run.verifiedReceipts)).toEqual([
+      `call:${PAYSTACK}:allowed`,
+      "call:outcome_check:allowed",
+      `call:${PAYSTACK}:denied`,
+    ]);
     expect(JSON.stringify(run.verifiedReceipts)).toContain("verification_read_error");
     expectNothingLeaks(run.cliOutput, "command output");
   });
@@ -275,7 +277,7 @@ describe("payment confirmation: every documented non-success status is not_succe
     run = await scenario({
       checks: CASES.map((entry) => ({
         before: (context) => {
-          context.paystack.setVerifyFixture(REFERENCE, paystackVerifyFixture(entry.data, { envelopeStatus: true }));
+          context.paystack?.setVerifyFixture(REFERENCE, paystackVerifyFixture(entry.data, { envelopeStatus: true }));
         },
       })),
     });
