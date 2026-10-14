@@ -176,7 +176,10 @@ export type TeardownStuckReason = TeardownStuckPayload["reason"];
  * one per-call approval notice, `approval_void`, so the "your approval did not
  * take effect" message reaches the user without a new `HostAdapter` method,
  * and `teardown_stuck`, so a supervisor can tell a host that a lease it cannot
- * tear down on its own still holds a live credential (Phase 9 D-04).
+ * tear down on its own still holds a live credential (Phase 9 D-04). It also
+ * carries `outcome_check_requested` (Phase 10, SPEC-11): the agent asked for an
+ * outcome check. It is a NOTICE only; the host shows the user the command to run
+ * and nothing about it can complete a lease.
  */
 export type LifecycleEvent =
   | { readonly type: "activated"; readonly leaseId: string; readonly at: number }
@@ -198,7 +201,8 @@ export type LifecycleEvent =
       readonly leaseId: string;
       readonly at: number;
       readonly reason: TeardownStuckReason;
-    };
+    }
+  | { readonly type: "outcome_check_requested"; readonly leaseId: string; readonly at: number };
 
 /**
  * The single published contract a platform builder implements (HOST-01).

@@ -53,6 +53,7 @@ import type {
   Lease,
   PolicyCall,
 } from "@stint/core";
+import { hashCanonical } from "@stint/spec";
 import type { Access, ContentHash, Limits } from "@stint/spec";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
@@ -245,6 +246,56 @@ function errorResult(): CallToolResult {
   return textResult("call failed", true);
 }
 
+/** The fixed name of the agent signal tool (Phase 10, SPEC-11). Not a catalog entry: no binding, no counter, no limit. */
+export const OUTCOME_CHECK_TOOL = "request_outcome_check";
+
+/** The fixed description `tools/list` shows for the signal tool. */
+export const OUTCOME_CHECK_DESCRIPTION =
+  "Ask the user to check whether this job's outcome has been reached. Only the user can run the check and complete the lease; this call only tells them you asked.";
+
+/** The sentinel `resource` on the signal's call receipt (the `user_confirm` / `UNRESOLVED_RESOURCE` convention). */
+const OUTCOME_CHECK_RESOURCE = "outcome_check";
+
+const OUTCOME_CHECK_SUMMARY = "agent requested an outcome check";
+const OUTCOME_CHECK_DENIED_SUMMARY = "agent requested an outcome check (denied: lease_not_active)";
+
+/** The only answer the agent ever gets: fully static, no lease id, no echo of the call. */
+const OUTCOME_CHECK_ANSWER =
+  "The user has been asked to run the outcome check. Only the user can complete this lease; keep working or wait.";
+
+/**
+ * The agent's `request_outcome_check` call (SPEC-11): a NOTICE, never a completion. It appends the
+ * standard call receipt, tells the host and answers with fixed text. It consumes no binding, counter,
+ * limit or approval (the verifier read's counter discipline), and it makes no state change of any
+ * kind: the lease is returned exactly as loaded. Completion exists only behind the user-run check in
+ * `@stint/runtime`; this branch has no transition call by design.
+ */
+async function handleOutcomeCheckSignal(deps: ProxyDeps, now: number): Promise<CallToolResult> {
+  const seen = { active: false };
+  await runInLeaseTransaction(deps.leaseStore, deps.leaseId, async (lease) => {
+    seen.active = lease.state === "active";
+    await appendCallReceipt(
+      deps.receiptStore,
+      [],
+      {
+        resource: OUTCOME_CHECK_RESOURCE,
+        argsHash: hashCanonical({}),
+        redactedSummary: seen.active ? OUTCOME_CHECK_SUMMARY : OUTCOME_CHECK_DENIED_SUMMARY,
+        outcome: seen.active ? "allowed" : "denied",
+      },
+      now,
+    );
+    return lease;
+  });
+  if (!seen.active) return denyResult("lease_not_active");
+  try {
+    await deps.notify?.({ type: "outcome_check_requested", leaseId: deps.leaseId, at: now });
+  } catch {
+    // Best effort: a host that cannot show the notice never changes the call's result.
+  }
+  return textResult(OUTCOME_CHECK_ANSWER, false);
+}
+
 /** How often the lock-free lease-end watcher polls the lease store while an approval is pending, in milliseconds (D-20). */
 const DEFAULT_APPROVAL_WATCH_MS = 1000;
 
@@ -302,6 +353,8 @@ export async function handleCall(
   params: { readonly name: string; readonly arguments?: Readonly<Record<string, unknown>> },
   now: number,
 ): Promise<CallToolResult> {
+  // The fixed signal tool is answered before any binding lookup (SPEC-11): it is a notice, not a call.
+  if (params.name === OUTCOME_CHECK_TOOL) return await handleOutcomeCheckSignal(deps, now);
   const resolvedArgs: Record<string, unknown> = { ...(params.arguments ?? {}) };
   const binding = resolveEffectiveBinding(deps.bindings, deps.grantedScopes, deps.grantedResources, params.name);
   // Pre-authorization spend extraction (D-07): a pay tool's runtime-owned

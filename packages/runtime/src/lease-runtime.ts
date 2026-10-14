@@ -432,6 +432,8 @@ export async function createLeaseRuntime(
     enforceCaps: createCapEnforcer(),
     teardownSteps,
     teardownFence,
+    // The agent's request_outcome_check is a notice to the user: it reaches the host through notify and nothing else.
+    notify: (event) => adapter.notify(event),
     ...(ports.telemetry === undefined ? {} : { telemetry: ports.telemetry }),
     ...(options.approvalWatchMs === undefined ? {} : { approvalWatchMs: options.approvalWatchMs }),
   };

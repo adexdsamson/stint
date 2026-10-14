@@ -19,13 +19,18 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { BindingSet, LeaseStore, ReceiptStore, Telemetry } from "@stint/core";
+import type { BindingSet, LeaseStore, LifecycleEvent, ReceiptStore, Telemetry } from "@stint/core";
 import type { Access, Approvals, Limits } from "@stint/spec";
 
 import type { ToolCatalog } from "./catalog.js";
 import { resolveCatalogEntry } from "./catalog.js";
 import type { ApprovalStage, CapEnforcer, ExecuteStage } from "./dispatch.js";
-import { handleCall, resolveEffectiveBinding } from "./dispatch.js";
+import {
+  OUTCOME_CHECK_DESCRIPTION,
+  OUTCOME_CHECK_TOOL,
+  handleCall,
+  resolveEffectiveBinding,
+} from "./dispatch.js";
 import type { TeardownFenceConfig } from "./teardown/fence.js";
 import type { TeardownStep } from "./teardown/steps.js";
 
@@ -72,6 +77,13 @@ export interface ProxyDeps {
   readonly approvalWatchMs?: number;
   /** Optional observational sink; one `call.decided` event per call (D-25). */
   readonly telemetry?: Telemetry;
+  /**
+   * OPTIONAL (Phase 10, SPEC-11): tells the user's host that the agent asked for an outcome check
+   * (`request_outcome_check`). Best effort and notice-only: a failure here never changes the call's
+   * result, and nothing it does can complete a lease. Absent means the call is receipted and answered
+   * with no notification.
+   */
+  readonly notify?: (event: LifecycleEvent) => Promise<void>;
 }
 
 function toWireTool(name: string, catalog: ToolCatalog): Tool {
@@ -115,12 +127,20 @@ export function createLeaseProxyServer(deps: ProxyDeps): Server {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- see docstring above; Server is the correct choice here, not McpServer.
   const server = new Server({ name: "stint-proxy", version: "0.1.0" }, { capabilities: { tools: {} } });
 
+  // The fixed signal tool is listed beside the catalog (SPEC-11). It is not a catalog entry and has no
+  // binding; a catalog entry that reuses its name is skipped so the name appears once and is never shadowed.
   const visibleTools: Tool[] = Object.keys(deps.catalog)
     .filter(
       (name) =>
+        name !== OUTCOME_CHECK_TOOL &&
         resolveEffectiveBinding(deps.bindings, deps.grantedScopes, deps.grantedResources, name) !== undefined,
     )
     .map((name) => toWireTool(name, deps.catalog));
+  visibleTools.push({
+    name: OUTCOME_CHECK_TOOL,
+    description: OUTCOME_CHECK_DESCRIPTION,
+    inputSchema: { type: "object", properties: {} },
+  });
 
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools: visibleTools }));
 

@@ -20,6 +20,7 @@ export {
   DEFAULT_APPROVAL_STAGE,
   DEFAULT_CAP_ENFORCER,
   DEFAULT_EXECUTE_STAGE,
+  OUTCOME_CHECK_TOOL,
   handleCall,
 } from "./dispatch.js";
 export type {

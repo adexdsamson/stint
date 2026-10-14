@@ -246,6 +246,13 @@ export function createTerminalHostAdapter(options: TerminalHostAdapterOptions): 
           safeWrite(output, `${APPROVAL_VOID_SENTENCES[event.reason]}\n`);
           return Promise.resolve();
         }
+        if (event.type === "outcome_check_requested") {
+          safeWrite(
+            output,
+            `stint: the agent asked for an outcome check; run: stint-cli verify-outcome ${s(event.leaseId)}\n`,
+          );
+          return Promise.resolve();
+        }
         const at = Number.isFinite(event.at)
           ? ` at ${new Date(event.at * 1000).toISOString()}`
           : "";

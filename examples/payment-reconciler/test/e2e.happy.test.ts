@@ -129,6 +129,7 @@ describe("hybrid happy path", () => {
       "list_transactions",
       "mark_order_reconciled",
       "read_orders",
+      "request_outcome_check",
     ]);
     for (const name of run.toolNames) expect(name).not.toMatch(COMPLETION_TOOL_NAME);
 

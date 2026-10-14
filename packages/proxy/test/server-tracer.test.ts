@@ -100,14 +100,13 @@ export async function connectedClient(deps: ProxyDeps): Promise<Client> {
 }
 
 describe("server tracer: permitted read tool end-to-end", () => {
-  it("tools/list shows exactly the one permitted tool", async () => {
+  it("tools/list shows exactly the one permitted tool, plus the fixed request_outcome_check signal (Phase 10)", async () => {
     const { deps } = await buildDeps("lease-tracer-1");
     const client = await connectedClient(deps);
 
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(1);
-    expect(tools[0]?.name).toBe(READ_BINDING.tool);
+    expect(tools.map((tool) => tool.name)).toEqual([READ_BINDING.tool, "request_outcome_check"]);
   });
 
   it("tools/call on the permitted tool returns the echo body and appends exactly one allowed receipt", async () => {
@@ -183,8 +182,8 @@ describe("PRXY-01 completeness: filtering + direct-name denial", () => {
 
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(1);
-    expect(tools[0]?.name).toBe(READ_BINDING.tool);
+    // The one permitted catalog tool, plus the fixed request_outcome_check signal (Phase 10).
+    expect(tools.map((tool) => tool.name)).toEqual([READ_BINDING.tool, "request_outcome_check"]);
     expect(tools.map((tool) => tool.name)).not.toContain(OUT_OF_SCOPE_ACCESS_BINDING.tool);
     expect(tools.map((tool) => tool.name)).not.toContain(OUT_OF_SCOPE_RESOURCE_BINDING.tool);
   });
