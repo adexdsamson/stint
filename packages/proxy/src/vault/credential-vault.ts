@@ -21,8 +21,10 @@
 import { credentialSecretKey, leaseSecretPrefix } from "@stint/core";
 import type { SecretStore } from "@stint/core";
 
-import { isApiKeyCredential, refreshAccessToken, revokeCredential } from "./oauth-client.js";
+import type { OutboundCredential } from "../connectors/outbound-connector.js";
+import { isApiKeyCredential, isSecureOrLoopbackOrigin, refreshAccessToken, revokeCredential } from "./oauth-client.js";
 import type {
+  ApiKeySeededCredential,
   OAuthClient,
   OAuthClientResolver,
   OAuthSeededCredential,
@@ -67,7 +69,8 @@ function isOptionalString(v: unknown): v is string | undefined {
 
 /**
  * Parses a value written by {@link serializeStoredCredential}. Strict: version
- * 1 and either the api_key shape or the full OAuth shape; anything else
+ * 1 and either the api_key shape (key plus an https-or-loopback origin) or
+ * the full OAuth shape; anything else
  * (corrupt, edited, wrong version) returns `undefined` and is treated as
  * absent. It never throws and never echoes the stored contents.
  */
@@ -84,7 +87,13 @@ export function parseStoredCredential(raw: string): SeededCredential | undefined
   const c = parsed.credential;
 
   if (c.kind === "api_key") {
-    return typeof c.key === "string" && c.key !== "" ? { kind: "api_key", key: c.key } : undefined;
+    // Fail closed: a key with no https-or-loopback origin is absent, never a key sendable anywhere (D-B).
+    return typeof c.key === "string" &&
+      c.key !== "" &&
+      typeof c.origin === "string" &&
+      isSecureOrLoopbackOrigin(c.origin)
+      ? { kind: "api_key", key: c.key, origin: c.origin }
+      : undefined;
   }
   if (c.kind !== undefined && c.kind !== "oauth") return undefined;
 
@@ -146,6 +155,18 @@ export interface CredentialVault {
    * stale "success."
    */
   resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string>;
+  /**
+   * The widened sibling of {@link resolveAccessToken} that connectors consume
+   * (CRED-02, D-B). It runs the SAME load-through and refresh path, so an
+   * expired OAuth access token still refreshes through it, and returns the
+   * credential with its kind: `{ accessToken, kind: "oauth" }` for an OAuth
+   * grant (no origin member) and `{ accessToken, kind: "api_key", origin }`
+   * for an API key, where `origin` is the one origin recorded at seed time.
+   * The origin is read from the stored credential, never from the call. A
+   * stored API key with no usable origin never loads (strict parse), so this
+   * rejects with the same fixed "no credential seeded" error: fail closed.
+   */
+  resolveOutboundCredential(leaseId: string, resource: string, now: number): Promise<OutboundCredential>;
   /**
    * The idle-lease probe (D-14, D-16): asks the provider whether the grant for
    * `leaseId:resource` is still alive by performing one real refresh-token
@@ -227,6 +248,14 @@ export class CredentialRefreshError extends Error {
     this.kind = kind;
     this.cause = cause;
   }
+}
+
+function apiKeyOutbound(credential: ApiKeySeededCredential): OutboundCredential {
+  return { accessToken: credential.key, kind: "api_key", origin: credential.origin };
+}
+
+function oauthOutbound(accessToken: string): OutboundCredential {
+  return { accessToken, kind: "oauth" };
 }
 
 function keyFor(leaseId: string, resource: string): string {
@@ -329,6 +358,72 @@ export function createCredentialVault(
     return loaded;
   }
 
+  /** The shared resolve path behind {@link CredentialVault.resolveAccessToken} and {@link CredentialVault.resolveOutboundCredential}. */
+  async function resolveOutbound(leaseId: string, resource: string, now: number): Promise<OutboundCredential> {
+    const key = keyFor(leaseId, resource);
+    const record = credentials.get(key) ?? (await loadThrough(leaseId, resource, key));
+    if (record === undefined) {
+      throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
+    }
+
+    // An API key never expires and never enters the refresh path.
+    if (isApiKeyCredential(record)) {
+      return apiKeyOutbound(record);
+    }
+
+    // Per-call expiry against the injected clock -- pure comparison, no
+    // cached "still valid" boolean, no timer. A dirty key is never answered
+    // from here: its pending write-through must land first.
+    if (record.expiry > now && !dirty.has(key)) {
+      return oauthOutbound(record.accessToken);
+    }
+
+    return runSingleFlight(key, async (): Promise<OutboundCredential> => {
+      // Re-read: a prior call in this same-key chain may have already
+      // refreshed the credential while this call was queued.
+      const current = credentials.get(key);
+      if (current === undefined) {
+        throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
+      }
+      if (isApiKeyCredential(current)) {
+        return apiKeyOutbound(current);
+      }
+
+      // Retry a pending write-through before anything else: the provider
+      // already consumed the old refresh token, so the new one (held in
+      // memory) must reach the store before this call can succeed.
+      if (dirty.has(key)) {
+        await persist(leaseId, resource, key, current);
+      }
+
+      if (current.expiry > now) {
+        return oauthOutbound(current.accessToken);
+      }
+
+      const { oauthClient, requestOpts } = clientFor(resource, current);
+      const result = await refreshAccessToken(oauthClient, current, now, requestOpts);
+
+      if (result.kind === "ok") {
+        const updated: OAuthSeededCredential = {
+          ...current,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken ?? current.refreshToken,
+          expiry: result.expiry,
+        };
+        // Memory first: the old refresh token is spent, so the new one must
+        // survive in process even when persisting it fails.
+        credentials.set(key, updated);
+        await persist(leaseId, resource, key, updated);
+        return oauthOutbound(updated.accessToken);
+      }
+
+      if (result.kind === "provider_revoked") {
+        throw new CredentialRefreshError(key, "provider_revoked");
+      }
+      throw new CredentialRefreshError(key, "transient_error", result.cause);
+    });
+  }
+
   return {
     seedCredential(leaseId: string, resource: string, seeded: SeededCredential): void {
       const key = keyFor(leaseId, resource);
@@ -337,69 +432,10 @@ export function createCredentialVault(
     },
 
     async resolveAccessToken(leaseId: string, resource: string, now: number): Promise<string> {
-      const key = keyFor(leaseId, resource);
-      const record = credentials.get(key) ?? (await loadThrough(leaseId, resource, key));
-      if (record === undefined) {
-        throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
-      }
-
-      // An API key never expires and never enters the refresh path.
-      if (isApiKeyCredential(record)) {
-        return record.key;
-      }
-
-      // Per-call expiry against the injected clock -- pure comparison, no
-      // cached "still valid" boolean, no timer. A dirty key is never answered
-      // from here: its pending write-through must land first.
-      if (record.expiry > now && !dirty.has(key)) {
-        return record.accessToken;
-      }
-
-      return runSingleFlight(key, async () => {
-        // Re-read: a prior call in this same-key chain may have already
-        // refreshed the credential while this call was queued.
-        const current = credentials.get(key);
-        if (current === undefined) {
-          throw new Error(`@stint/proxy: no credential seeded for "${key}".`);
-        }
-        if (isApiKeyCredential(current)) {
-          return current.key;
-        }
-
-        // Retry a pending write-through before anything else: the provider
-        // already consumed the old refresh token, so the new one (held in
-        // memory) must reach the store before this call can succeed.
-        if (dirty.has(key)) {
-          await persist(leaseId, resource, key, current);
-        }
-
-        if (current.expiry > now) {
-          return current.accessToken;
-        }
-
-        const { oauthClient, requestOpts } = clientFor(resource, current);
-        const result = await refreshAccessToken(oauthClient, current, now, requestOpts);
-
-        if (result.kind === "ok") {
-          const updated: OAuthSeededCredential = {
-            ...current,
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken ?? current.refreshToken,
-            expiry: result.expiry,
-          };
-          // Memory first: the old refresh token is spent, so the new one must
-          // survive in process even when persisting it fails.
-          credentials.set(key, updated);
-          await persist(leaseId, resource, key, updated);
-          return updated.accessToken;
-        }
-
-        if (result.kind === "provider_revoked") {
-          throw new CredentialRefreshError(key, "provider_revoked");
-        }
-        throw new CredentialRefreshError(key, "transient_error", result.cause);
-      });
+      return (await resolveOutbound(leaseId, resource, now)).accessToken;
     },
+
+    resolveOutboundCredential: resolveOutbound,
 
     async probeGrant(
       leaseId: string,

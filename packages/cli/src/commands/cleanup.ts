@@ -109,7 +109,9 @@ export async function cleanupCommand(
     lease.teardownProgress?.revoke_oauth === undefined &&
     resolved.expectedResources.length > 0
   ) {
-    await seedFromCredentials(deps, ports, leaseId, fileCredentials);
+    await seedFromCredentials(deps, ports, leaseId, fileCredentials, {
+      manifest: resolved.manifest.manifest,
+    });
   }
 
   let current: Lease = lease;

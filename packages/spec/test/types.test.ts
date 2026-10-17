@@ -1,9 +1,11 @@
 import { Ajv } from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   Access,
   AuthMode,
+  JobParameter,
   Manifest,
   ResourceQueryVerifier,
   Scope,
@@ -15,7 +17,8 @@ import type {
   TeardownStuckPayload,
   TeardownTakeoverPayload,
 } from "../src/generated/receipt.js";
-import { receiptSchema } from "../src/generated/schemas.js";
+import { manifestSchema, receiptSchema } from "../src/generated/schemas.js";
+import { cloneManifest, paymentReconcilerManifest } from "./fixtures.js";
 
 // Verifier narrows on `type` — this only compiles if the discriminated union
 // (D-18) actually narrows per-branch, since `.predicate`/`.prompt` are not
@@ -35,6 +38,9 @@ const scopeWithInvalidAccess: Scope = { resource: "r", access: ["delete"] };
 
 // @ts-expect-error - ResourceQueryVerifier requires `predicate`.
 const verifierMissingPredicate: ResourceQueryVerifier = { type: "resource_query", resource: "r" };
+
+// @ts-expect-error - "number" is not a member of the JobParameter type union.
+const parameterWithInvalidType: JobParameter = { name: "reference", type: "number" };
 
 describe("generated types", () => {
   it("Access is exactly the four-member union", () => {
@@ -62,6 +68,106 @@ describe("generated types", () => {
     // Referenced only so the @ts-expect-error assignments above count as used.
     expect(scopeWithInvalidAccess.resource).toBe("r");
     expect(verifierMissingPredicate.type).toBe("resource_query");
+    expect(parameterWithInvalidType.name).toBe("reference");
+  });
+});
+
+describe("Job.parameters (SPEC-08)", () => {
+  const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
+  // ajv-formats' CommonJS module sets `.default` to itself under NodeNext
+  // interop (same as validate.ts); the manifest schema uses `format: "uri"`.
+  addFormats.default(ajv);
+  const validateSchema = ajv.compile(manifestSchema);
+
+  /** The first error's keyword and instancePath, for the schema-level reject cases below. */
+  function firstError(): { keyword: string; instancePath: string } {
+    const error = validateSchema.errors?.[0];
+    if (!error) throw new Error("test setup: expected at least one schema error");
+    return { keyword: error.keyword, instancePath: error.instancePath };
+  }
+
+  it("JobParameter.type is exactly the closed string, integer, currency union", () => {
+    expectTypeOf<JobParameter["type"]>().toEqualTypeOf<"string" | "integer" | "currency">();
+  });
+
+  it("Manifest['job']['parameters'] is an optional list of JobParameter", () => {
+    type JobParameters = NonNullable<Manifest["job"]["parameters"]>;
+    expectTypeOf<JobParameters[number]>().toEqualTypeOf<JobParameter>();
+    expectTypeOf<Manifest["job"]["parameters"] | undefined>().toEqualTypeOf<Manifest["job"]["parameters"]>();
+  });
+
+  it("accepts the three typed parameters the payment-reconciler declares", () => {
+    const manifest = paymentReconcilerManifest();
+    expect(manifest.job.parameters?.map((parameter) => [parameter.name, parameter.type])).toEqual([
+      ["reference", "string"],
+      ["expected_amount_kobo", "integer"],
+      ["currency", "currency"],
+    ]);
+    expect(validateSchema(manifest), JSON.stringify(validateSchema.errors)).toBe(true);
+  });
+
+  it("accepts a job with no parameters at all", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    delete manifest.job.parameters;
+    expect(validateSchema(manifest), JSON.stringify(validateSchema.errors)).toBe(true);
+  });
+
+  it("accepts a parameter carrying description and required false", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    manifest.job.parameters = [
+      {
+        name: "reference",
+        type: "string",
+        description: "The Paystack transaction reference to reconcile.",
+        required: false,
+      },
+    ];
+    expect(validateSchema(manifest), JSON.stringify(validateSchema.errors)).toBe(true);
+  });
+
+  it("rejects a type outside string, integer and currency (enum)", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "reference", type: "number" }];
+    expect(validateSchema(manifest)).toBe(false);
+    expect(firstError()).toEqual({ keyword: "enum", instancePath: "/job/parameters/0/type" });
+  });
+
+  it("rejects an unknown field in a parameter object (additionalProperties)", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "reference", type: "string", foo: 1 }];
+    expect(validateSchema(manifest)).toBe(false);
+    expect(firstError()).toEqual({ keyword: "additionalProperties", instancePath: "/job/parameters/0" });
+  });
+
+  it("rejects a name outside the Identifier charset (pattern)", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = [{ name: "Bad Name", type: "string" }];
+    expect(validateSchema(manifest)).toBe(false);
+    expect(firstError()).toEqual({ keyword: "pattern", instancePath: "/job/parameters/0/name" });
+  });
+
+  it("rejects 17 parameters (maxItems)", () => {
+    const manifest = cloneManifest(paymentReconcilerManifest());
+    (manifest.job as { parameters: unknown[] }).parameters = Array.from({ length: 17 }, (_, i) => ({
+      name: `p${String(i)}`,
+      type: "string",
+    }));
+    expect(validateSchema(manifest)).toBe(false);
+    expect(firstError()).toEqual({ keyword: "maxItems", instancePath: "/job/parameters" });
+  });
+
+  it("accepts exactly 16 parameters and rejects an empty list (minItems)", () => {
+    const sixteen = cloneManifest(paymentReconcilerManifest());
+    (sixteen.job as { parameters: unknown[] }).parameters = Array.from({ length: 16 }, (_, i) => ({
+      name: `p${String(i)}`,
+      type: "string",
+    }));
+    expect(validateSchema(sixteen), JSON.stringify(validateSchema.errors)).toBe(true);
+
+    const empty = cloneManifest(paymentReconcilerManifest());
+    (empty.job as { parameters: unknown[] }).parameters = [];
+    expect(validateSchema(empty)).toBe(false);
+    expect(firstError()).toEqual({ keyword: "minItems", instancePath: "/job/parameters" });
   });
 });
 

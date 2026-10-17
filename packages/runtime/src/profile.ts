@@ -6,8 +6,11 @@
  */
 
 import type { BindingSet } from "@stint/core";
-import type { OAuthClient, SeededCredential, ToolCatalog } from "@stint/proxy";
-import { isApiKeyCredential } from "@stint/proxy";
+import type { OAuthClient, ToolCatalog } from "@stint/proxy";
+import type { Manifest } from "@stint/spec";
+
+import { apiKeyOriginFor } from "./api-key-providers.js";
+import type { SeedableCredential } from "./custody.js";
 
 export interface RunProfile {
   readonly catalog: ToolCatalog;
@@ -19,6 +22,14 @@ export interface RunProfile {
    * Runtime-owned configuration: never from the manifest, never from the agent.
    */
   readonly endpoints?: Readonly<Record<string, string>>;
+  /**
+   * Optional map from a provider name (for example `paystack`) to the origin
+   * its API key is bound to at seed time, overriding the closed
+   * `API_KEY_PROVIDERS` table (10-03, CRED-02). `https:` or loopback `http:`
+   * only. Runtime-owned configuration: never from the manifest or the agent;
+   * production has no override, so the table is the only real origin.
+   */
+  readonly providerOrigins?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -26,14 +37,22 @@ export interface RunProfile {
  * credential lacks, from the profile's client: `clientId` and
  * `revocationEndpoint` (the latter only when the profile's authorization
  * server defines one). Fields the credential already carries win. An API key
- * is returned unchanged. The returned copy is what gets stored, so a later
- * cleanup with no profile can still revoke.
+ * gains only a MISSING `origin`, from `profile.providerOrigins` then the closed
+ * table (this needs `manifest` to find the resource's provider); an origin it
+ * already carries is never overwritten, and a key that resolves to none is
+ * returned unchanged for the seed to refuse. The returned copy is what gets
+ * stored, so a later cleanup with no profile can still revoke.
  */
 export function enrichFromProfile(
   profile: RunProfile,
-): (resource: string, credential: SeededCredential) => SeededCredential {
-  return (_resource, credential) => {
-    if (isApiKeyCredential(credential)) return credential;
+  manifest?: Manifest,
+): (resource: string, credential: SeedableCredential) => SeedableCredential {
+  return (resource, credential) => {
+    if (credential.kind === "api_key") {
+      if (credential.origin !== undefined || manifest === undefined) return credential;
+      const origin = apiKeyOriginFor(manifest, resource, profile.providerOrigins);
+      return origin === undefined ? credential : { ...credential, origin };
+    }
     const revocationEndpoint = credential.revocationEndpoint ?? profile.oauth.as.revocation_endpoint;
     return {
       ...credential,

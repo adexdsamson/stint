@@ -20,6 +20,7 @@ import type { TeardownStep } from "@stint/proxy";
 import type { Style } from "./render/style.js";
 import type { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
 import type { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
+import type { JobParameterAsk } from "./run/job-parameters.js";
 import type { ControllingTerminal } from "./run/terminal.js";
 import type { loadTrustStore } from "./trust/trust-store.js";
 
@@ -135,6 +136,24 @@ export interface CliDeps {
    * a destructive action rather than assume consent. Absent means no terminal.
    */
   readonly confirm?: (question: string) => Promise<boolean | undefined>;
+  /**
+   * Asks for a secret (an API key) on the user's terminal with echo muted
+   * (10-02, D-A). Resolves the typed value, or `undefined` when there is no
+   * interactive terminal or the input ended. Callers MUST treat `undefined`
+   * as no entry and refuse, never as an empty secret, and MUST NOT log,
+   * receipt or otherwise interpolate the resolved value. Absent means no
+   * terminal.
+   */
+  readonly askSecret?: (prompt: string) => Promise<string | undefined>;
+  /**
+   * Asks for one job parameter's value on the user's terminal (10-05,
+   * SPEC-08). Resolves the typed line trimmed, or `undefined` when there is
+   * no interactive terminal or the input ended; the caller treats `undefined`
+   * as declined entry, and an empty string as the explicit skip for an
+   * optional parameter. The value is NOT a secret: it is shown at consent
+   * and bound to the lease, and the prompt says so. Absent means no terminal.
+   */
+  readonly askJobParameter?: (ask: JobParameterAsk) => Promise<string | undefined>;
 }
 
 /** Options every subcommand can read through `cmd.optsWithGlobals()`. */

@@ -20,6 +20,7 @@ export {
   DEFAULT_APPROVAL_STAGE,
   DEFAULT_CAP_ENFORCER,
   DEFAULT_EXECUTE_STAGE,
+  OUTCOME_CHECK_TOOL,
   handleCall,
 } from "./dispatch.js";
 export type {
@@ -79,6 +80,7 @@ export {
   classifyTokenError,
   DEFAULT_OAUTH_TIMEOUT_MS,
   isApiKeyCredential,
+  isSecureOrLoopbackOrigin,
   oauthClientFromCredential,
   refreshAccessToken,
   retryAfterFromError,
@@ -109,8 +111,31 @@ export type { CredentialVault, CredentialVaultOptions, ProbeGrantResult } from "
 // vault, hands it to the injected port as `{ accessToken }` only -- never
 // the publisher license -- and wraps the port call in `scrubCredential` so
 // no token can cross the agent-facing boundary in a response or an error.
-export { createRestOutboundConnector } from "./connectors/outbound-connector.js";
-export type { FetchLike, OutboundConnector, OutboundCredential } from "./connectors/outbound-connector.js";
+export {
+  API_KEY_RESOURCE_ROUTES,
+  OutboundOriginError,
+  createRestOutboundConnector,
+} from "./connectors/outbound-connector.js";
+export type { FetchLike, OutboundConnector, OutboundCredential, RestRoute } from "./connectors/outbound-connector.js";
+export {
+  ALLOWLISTED_TRANSACTION_FIELDS,
+  PAYSTACK_TRANSACTION_STATUSES,
+  PAYSTACK_VERIFY_TIMEOUT_MS,
+  PaystackVerifyUsageError,
+  TRANSACTION_VERDICTS,
+  TransientUpstreamError,
+  allowlistTransactionData,
+  computeTransactionVerdict,
+  createPaystackVerifyConnector,
+  isValidTransactionReference,
+  transactionExpectationFromParameters,
+} from "./connectors/paystack-verify.js";
+export type {
+  PaystackVerifyOptions,
+  TransactionExpectation,
+  TransactionVerdict,
+} from "./connectors/paystack-verify.js";
+export { verdictRowAdapter } from "./connectors/verdict-rows.js";
 export { scrubCredential, scrubError } from "./vault/scrub.js";
 export { createVaultExecuteStage } from "./vault/execute-stage.js";
 export type { LicenseAccessor } from "./vault/execute-stage.js";

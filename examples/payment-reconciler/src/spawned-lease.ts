@@ -41,6 +41,13 @@ import {
 } from "./profile.js";
 import { createScriptedAdapter } from "./scripted-adapter.js";
 
+/** The payment-reconciler vector's job-parameter values, as the scripted user types them. */
+const PARAMETERS: Readonly<Record<string, string>> = {
+  reference: "ref_1001",
+  expected_amount_kobo: "30050",
+  currency: "NGN",
+};
+
 /** Options for {@link prepareSpawnedLease}. */
 export interface PrepareSpawnedLeaseOptions {
   /** `manifest.approvals.timeout_seconds` (short when no human will answer). */
@@ -138,6 +145,9 @@ export async function prepareSpawnedLease(
       ...(options.interactive === true ? {} : { adapterFactory: () => scripted }),
       // `--yes` is always passed where a confirmation would otherwise be asked.
       confirm: () => Promise.resolve(undefined),
+      // The scripted user types the job's fixed inputs at create (SPEC-08): the
+      // vector manifest declares parameters, so the real terminal ask would block.
+      askJobParameter: (ask) => Promise.resolve(PARAMETERS[ask.name]),
     };
     const cli = async (
       argv: readonly string[],

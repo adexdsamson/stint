@@ -84,10 +84,10 @@ async function receipts(fx: RunFixture) {
 }
 
 describe("stint run: tools and the secretless boundary", () => {
-  it("tools/list shows exactly the profile's tools (no user_confirm/done tool is added)", async () => {
+  it("tools/list shows exactly the profile's tools plus the notice-only request_outcome_check (no user_confirm/done tool is added)", async () => {
     const { client } = await startRun();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["read_orders", "send_notice"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["read_orders", "request_outcome_check", "send_notice"]);
   });
 
   it("a read call needs no approval, hits the downstream with the vault token, and never leaks it to the agent", async () => {
@@ -263,7 +263,7 @@ describe("stint run command (in-process, injected transport)", () => {
     const client = new Client({ name: "test-agent", version: "0.0.0" });
     await client.connect(clientTransport);
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(2);
+    expect(tools).toHaveLength(3); // the two profile tools and the fixed request_outcome_check signal
     const result = (await client.callTool(sendNotice)) as CallToolResult;
     expect(result.isError).toBe(true);
     expect(text(result)).toMatch(/^denied: /);

@@ -13,7 +13,6 @@ import { Readable, Writable } from "node:stream";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isApiKeyCredential } from "@stint/proxy";
 import { enrichFromProfile, expectedCredentialResources, missingCredentials } from "@stint/runtime";
 import type { LeaseEnded } from "@stint/runtime";
 import { resolveAuthMode } from "@stint/spec";
@@ -126,15 +125,18 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
     );
   }
   if (credentials !== undefined) {
-    const enrich = enrichFromProfile(profile);
-    const seeded = await seedFromCredentials(deps, ports, leaseId, credentials, { enrich });
+    const enrich = enrichFromProfile(profile, verified.manifest);
+    const seeded = await seedFromCredentials(deps, ports, leaseId, credentials, {
+      enrich,
+      manifest: verified.manifest,
+    });
     // The run half of the unrevocable statement: shown once, when the credential first arrives, as
     // a notice on stderr (stdout is the MCP channel, and a prompt would stop headless runs).
     for (const resource of seeded.written) {
       const entry = credentials[resource];
       if (entry === undefined) continue;
       const stored = enrich(resource, entry);
-      if (isApiKeyCredential(stored) || stored.revocationEndpoint === undefined) {
+      if (stored.kind === "api_key" || stored.revocationEndpoint === undefined) {
         deps.io.err(`stint: ${unrevocableNotice(resource)}
 `);
       }

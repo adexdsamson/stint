@@ -3,14 +3,15 @@
  * whole phase's secretless claim rests on (PRXY-06, LIC-05, D-01, D-02).
  * Implements the 04-02 `ExecuteStage` seam (`dispatch.ts`): resolves the
  * OAuth access token from the 04-05 `CredentialVault` (the ONLY token read
- * path -- `resolveAccessToken`), hands it to the injected, trusted
- * `OutboundConnector` port as `{ accessToken }`, and wraps the whole port
+ * path -- `resolveOutboundCredential`), hands it to the injected, trusted
+ * `OutboundConnector` port as `{ accessToken, kind, origin? }`, and wraps the whole port
  * call in `vault/scrub.ts`'s scrubber so the exact resolved token cannot
  * survive into a returned value or a thrown error on its way back toward
  * `dispatch.ts`'s agent-facing boundary.
  *
  * The publisher license is NEVER read into the port's `credential` argument
- * here -- `credential` is `{ accessToken }` only, always. `licenseAccessor`
+ * here -- `credential` is the access token plus its kind (and, for an API
+ * key, its recorded origin) only, always. `licenseAccessor`
  * (a `HeldLicense`, read only via `@stint/core`'s `readLicenseToken`) is
  * accepted purely so a hosted/hybrid deployment's construction context can
  * carry a license for OTHER, publisher-facing logic outside this file; this
@@ -42,7 +43,7 @@ export interface LicenseAccessor {
 
 /**
  * Constructs the real, vault-backed `ExecuteStage`. `vault` supplies the
- * single `resolveAccessToken` read path (D-04); `connector` is the injected
+ * single `resolveOutboundCredential` read path (D-04); `connector` is the injected
  * `OutboundConnector` port (D-01) -- never a concrete implementation
  * imported directly by this module. `licenseAccessor` is accepted and
  * otherwise unused by this stage (see module docstring).
@@ -62,10 +63,11 @@ export function createVaultExecuteStage(
       // provider_revoked/transient_error) throws CredentialRefreshError,
       // which propagates unchanged past this function; it is never
       // swallowed into a stale/fabricated success.
-      const accessToken = await vault.resolveAccessToken(ctx.leaseId, ctx.binding.resource, now);
+      const credential = await vault.resolveOutboundCredential(ctx.leaseId, ctx.binding.resource, now);
+      const accessToken = credential.accessToken;
 
       try {
-        const result = await connector.execute(ctx.binding, ctx.resolvedArgs, { accessToken });
+        const result = await connector.execute(ctx.binding, ctx.resolvedArgs, credential);
         // Success path: scrub the port's returned body before it can reach
         // dispatch.ts's `allowResult` -> agent-facing CallToolResult (D-02).
         return scrubCredential(result, [accessToken]);

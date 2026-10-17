@@ -58,6 +58,7 @@ describe("an out-of-scope call (deny by default)", () => {
       "list_transactions",
       "mark_order_reconciled",
       "read_orders",
+      "request_outcome_check",
     ]);
 
     // Guessing it anyway is a denial, not a transport failure.

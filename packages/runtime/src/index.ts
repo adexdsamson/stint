@@ -22,6 +22,13 @@ export type { ClockConfirm, ClockPause, SupervisorControl } from "./supervisor/c
 export { RuntimeError } from "./errors.js";
 export type { RuntimeErrorCode } from "./errors.js";
 export type { RuntimePorts } from "./ports.js";
+export {
+  API_KEY_ORIGIN_UNRESOLVED,
+  API_KEY_PROVIDERS,
+  apiKeyOriginFor,
+  delegatedApiKeyProviders,
+  normalizeApiKeyOrigin,
+} from "./api-key-providers.js";
 export { isLoopbackHttp, allowInsecureForClient } from "./loopback.js";
 export {
   PUBLISHER_TIMEOUT_MS,
@@ -31,13 +38,17 @@ export {
 } from "./license-http.js";
 export { parsePublisherBinding } from "./publisher-binding.js";
 export type { PublisherBinding } from "./publisher-binding.js";
+export { createRuntimeOutboundConnector } from "./outbound.js";
+export type { RuntimeConnectorOptions } from "./outbound.js";
 export { loadLeaseManifest } from "./manifest.js";
 export { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
-export type { SeedResult } from "./custody.js";
+export type { SeedableCredential, SeedResult, UnboundApiKeyCredential } from "./custody.js";
 export { resolveTeardown } from "./resolve-teardown.js";
 export type { ResolveTeardownInput, ResolvedTeardown } from "./resolve-teardown.js";
 export { createLeaseRuntime, LICENSE_REFRESH_BEFORE_SECONDS } from "./lease-runtime.js";
 export type { LeaseEnded, LeaseEndReason, LeaseRuntimeOptions, RunningLease } from "./lease-runtime.js";
+export { runOutcomeCheck } from "./verify-outcome.js";
+export type { OutcomeCheckOptions, OutcomeCheckResult } from "./verify-outcome.js";
 export { enrichFromProfile } from "./profile.js";
 export type { RunProfile } from "./profile.js";
 export {

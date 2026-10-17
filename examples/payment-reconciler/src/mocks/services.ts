@@ -96,9 +96,15 @@ interface Reply {
   readonly body: unknown;
 }
 
+/** The method and URL of the request being answered (the POST responders ignore it). */
+interface RequestLine {
+  readonly method: string;
+  readonly url: string;
+}
+
 async function startRecordingServer(
   classify: (json: unknown) => RecordedRequest["kind"],
-  respond: (json: unknown, kind: RecordedRequest["kind"]) => Reply,
+  respond: (json: unknown, kind: RecordedRequest["kind"], line: RequestLine) => Reply,
 ): Promise<{ url: string; requests: RecordedRequest[]; stop: () => Promise<void> }> {
   const requests: RecordedRequest[] = [];
   const server: Server = createServer((req, res) => {
@@ -118,7 +124,7 @@ async function startRecordingServer(
           json,
           kind,
         });
-        const reply = respond(json, kind);
+        const reply = respond(json, kind, { method: req.method ?? "", url: req.url ?? "" });
         res.statusCode = reply.status;
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(reply.body));
@@ -143,17 +149,132 @@ async function startRecordingServer(
   };
 }
 
-/** Starts the Paystack transactions mock: every POST returns the settled transactions list. */
-export async function startPaystackMock(): Promise<ServiceMock> {
+/**
+ * One answer the verify route can give for a reference: the documented R1
+ * envelope `{ status, message, data }`. `envelopeStatus` is the API-call flag
+ * (R2: NOT the transaction status); `data` is the transaction object.
+ */
+export interface PaystackVerifyFixture {
+  readonly data: Readonly<Record<string, unknown>>;
+  /** The envelope's top-level `status`; default `true`. */
+  readonly envelopeStatus?: boolean;
+  /** The envelope's `message`; default "Verification successful". */
+  readonly message?: string;
+}
+
+/** Strings that exist ONLY in the default fixture's hidden fields, so a leak scan has teeth. */
+export const PAYSTACK_HIDDEN_MARKERS: readonly string[] = [
+  "buyer.fixture@example.test",
+  "AUTH_hidden_fixture_code",
+  "203.0.113.77",
+  "4099260516",
+];
+
+/** The reference the default fixture answers for (the same one the POST list carries). */
+export const DEFAULT_VERIFY_REFERENCE = "ref_1001";
+
+/**
+ * Builds a documented-shape verify answer (R1 to R5): the ten allowlisted fields
+ * plus the hidden ones a connector must never forward (`id`, `customer`,
+ * `authorization`, `ip_address`). `requested_amount` is what the transaction was
+ * initialised for; `amount` is higher because it includes fees (R4). Every field
+ * can be overridden, which is how a test builds a status, mismatch or trap case.
+ */
+export function paystackVerifyFixture(
+  overrides: Readonly<Record<string, unknown>> = {},
+  options: { readonly envelopeStatus?: boolean; readonly message?: string } = {},
+): PaystackVerifyFixture {
+  return {
+    ...(options.envelopeStatus === undefined ? {} : { envelopeStatus: options.envelopeStatus }),
+    ...(options.message === undefined ? {} : { message: options.message }),
+    data: {
+      id: 4_099_260_516,
+      domain: "test",
+      status: "success",
+      reference: DEFAULT_VERIFY_REFERENCE,
+      amount: 30_575,
+      requested_amount: 30_050,
+      currency: "NGN",
+      channel: "card",
+      paid_at: "2026-10-14T05:00:00.000Z",
+      created_at: "2026-10-14T04:59:00.000Z",
+      fees: 525,
+      ip_address: "203.0.113.77",
+      customer: { id: 1, email: "buyer.fixture@example.test" },
+      authorization: { authorization_code: "AUTH_hidden_fixture_code", last4: "4081", bin: "408408" },
+      ...overrides,
+    },
+  };
+}
+
+/** Configuration for {@link startPaystackMock}. */
+export interface PaystackMockConfig {
+  /**
+   * Verify answers by reference. A reference absent from the map answers 404
+   * (an unknown reference). Default: one success fixture for {@link DEFAULT_VERIFY_REFERENCE}.
+   */
+  readonly verify?: Readonly<Record<string, PaystackVerifyFixture>>;
+}
+
+/** The Paystack mock: the POST list plus the verify route, with fixture and fault controls. */
+export interface PaystackMock extends ServiceMock {
+  /** Every GET verify request, in order (also present in `requests`). */
+  readonly verifyRequests: readonly RecordedRequest[];
+  /** Defines or replaces the answer for a reference (e.g. correct a fixture between two checks). */
+  setVerifyFixture(reference: string, fixture: PaystackVerifyFixture): void;
+  /** The next verify GET answers with `status` (429, 500, ...) and an empty failure body, once. */
+  failNextVerify(status: number): void;
+}
+
+const VERIFY_PATH = /^\/transaction\/verify\/([^/?#]+)$/;
+
+/**
+ * Starts the Paystack mock. A POST (the OAuth-era reconciler flow) returns the
+ * settled transactions list, byte-identical to before. A GET
+ * `/transaction/verify/:reference` answers from the fixture map (R1 envelope),
+ * 404 `{ status: false }` for an unknown reference, or a one-shot injected failure.
+ */
+export async function startPaystackMock(config: PaystackMockConfig = {}): Promise<PaystackMock> {
+  const fixtures = new Map<string, PaystackVerifyFixture>(
+    Object.entries(config.verify ?? { [DEFAULT_VERIFY_REFERENCE]: paystackVerifyFixture() }),
+  );
+  const faults: number[] = [];
   const server = await startRecordingServer(
     () => "call",
-    () => ({ status: 200, body: { transactions: PAYSTACK_TRANSACTIONS } }),
+    (_json, _kind, line) => {
+      if (line.method !== "GET") return { status: 200, body: { transactions: PAYSTACK_TRANSACTIONS } };
+      const matched = VERIFY_PATH.exec(line.url);
+      const fault = faults.shift();
+      if (fault !== undefined) return { status: fault, body: { status: false, message: "Injected failure" } };
+      if (matched?.[1] === undefined) return { status: 404, body: { status: false, message: "Not found" } };
+      const fixture = fixtures.get(decodeURIComponent(matched[1]));
+      if (fixture === undefined) {
+        return { status: 404, body: { status: false, message: "Transaction reference not found" } };
+      }
+      return {
+        status: 200,
+        body: {
+          status: fixture.envelopeStatus ?? true,
+          message: fixture.message ?? "Verification successful",
+          data: fixture.data,
+        },
+      };
+    },
   );
   return {
     url: server.url,
     requests: server.requests,
     get hits() {
       return server.requests.length;
+    },
+    get verifyRequests() {
+      return server.requests.filter((request) => request.method === "GET");
+    },
+    setVerifyFixture(reference, fixture) {
+      fixtures.set(reference, fixture);
+    },
+    failNextVerify(status) {
+      faults.push(status);
     },
     stop: server.stop,
   };

@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBindingSet, credentialSecretKey, leaseSecretPrefix } from "@stint/core";
-import type { HostAdapter, TelemetryEvent } from "@stint/core";
+import type { HostAdapter, LifecycleEvent, TelemetryEvent } from "@stint/core";
 import { makeTestLease } from "@stint/core/testing";
 import { createToolCatalog, parseStoredCredential } from "@stint/proxy";
 import type { FetchLike } from "@stint/proxy";
@@ -90,6 +90,7 @@ interface Live {
   start(opts?: {
     credentials?: Parameters<typeof createLeaseRuntime>[1]["credentials"];
     profile?: RunProfile;
+    adapter?: HostAdapter;
   }): Promise<{ client: Client; running: RunningLease }>;
 }
 
@@ -117,7 +118,7 @@ async function setup(manifest: Manifest = manifestWithVerifier()): Promise<Live>
       const running = await createLeaseRuntime(ports, {
         leaseId: LEASE,
         transport: serverTransport,
-        adapter,
+        adapter: opts.adapter ?? adapter,
         verified,
         profile: opts.profile ?? profileFor(true),
         outboundFetch,
@@ -297,6 +298,31 @@ describe("createLeaseRuntime outcome and teardown", () => {
     expect(error).toBeInstanceOf(RuntimeError);
     expect((error as RuntimeError).code).toBe("usage");
     expect((await live.rig.ports.leases.load(LEASE))?.state).toBe("active");
+  });
+});
+
+describe("createLeaseRuntime agent signal (SPEC-11)", () => {
+  it("request_outcome_check reaches the host adapter as a notice and leaves the lease active", async () => {
+    const live = await setup();
+    await seedLeaseCredentials(live.rig.ports, LEASE, { [ORDERS]: oauthFor() });
+    const events: LifecycleEvent[] = [];
+    const noticing: HostAdapter = {
+      ...adapter,
+      notify: (event) => {
+        events.push(event);
+        return Promise.resolve();
+      },
+    };
+    const { client } = await live.start({ adapter: noticing });
+
+    const result = (await client.callTool({ name: "request_outcome_check", arguments: {} })) as CallToolResult;
+
+    expect(result.isError).not.toBe(true);
+    expect(events).toEqual([{ type: "outcome_check_requested", leaseId: LEASE, at: NOW }]);
+    // The passing verifier world (a confirmed read is available) still does not complete anything.
+    expect((await live.rig.ports.leases.load(LEASE))?.state).toBe("active");
+    const chain = await live.rig.ports.receipts(LEASE).load("verified");
+    expect(chain.filter((entry) => entry.type === "transition")).toEqual([]);
   });
 });
 

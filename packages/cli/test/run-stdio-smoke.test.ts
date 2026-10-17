@@ -69,7 +69,7 @@ describe("stint run over real stdio (built dist/bin.js)", () => {
       await client.connect(transport);
 
       const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name).sort()).toEqual(["read_orders", "send_notice"]);
+      expect(tools.map((t) => t.name).sort()).toEqual(["read_orders", "request_outcome_check", "send_notice"]);
 
       const result = (await client.callTool({
         name: "send_notice",

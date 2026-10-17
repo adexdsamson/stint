@@ -22,7 +22,7 @@ import path from "node:path";
 import type { ConnectorBinding, ConnectorRowAdapter } from "@stint/core";
 import { createBindingSet } from "@stint/core";
 import type { RunProfile } from "@stint/cli";
-import { createToolCatalog } from "@stint/proxy";
+import { createToolCatalog, verdictRowAdapter } from "@stint/proxy";
 import type { OAuthClient, ToolCatalogEntry } from "@stint/proxy";
 import * as oauth from "oauth4webapi";
 
@@ -99,11 +99,9 @@ function binding(
   return { tool, resource, access, irreversible: false, provenance: "built_in", ...extra };
 }
 
-/** Builds the in-code run profile for the example against a mock authorization server. */
-export function buildRunProfile(options: BuildRunProfileOptions): RunProfile {
-  const { mockAs, paystackUrl, sheetsUrl } = options;
-  // The same AS object a JSON profile builds (`{ issuer, token_endpoint, revocation_endpoint? }`).
-  const oauthClient: OAuthClient = {
+/** The OAuth block both profiles carry: the same AS object a JSON profile builds. */
+function oauthClientOf(mockAs: ProfileMockAs): OAuthClient {
+  return {
     as: {
       issuer: mockAs.issuerUrl,
       token_endpoint: mockAs.oauthClient.as.token_endpoint ?? `${mockAs.issuerUrl}/token`,
@@ -114,6 +112,12 @@ export function buildRunProfile(options: BuildRunProfileOptions): RunProfile {
     client: { client_id: mockAs.oauthClient.client.client_id },
     clientAuth: oauth.None(),
   };
+}
+
+/** Builds the in-code run profile for the example against a mock authorization server. */
+export function buildRunProfile(options: BuildRunProfileOptions): RunProfile {
+  const { mockAs, paystackUrl, sheetsUrl } = options;
+  const oauthClient = oauthClientOf(mockAs);
 
   return {
     catalog: createToolCatalog(CATALOG),
@@ -127,10 +131,43 @@ export function buildRunProfile(options: BuildRunProfileOptions): RunProfile {
   };
 }
 
+/** The one tool the payment-confirmation agent sees. It takes no arguments: the lease binds the transaction (PSTK-04). */
+export const PAYMENT_TOOL = "verify_payment";
+
+/** Inputs for {@link buildPaymentRunProfile}. */
+export interface BuildPaymentRunProfileOptions {
+  readonly mockAs: ProfileMockAs;
+}
+
+/**
+ * The payment-confirmation run profile (Phase 10): one read tool over
+ * `paystack.transactions` whose binding carries the built-in `verdictRowAdapter`,
+ * so both the agent's call and the verifier read yield verdict rows. No
+ * `endpoints` entry: an API key is sent only to its own recorded origin, never to
+ * a profile-supplied URL. The OAuth block is required by the profile shape and is
+ * never used (the credential is an API key).
+ */
+export function buildPaymentRunProfile(options: BuildPaymentRunProfileOptions): RunProfile {
+  return {
+    catalog: createToolCatalog([
+      {
+        name: PAYMENT_TOOL,
+        description: "Checks the payment this lease was created for. Takes no arguments.",
+        inputSchema: { type: "object" },
+      },
+    ]),
+    bindings: createBindingSet([
+      binding(PAYMENT_TOOL, PAYSTACK_RESOURCE, "read", { rowAdapter: verdictRowAdapter }),
+    ]),
+    oauth: oauthClientOf(options.mockAs),
+  };
+}
+
 /**
  * Writes the profile as the JSON a spawned `stint run --profile <file>` reads.
- * The `rowAdapter` function is dropped (it is not JSON); nothing secret is in
- * the profile. Returns the file path.
+ * A `rowAdapter` function is dropped (it is not JSON), except the built-in
+ * `verdictRowAdapter`, which is written by name (`"rowAdapter": "verdict"`) for the
+ * CLI to map back; nothing secret is in the profile. Returns the file path.
  */
 export async function writeJsonProfile(profile: RunProfile, file: string): Promise<string> {
   const json = {
@@ -141,6 +178,7 @@ export async function writeJsonProfile(profile: RunProfile, file: string): Promi
       access: b.access,
       irreversible: b.irreversible,
       provenance: b.provenance,
+      ...(b.rowAdapter === verdictRowAdapter ? { rowAdapter: "verdict" } : {}),
     })),
     oauth: {
       as: {

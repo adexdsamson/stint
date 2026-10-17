@@ -323,6 +323,16 @@ describe("notify", () => {
     expect(lines[0]).toContain("revoked");
   });
 
+  it("renders the agent's outcome-check request as one line naming the exact command (Phase 10, SPEC-11)", async () => {
+    const r = rig();
+    await expect(
+      r.adapter.notify({ type: "outcome_check_requested", leaseId: "lease-9", at: 1_800_000_000 }),
+    ).resolves.toBeUndefined();
+    expect(r.outText()).toBe(
+      "stint: the agent asked for an outcome check; run: stint-cli verify-outcome lease-9\n",
+    );
+  });
+
   it("never throws, even for a broken output stream or a non-finite timestamp", async () => {
     const input = Object.assign(new PassThrough(), { isTTY: true });
     const broken = new PassThrough();

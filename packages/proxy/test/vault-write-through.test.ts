@@ -94,7 +94,7 @@ describe("stored credential serialization", () => {
   it("round-trips an OAuth grant and an API key", () => {
     const oauth = expired({ clientId: "cid", revocationEndpoint: "https://as.wt-test.example/revoke" });
     expect(parseStoredCredential(serializeStoredCredential(oauth))).toEqual(oauth);
-    const key: SeededCredential = { kind: "api_key", key: "sk-1" };
+    const key: SeededCredential = { kind: "api_key", key: "sk-1", origin: "https://api.wt-test.example" };
     expect(parseStoredCredential(serializeStoredCredential(key))).toEqual(key);
   });
 

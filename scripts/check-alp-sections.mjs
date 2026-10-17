@@ -84,6 +84,14 @@ const RECEIPTS_WORDS = ["verified", "attested", "display-only", "teardown_takeov
 // Phase 9 D-12: section 10 states the driver, fence and takeover rules as normative text.
 const SECTION10_HEADING = "## 10. Teardown";
 const SECTION10_PHRASES = ["teardown fence", "MUST NOT run steps", "MUST be receipted", "without user action"];
+
+// Phase 10 (SPEC-11, SPEC-10): section 7.6 states who may initiate an outcome
+// check, and section 8 states the API-key credential kind's origin binding,
+// redirect refusal and no-return-to-agent rules, as normative text.
+const SECTION7_6_HEADING = "### 7.6 Outcome Verification";
+const SECTION7_6_PHRASES = ["user-initiated", "MUST NOT itself complete the lease"];
+const SECTION8_HEADING = "## 8. Authorization Modes";
+const SECTION8_PHRASES = ["API key", "only to that origin", "MUST NOT follow an HTTP redirect"];
 const REFERENCE_RFCS = [
   "RFC 2119",
   "RFC 8174",
@@ -521,6 +529,8 @@ function main() {
   checkSectionPhrases(lines, SECTION6_HEADING, SECTION6_PHRASES, failures);
   checkSectionPhrases(lines, SECTION15_HEADING, SECTION15_PHRASES, failures);
   checkSectionPhrases(lines, SECTION10_HEADING, SECTION10_PHRASES, failures);
+  checkSectionPhrases(lines, SECTION7_6_HEADING, SECTION7_6_PHRASES, failures);
+  checkSectionPhrases(lines, SECTION8_HEADING, SECTION8_PHRASES, failures);
 
   if (failures.length > 0) {
     console.error("ALP check failed:");

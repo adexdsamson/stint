@@ -37,9 +37,7 @@ import {
   createCredentialVault,
   createDefaultTeardownSteps,
   createLeaseProxyServer,
-  createRestOutboundConnector,
   createVaultExecuteStage,
-  runResourceQueryVerification,
   runTeardown,
 } from "@stint/proxy";
 import type {
@@ -51,19 +49,21 @@ import type {
   TeardownFenceConfig,
   TeardownStep,
 } from "@stint/proxy";
-import { parsePredicate, resolveAuthMode } from "@stint/spec";
+import { resolveAuthMode } from "@stint/spec";
 import type { Access, AuthMode, VerifiedManifest } from "@stint/spec";
 
 import { expectedCredentialResources, missingCredentials, seedLeaseCredentials } from "./custody.js";
 import { RuntimeError } from "./errors.js";
 import { licenseClaimsFromManifest } from "./license-http.js";
 import { isLoopbackHttp } from "./loopback.js";
+import { createRuntimeOutboundConnector } from "./outbound.js";
 import type { RuntimePorts } from "./ports.js";
 import { enrichFromProfile } from "./profile.js";
 import type { RunProfile } from "./profile.js";
 import { settleExpired } from "./settle-expired.js";
 import { RUN_HEARTBEAT_INTERVAL_SECONDS, writeRunHeartbeat } from "./supervisor/heartbeat.js";
 import { probeBackoffSeconds, probeLeaseGrants } from "./supervisor/probe.js";
+import { evaluateVerifier } from "./verify-outcome.js";
 
 export interface LeaseRuntimeOptions {
   readonly leaseId: string;
@@ -126,13 +126,13 @@ export interface RunningLease {
    */
   readonly ended: Promise<LeaseEnded>;
   /**
-   * HOST-SIDE ONLY: runs the manifest's `resource_query` verifier through the same vault and
-   * connector a real call uses. A true predicate completes the lease and auto-chains teardown to its
-   * end state; a false one leaves it `active`. It is not an MCP tool and the agent has no way to
-   * reach it, so an agent's own "done" can never complete a lease. Resolves with the lease as
-   * persisted afterwards. Rejects with a fixed-text `RuntimeError` when the manifest has no
-   * `resource_query` verifier or the profile carries no read binding with a `rowAdapter` for it:
-   * end such a lease with a revoke instead.
+   * HOST-SIDE ONLY: runs the manifest's verifier (`resource_query` through the same vault and connector
+   * a real call uses, or `user_confirm` through the host adapter) by the same function the standalone
+   * `verify-outcome` command uses. A pass completes the lease and auto-chains teardown to its end state;
+   * a fail leaves it `active`. It is not an MCP tool and the agent has no way to reach it, so an agent's
+   * own "done" can never complete a lease. Resolves with the lease as persisted afterwards. Rejects with a
+   * fixed-text `RuntimeError` when the manifest has a `none` verifier or the profile carries no read
+   * binding with a `rowAdapter` for a `resource_query` verifier: end such a lease with a revoke instead.
    */
   readonly verifyOutcome: () => Promise<Lease>;
 }
@@ -155,18 +155,6 @@ function flattenScopes(verified: VerifiedManifest): {
     for (const access of scope.access) scopes.add(access);
   }
   return { scopes: [...scopes], resources: [...resources] };
-}
-
-/** Applies the profile's identifier -> URL map before delegating; unmapped identifiers pass through unchanged. */
-function mapEndpoints(
-  base: FetchLike,
-  endpoints: Readonly<Record<string, string>> | undefined,
-): FetchLike {
-  if (endpoints === undefined) return base;
-  return (input, init) => {
-    const target = Object.hasOwn(endpoints, input) ? endpoints[input] : undefined;
-    return base(target ?? input, init);
-  };
 }
 
 const NO_LICENSE_IN_RUN = "License issuance is not available here.";
@@ -363,7 +351,8 @@ export async function createLeaseRuntime(
   // loopback token endpoint; never a blanket switch.
   if (options.credentials !== undefined) {
     await seedLeaseCredentials(ports, leaseId, options.credentials, {
-      enrich: enrichFromProfile(profile),
+      enrich: enrichFromProfile(profile, verified.manifest),
+      manifest: verified.manifest,
     });
   }
   const vault = createCredentialVault(() => profile.oauth, clock, {
@@ -371,9 +360,13 @@ export async function createLeaseRuntime(
     allowInsecureRequests: isLoopbackHttp(profile.oauth.as.token_endpoint ?? ""),
   });
 
-  const connector = createRestOutboundConnector(
-    mapEndpoints(options.outboundFetch ?? fetch, profile.endpoints),
-  );
+  // `lease.jobParameters` is bound once at create and never changes, so reading it from the
+  // lease loaded above is the same value every call would see.
+  const connector = createRuntimeOutboundConnector({
+    fetchImpl: options.outboundFetch ?? fetch,
+    ...(profile.endpoints === undefined ? {} : { endpoints: profile.endpoints }),
+    jobParameters: () => lease.jobParameters,
+  });
 
   // Real teardown steps: without them a mid-run revocation would leave the lease `tearing_down`
   // and the verifier path could not reach `cleaned_up`.
@@ -439,6 +432,8 @@ export async function createLeaseRuntime(
     enforceCaps: createCapEnforcer(),
     teardownSteps,
     teardownFence,
+    // The agent's request_outcome_check is a notice to the user: it reaches the host through notify and nothing else.
+    notify: (event) => adapter.notify(event),
     ...(ports.telemetry === undefined ? {} : { telemetry: ports.telemetry }),
     ...(options.approvalWatchMs === undefined ? {} : { approvalWatchMs: options.approvalWatchMs }),
   };
@@ -483,46 +478,23 @@ export async function createLeaseRuntime(
   });
   await server.connect(transport);
 
+  // The one evaluation path: the standalone `verify-outcome` command reaches the same function. This run
+  // hands it the vault, connector, teardown steps and fence it already serves with. A `user_confirm`
+  // prompt is bounded by the manifest's approval timeout.
   const verifyOutcome = async (): Promise<Lease> => {
-    const verifier = verified.manifest.job.verifier;
-    if (verifier.type !== "resource_query") {
-      throw new RuntimeError(
-        "usage",
-        "The manifest has no resource_query verifier; end the lease with stint revoke.",
-      );
-    }
-    const ast = parsePredicate(verifier.predicate);
-    // Only a READ binding may serve the synthetic verifier read (it POSTs an empty body).
-    const binding = Object.values(profile.bindings).find(
-      (b) => b.resource === verifier.resource && b.access === "read" && b.rowAdapter !== undefined,
-    );
-    if (!ast.ok || binding === undefined) {
-      throw new RuntimeError(
-        "usage",
-        "The run profile has no read binding with a row adapter for the verifier; end the lease with stint revoke.",
-      );
-    }
-    const current = await leaseStore.load(leaseId);
-    if (current?.state !== "active") {
-      throw new RuntimeError("wrong_state", "The lease is not active, so it cannot be verified.");
-    }
-    await runResourceQueryVerification(
-      {
-        leaseStore,
-        receiptStore,
-        leaseId,
-        teardownSteps,
-        teardownFence,
-        vault,
-        connector,
-        binding,
-        ast: ast.value,
-      },
-      clock(),
-    );
-    const after = await leaseStore.load(leaseId);
-    if (after === undefined) throw new RuntimeError("internal", "Internal error.");
-    return after;
+    const result = await evaluateVerifier({
+      verifier: verified.manifest.job.verifier,
+      leaseStore,
+      receiptStore,
+      leaseId,
+      clock,
+      teardownSteps,
+      teardownFence,
+      adapter,
+      signal: AbortSignal.timeout(verified.manifest.approvals.timeout_seconds * 1000),
+      read: { bindings: profile.bindings, vault, connector },
+    });
+    return result.lease;
   };
 
   const endedBox: { resolve: (value: LeaseEnded) => void } = { resolve: () => undefined };

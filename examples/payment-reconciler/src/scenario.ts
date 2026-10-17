@@ -106,7 +106,20 @@ export interface ScenarioConfig {
   readonly postEndCall?: ScenarioStep;
   /** Make the FIRST acquired access token live only 1s, so the first call forces a real vault refresh. */
   readonly forceShortAccessTokenLifetime?: boolean;
+  /**
+   * Scripted answers to the create-time job-parameter prompts (SPEC-08), by
+   * declaration name. Default: the payment-reconciler vector's values. A name
+   * with no answer resolves undefined, which declines the create.
+   */
+  readonly parameters?: Readonly<Record<string, string | undefined>>;
 }
+
+/** The payment-reconciler vector's job-parameter values, as the scripted user types them. */
+export const DEFAULT_PARAMETERS: Readonly<Record<string, string>> = {
+  reference: "ref_1001",
+  expected_amount_kobo: "30050",
+  currency: "NGN",
+};
 
 /** The happy-path agent script: read the ledger, read the orders, then write one (irreversible, approved). */
 export const HAPPY_SCRIPT: readonly ScenarioStep[] = [
@@ -261,6 +274,10 @@ export async function runScenario(config: ScenarioConfig = {}): Promise<Scenario
       style: () => createStyle(false),
       adapterFactory: () => adapter,
       confirm: () => Promise.resolve(undefined),
+      // The scripted user types the job's fixed inputs at create (SPEC-08):
+      // the vector manifest declares parameters, so the real terminal ask
+      // would block a headless run.
+      askJobParameter: (ask) => Promise.resolve(config.parameters?.[ask.name] ?? DEFAULT_PARAMETERS[ask.name]),
     };
     const cli = async (
       argv: readonly string[],

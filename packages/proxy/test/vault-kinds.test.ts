@@ -61,7 +61,7 @@ describe("credential kinds (D-05)", () => {
   it("holds an OAuth grant and an API key side by side for one lease", async () => {
     const vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
     vault.seedCredential(LEASE, "res-oauth", oauthSeed({ expiry: NOW + 600 }));
-    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123" });
+    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123", origin: "https://api.kinds-test.example" });
 
     await expect(vault.resolveAccessToken(LEASE, "res-oauth", NOW)).resolves.toBe("seed-access-token");
     await expect(vault.resolveAccessToken(LEASE, "res-key", NOW)).resolves.toBe("sk-live-123");
@@ -69,7 +69,7 @@ describe("credential kinds (D-05)", () => {
 
   it("an API key resolves at any now, never calls a token endpoint and never enters the refresh path", async () => {
     const vault = createCredentialVault(harness.oauthClient, () => NOW, { allowInsecureRequests: true });
-    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123" });
+    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123", origin: "https://api.kinds-test.example" });
 
     await expect(vault.resolveAccessToken(LEASE, "res-key", NOW)).resolves.toBe("sk-live-123");
     await expect(vault.resolveAccessToken(LEASE, "res-key", NOW + 10_000_000)).resolves.toBe("sk-live-123");
@@ -78,7 +78,7 @@ describe("credential kinds (D-05)", () => {
   });
 
   it("isApiKeyCredential narrows only the api_key member", () => {
-    const key: SeededCredential = { kind: "api_key", key: "k" };
+    const key: SeededCredential = { kind: "api_key", key: "k", origin: "https://api.kinds-test.example" };
     expect(isApiKeyCredential(key)).toBe(true);
     expect(isApiKeyCredential(oauthSeed())).toBe(false);
     expect(isApiKeyCredential(oauthSeed({ kind: "oauth" }))).toBe(false);
@@ -93,12 +93,13 @@ describe("credential kinds (D-05)", () => {
     expect(harness.tokenEndpointHits).toBe(2);
   });
 
-  it("keeps exactly the five vault keys", () => {
+  it("keeps exactly the six vault keys", () => {
     const vault = createCredentialVault(harness.oauthClient, () => NOW);
     expect(Object.keys(vault).sort()).toEqual([
       "discardLeaseCredentials",
       "probeGrant",
       "resolveAccessToken",
+      "resolveOutboundCredential",
       "revokeAndDiscardLeaseCredentials",
       "seedCredential",
     ]);
@@ -150,7 +151,7 @@ describe("a client per credential", () => {
     const vault = createCredentialVault(resolver, () => NOW, { allowInsecureRequests: true });
     vault.seedCredential(LEASE, "res-a", oauthSeed());
     vault.seedCredential(LEASE, "res-b", oauthSeed());
-    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123" });
+    vault.seedCredential(LEASE, "res-key", { kind: "api_key", key: "sk-live-123", origin: "https://api.kinds-test.example" });
 
     const outcomes = await vault.revokeAndDiscardLeaseCredentials(LEASE, NOW);
     const byResource = new Map(outcomes.map((o) => [o.resource, o.result.kind]));

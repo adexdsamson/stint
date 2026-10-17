@@ -158,10 +158,10 @@ describe("LIC-05: the publisher license never reaches OutboundConnector.execute"
     }
     const [, , credential] = call;
 
-    // The OAuth access-token shape only -- no additional field could carry
-    // the license alongside it.
-    expect(credential).toEqual({ accessToken: ACCESS_TOKEN });
-    expect(Object.keys(credential)).toEqual(["accessToken"]);
+    // The access token and its kind only (10-03 widened the shape by `kind`) --
+    // no additional field could carry the license alongside it.
+    expect(credential).toEqual({ accessToken: ACCESS_TOKEN, kind: "oauth" });
+    expect(Object.keys(credential)).toEqual(["accessToken", "kind"]);
 
     // Decisive substring check across every argument the port ever saw.
     expect(JSON.stringify(capturedCalls)).not.toContain(licenseToken);

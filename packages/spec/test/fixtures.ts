@@ -2,9 +2,11 @@ import type { Manifest } from "../src/generated/manifest.js";
 
 /**
  * The D-32 payment-reconciler manifest: hybrid auth mode, Paystack transactions
- * read, orders sheet read/write, resource_query verifier. Also ships as
- * spec/vectors/valid/payment-reconciler.json and ALP.md's annotated example.
- * Returns a fresh object every call so tests can freely mutate the result.
+ * read, orders sheet read/write, resource_query verifier, and the three typed
+ * job.parameters Phase 10 declares (reference, expected_amount_kobo, currency).
+ * Also ships as spec/vectors/valid/payment-reconciler.json and ALP.md's
+ * annotated example. Returns a fresh object every call so tests can freely
+ * mutate the result.
  */
 export function paymentReconcilerManifest(): Manifest {
   return {
@@ -21,6 +23,11 @@ export function paymentReconcilerManifest(): Manifest {
     version: "0.1.0",
     job: {
       description: "Match settled Paystack transactions to open orders and mark matched orders as paid.",
+      parameters: [
+        { name: "reference", type: "string" },
+        { name: "expected_amount_kobo", type: "integer" },
+        { name: "currency", type: "currency" },
+      ],
       verifier: {
         type: "resource_query",
         resource: "sheets.orders",

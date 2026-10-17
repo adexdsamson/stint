@@ -94,6 +94,7 @@ describe("RunningLease.verifyOutcome (D-15)", () => {
       "list_orders",
       "list_transactions",
       "mark_order_reconciled",
+      "request_outcome_check", // the notice-only signal (Phase 10): it asks the user, it cannot complete anything
     ]);
     // An agent guessing at completion tools is denied (no binding), and the lease stays active.
     for (const name of ["verify_outcome", "verifyOutcome", "done", "complete_lease"]) {

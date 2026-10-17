@@ -359,7 +359,7 @@ describe("a transient failure never ends a lease (D-17)", () => {
 
 describe("nothing probeable (D-16)", () => {
   it("never sends an API-key-only lease to the token endpoint", async () => {
-    const h = await setup({ credentials: { "sheets.orders": { kind: "api_key", key: "k-1" } } });
+    const h = await setup({ credentials: { "sheets.orders": { kind: "api_key", key: "k-1", origin: "https://api.sheets.example" } } });
     expect(await sweep(h, FIRST_DUE + 10_000)).toEqual([]);
     expect(mock.tokenEndpointHits).toBe(0);
     expect(await leaseState(h)).toBe("active");

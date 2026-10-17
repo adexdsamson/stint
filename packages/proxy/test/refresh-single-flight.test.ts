@@ -170,6 +170,7 @@ describe("credential-vault: single-flight refresh (PRXY-08)", () => {
       "discardLeaseCredentials",
       "probeGrant",
       "resolveAccessToken",
+      "resolveOutboundCredential",
       "revokeAndDiscardLeaseCredentials",
       "seedCredential",
     ]);

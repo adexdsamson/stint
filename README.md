@@ -118,6 +118,7 @@ stint-cli revoke <id> --yes
 stint-cli cleanup <id>
 stint-cli receipts <id>
 stint-cli verify <id>
+stint-cli verify-outcome <id> --profile <file>
 ```
 
 - `stint-cli create` verifies the signed manifest, shows you what it asks for, and on your consent activates a lease. Hosted and hybrid leases also take the `--publisher` file.
@@ -125,8 +126,20 @@ stint-cli verify <id>
 - `stint-cli revoke` ends the lease at once and runs teardown. `--yes` skips the confirmation prompt.
 - `stint-cli cleanup` runs or retries teardown for a lease that has ended. If a step failed, such as the publisher's cleanup hook, the lease is `cleanup_incomplete`. Retrying resumes where it left off, never repeats a step that already succeeded, and never returns the lease to active.
 - `stint-cli receipts` prints the merged timeline, and `stint-cli verify` (or `stint-cli receipts --verify`) checks the receipt chains and the signed checkpoint, reporting the exact point of a break if one has been tampered with.
+- `stint-cli verify-outcome` checks the lease's outcome verifier on demand. A pass completes the lease and runs teardown, a fail shows the verdict and changes nothing. An agent can ask for the check, but only you can run it.
 - `stint-cli supervise` looks after every lease in a store with no other action from you. It settles leases whose time ran out, tears ended leases down, retries a teardown that did not finish and resumes one that a crash cut short. It runs until you stop it, or once with `--once`.
 
 You do not need `supervise` for the example above. It is for a machine that keeps leases for a long time. Run it as a background service under Windows Task Scheduler, systemd or launchd, or run `stint-cli supervise --once` from cron. It also probes idle leases for grants the provider revoked, reports lease records it cannot read, and pauses lease expiry after a forward jump of the system clock until you confirm the clock. Expiry is still enforced on every call whether or not a supervisor runs. A lease that cannot finish teardown by itself is marked stuck, and there is no command to abandon one. The setup steps for each scheduler, every flag with its default, the exit codes and the limits are in the operator guide, [packages/cli/README.md](packages/cli/README.md).
 
 The happy path, where the agent's job finishes and the manifest's outcome check passes before teardown, the approved-write path, the partial-teardown retry and the mid-run revocation are all exercised end to end by the example's test suite (`pnpm test:e2e`).
+
+### A payment-confirmation job: typed parameters, an API key and an outcome check
+
+The quickstart agent reconciles whole sheets. The second flow in the example is smaller and shows the rest of the lifecycle: an agent confirms that one specific Paystack payment really happened, and only you decide that the job is done. The example's [README](examples/payment-reconciler/README.md) has the details, and its end-to-end suite runs the whole payment-confirmation flow on every build.
+
+1. **Create.** The manifest declares typed job parameters (`job.parameters`): here the transaction `reference`, the `expected_amount_kobo` and the `currency`. `stint-cli create` asks you to type each one, checks it, and shows all of them on the consent screen next to the scopes, so you consent to exactly the payment you named. They are bound to the lease for good, and the agent can never supply or change them. The same command takes the Paystack secret key, either typed with no echo (`--api-key`) or from the credentials file (`--credentials`). The consent screen lists the key as a credential that cannot be revoked.
+2. **Run.** The agent has one read tool, `verify_payment`, which takes no arguments. It names no reference: the runtime looks up the reference you entered and hands the agent only a verdict (`confirmed`, `amount_mismatch`, `currency_mismatch`, `not_success`, `not_found` or `unknown`) plus a short allowlist of fields. The agent never sees the key, the customer or the raw response.
+3. **Verify the outcome.** When the agent thinks it is done it can call `request_outcome_check`, which only prints a notice. You run `stint-cli verify-outcome <id> --profile <file>`. A `confirmed` verdict completes the lease and runs teardown. Anything else leaves the lease active and tells you the verdict, so a wrong amount or a payment that has not settled yet is something you see rather than something the agent can talk its way past.
+4. **Cleanup.** Teardown drops Stint's copy of the key and ends the lease `cleaned_up (credential not revoked upstream)` with a line telling you to rotate the key. Stint cannot revoke a Paystack key, so the key stays valid at Paystack until you rotate it in the dashboard.
+
+What happens to a key is the same in every flow, and it is stated once in the operator guide, [packages/cli/README.md](packages/cli/README.md). You enter it once, with echo off or through the credentials file. Only the runtime stores it. It is sent only to its provider's origin and never follows a redirect. It is never returned to the agent. You rotate it yourself at the provider after teardown.

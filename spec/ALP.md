@@ -82,7 +82,7 @@ Every top-level field, in schema order:
 - `agent`: `{ id, name, description? }`. `id` is an `Identifier` (the fixed safe charset `^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$`, chosen so it can be rendered into a consent screen without risk of a display-spoofing sequence, Section 14); `name` and the optional `description` are short human-readable strings.
 - `publisher`: `{ id, name }`, using the same `Identifier` charset for `id`. The publisher identity claimed here MUST match the identity the envelope's signature attests to (Section 5); a manifest is never trusted on `publisher.id` alone.
 - `version`: the agent's own semantic version string (SemVer 2.0.0), a field distinct from the protocol's own `spec_version`.
-- `job`: `{ description, verifier }`. `verifier` is a tagged union of exactly three types, discriminated by its own `type` field, and closed: a value combining fields from two branches (for example a `resource_query` verifier that also carries a `user_confirm` `prompt`) MUST be rejected, not silently accepted by discarding the extra field.
+- `job`: `{ description, parameters?, verifier }`. `parameters` is an optional closed list of typed parameters the publisher declares for the job, at least one and at most 16 entries, each `{ name, type, description?, required? }`: `name` is an `Identifier`, `type` is one of exactly `string`, `integer` or `currency`, `description` is short human-readable text, and `required` defaults to true when absent (an omitted flag means the user must enter a value). The `currency` type means a three-letter uppercase ISO 4217 code entered and stored as a string; the schema carries only the closed type name, and the charset rule is entry-time validation performed when the user types the value, not a manifest rule. The user enters each declared parameter's value once at consent, the consent screen shows the declared parameters (Section 6), and the runtime binds the entered values to the lease record; the values are immutable after activation and are never agent-supplied or agent-changeable. `verifier` is a tagged union of exactly three types, discriminated by its own `type` field, and closed: a value combining fields from two branches (for example a `resource_query` verifier that also carries a `user_confirm` `prompt`) MUST be rejected, not silently accepted by discarding the extra field.
   - `resource_query`: `{ type: "resource_query", resource, predicate }`. The runtime evaluates `predicate` against `resource` through the proxy, using its own held credentials; `predicate` is a closed aggregate-and-compare grammar defined normatively in Section 7.6, never arbitrary code.
   - `user_confirm`: `{ type: "user_confirm", prompt }`. The runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable.
   - `none`: `{ type: "none" }`. The lease can never reach `completed`; it can only end by expiry or by a user or policy action (Section 7.4).
@@ -96,7 +96,7 @@ Every top-level field, in schema order:
 
 Two conditional rules apply across the fields above: any manifest whose `scopes` include a `pay` access class MUST also carry `limits.spend`; `auth.delegated` MUST be present when `auth.mode` is `delegated` or `hybrid`, and `auth.hosted` MUST be present when `auth.mode` is `hosted` or `hybrid` (an absent `auth.mode` is treated exactly as `hybrid` for both rules, never as an exemption from either).
 
-Two semantic rules apply after schema validation passes, since neither is expressible in JSON Schema alone: every resource named in an `auth.delegated` entry's `resources` list MUST also appear as some scope's `resource`, so a delegated grant can never reach a resource the manifest did not also scope; and every scope's `resource` MUST be unique within `scopes`, so a manifest cannot declare the same resource twice with different access lists.
+Three semantic rules apply after schema validation passes, since none is expressible in JSON Schema alone: every resource named in an `auth.delegated` entry's `resources` list MUST also appear as some scope's `resource`, so a delegated grant can never reach a resource the manifest did not also scope; every scope's `resource` MUST be unique within `scopes`, so a manifest cannot declare the same resource twice with different access lists; and every parameter's `name` MUST be unique within `job.parameters`, so a manifest cannot ask the user to enter the same value twice under one name.
 
 **Annotated example.** The following manifest is exactly the `payment-reconciler` manifest shipped as [spec/vectors/valid/payment-reconciler.json](vectors/valid/payment-reconciler.json); an automated check keeps this example and that vector byte-for-byte identical.
 
@@ -115,6 +115,20 @@ Two semantic rules apply after schema validation passes, since neither is expres
   "version": "0.1.0",
   "job": {
     "description": "Match settled Paystack transactions to open orders and mark matched orders as paid.",
+    "parameters": [
+      {
+        "name": "reference",
+        "type": "string"
+      },
+      {
+        "name": "expected_amount_kobo",
+        "type": "integer"
+      },
+      {
+        "name": "currency",
+        "type": "currency"
+      }
+    ],
     "verifier": {
       "type": "resource_query",
       "resource": "sheets.orders",
@@ -198,7 +212,7 @@ A publisher distributes a manifest as a signed envelope: `{ manifest, signature:
 The content hash of a manifest is `"jcs-sha256:"` followed by the lowercase hexadecimal SHA-256 digest of the UTF-8 bytes produced by serializing the manifest object under RFC 8785, the JSON Canonicalization Scheme (JCS). For example, the annotated manifest in Section 4 hashes to:
 
 ```
-jcs-sha256:32de102e74d3141a3770c679871dae312691fb3ba522d3f3594f24489c6c704a
+jcs-sha256:3c8f99ac02bc4960472d2051704758c9ad05e0f6f7f810e4b9e5ac289c5bb639
 ```
 
 Rationale: the prefix names both the canonicalization scheme and the digest algorithm, so an implementer cannot mistake this value for a hash of the manifest's raw file bytes. A bare `sha256:` prefix, as used for example by OCI image digests, conventionally means exactly that, a hash of uninterpreted bytes, and would invite an implementation to hash whatever bytes it happened to read from disk rather than the one canonical serialization every implementation must agree on.
@@ -423,13 +437,15 @@ The manifest's `job.verifier` (Section 4) determines how, if at all, a lease rea
 - `user_confirm`: the runtime asks the user, through the HostAdapter, whether the job's outcome is acceptable, using `job.verifier.prompt`.
 - `none`: `completed` is unreachable for this lease; the lease can only end by expiry or by a user or policy action (Section 7.4).
 
+An outcome check MUST be user-initiated: initiated by the user, or by the operator's host on the user's behalf through an explicit command, for example a runtime command the user runs. A check initiated this way is the only path that evaluates the verifier. An agent MAY signal that it believes the job is done; the runtime MAY surface such a signal to the user as a request to run a check, and such a signal MUST NOT itself complete the lease, MUST NOT be recorded as an outcome verification, and MUST NOT alter the verifier's inputs.
+
 An agent's own claim of being done, whether a tool result, a message, or any other agent-originated signal, never completes a lease; only the verifier actor, established by one of the mechanisms above, causes `outcome_verified` (Section 7.2).
 
 ## 8. Authorization Modes
 
 A manifest's `auth.mode` is one of `delegated`, `hosted` or `hybrid`. `hybrid` is the default when `auth.mode` is absent.
 
-- `delegated`: the runtime acquires one delegated OAuth grant per entry in `auth.delegated`, each linking a `provider` to the `resources` it grants access to. OAuth endpoints and client configuration are runtime connector configuration; they are never supplied by the publisher manifest. Access tokens carry RFC 8707 resource indicators and are injected by the proxy only on outbound calls; they are never returned to the agent. If any one customer grant is revoked, whether detected explicitly or lazily via `invalid_grant` or an HTTP 401 from the provider, the runtime MUST revoke the whole lease with actor `provider`.
+- `delegated`: the runtime acquires one delegated OAuth grant per entry in `auth.delegated`, each linking a `provider` to the `resources` it grants access to. OAuth endpoints and client configuration are runtime connector configuration; they are never supplied by the publisher manifest. Access tokens carry RFC 8707 resource indicators and are injected by the proxy only on outbound calls; they are never returned to the agent. If any one customer grant is revoked, whether detected explicitly or lazily via `invalid_grant` or an HTTP 401 from the provider, the runtime MUST revoke the whole lease with actor `provider`. A delegated entry MAY also be satisfied by an API-key credential: a static secret the user supplies once at consent. Such a credential is bound at seed time to exactly one provider origin, taken from runtime-owned configuration and never from the manifest; the runtime MUST send it only to that origin, MUST NOT follow an HTTP redirect while carrying it, and MUST NOT return it to the agent under any outcome. An API key has no protocol revocation endpoint, so its teardown step records `discarded_revocation_unsupported` (Section 10, Section 11) and the lease can still reach `cleaned_up`, with the same caveat as any credential the runtime cannot revoke upstream: the key stays valid at the provider until the user rotates it in the provider dashboard. Consent MUST show each credential's kind and whether it can be revoked upstream (Section 6), and after teardown the runtime SHOULD tell the user to rotate the key at the provider.
 - `hosted`: the publisher issues a PASETO v4.public license, identified by `auth.hosted.license_issuer` and optionally `auth.hosted.kid`, with a default TTL of 300 seconds. The TTL is runtime configuration; it is never carried in the manifest. The license carries `lease_id`, `job` and `limits` as custom claims, and the registered claims `exp`, `iat`, `nbf` and `jti`. `kid` is carried in the token's footer, which PASETO authenticates but does not encrypt, so only the public, non-secret key identifier belongs there, never anything sensitive. Every issue and verify call derives the same implicit assertion from one shared function: the canonical (RFC 8785 JCS) bytes of an object holding `lease_id` and the manifest's own `spec_version`. A license issued for one lease or spec version therefore cannot verify against another, and a token verified outside its explicit, tested clock-skew tolerance is rejected. The runtime holds the license; the agent never does, and the license MUST NOT be forwarded to any customer resource.
 - `hybrid`: both of the above apply together, a license for entitlement and delegated OAuth grants for customer resources.
 

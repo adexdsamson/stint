@@ -75,6 +75,7 @@ describe("built dist/bin.js over real stdio (D-03)", () => {
         "list_transactions",
         "mark_order_reconciled",
         "read_orders",
+        "request_outcome_check",
       ]);
 
       const result = (await client.callTool({

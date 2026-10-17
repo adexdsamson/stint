@@ -184,7 +184,7 @@ export function createTerminalHostAdapter(options: TerminalHostAdapterOptions): 
       // One deadline for both questions: the consent window is not restarted by the acknowledgement.
       const deadline = clock() + consentTimeout;
       const yes = await ask(
-        renderConsent(request.manifest.manifest, style, request.custody),
+        renderConsent(request.manifest.manifest, style, request.custody, request.parameters),
         "Grant this lease? [y/N] ",
         deadline,
         signal,
@@ -244,6 +244,13 @@ export function createTerminalHostAdapter(options: TerminalHostAdapterOptions): 
       try {
         if (event.type === "approval_void") {
           safeWrite(output, `${APPROVAL_VOID_SENTENCES[event.reason]}\n`);
+          return Promise.resolve();
+        }
+        if (event.type === "outcome_check_requested") {
+          safeWrite(
+            output,
+            `stint: the agent asked for an outcome check; run: stint-cli verify-outcome ${s(event.leaseId)}\n`,
+          );
           return Promise.resolve();
         }
         const at = Number.isFinite(event.at)

@@ -49,10 +49,33 @@ export interface OAuthSeededCredential {
   readonly revocationEndpoint?: string;
 }
 
-/** A static API key held for one resource. It never expires, is never refreshed and has no provider the vault can revoke at. */
+/**
+ * A static API key held for one resource. It never expires, is never refreshed and has no provider the vault can revoke at.
+ *
+ * `origin` is the ONE origin this key may be sent to (Phase 10 D-B, CRED-02). It
+ * is bound at seed time (a credentials-file entry, then the run profile's
+ * `providerOrigins`, then the runtime's closed provider table) and read back
+ * from the store at call time by the connector, never from the call's inputs.
+ * It is `https:` or loopback `http:` only; a stored key with no usable origin
+ * is treated as absent, so the vault fails closed instead of guessing.
+ */
 export interface ApiKeySeededCredential {
   readonly kind: "api_key";
   readonly key: string;
+  readonly origin: string;
+}
+
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/**
+ * True iff `value` parses as a URL that is `https:` or plain `http:` to a
+ * loopback host (localhost, 127.0.0.1, [::1]). The one rule every API-key
+ * origin intake applies, the same shape `parseEndpoints` enforces.
+ */
+export function isSecureOrLoopbackOrigin(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const parsed = new URL(value);
+  return parsed.protocol === "https:" || (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname));
 }
 
 /** What the vault holds for one `leaseId:resource`: an OAuth grant (absent `kind`) or an API key. */

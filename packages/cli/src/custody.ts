@@ -8,9 +8,8 @@
  */
 
 import type { ConsentCredential, ConsentCustody, GrantRecord, GrantsArtifact } from "@stint/core";
-import type { SeededCredential } from "@stint/proxy";
 import { seedLeaseCredentials } from "@stint/runtime";
-import type { RuntimePorts, SeedResult } from "@stint/runtime";
+import type { RuntimePorts, SeedResult, SeedableCredential } from "@stint/runtime";
 import type { Manifest } from "@stint/spec";
 
 import type { CliDeps } from "./deps.js";
@@ -27,7 +26,8 @@ function byName(a: string, b: string): number {
  * D-28). The resource list is the sorted union of the manifest's delegated
  * resources and the credentials file's keys. Capability comes from the file
  * entry: an OAuth credential is `supported` only when it carries a revocation
- * endpoint; a resource with no file entry is `unknown`, never `supported`. No
+ * endpoint; an API-key entry is always `unsupported` (there is no endpoint to
+ * call); a resource with no file entry is `unknown`, never `supported`. No
  * secret value is read into the result.
  */
 export function buildConsentCustody(
@@ -43,13 +43,18 @@ export function buildConsentCustody(
 
   const list: ConsentCredential[] = [...names].sort(byName).map((resource) => {
     const entry = credentials?.[resource];
+    // An API key has no revocation endpoint to call, so consent is always honest
+    // about it: kind api_key, revocation unsupported (SPEC-10, 10-02).
+    if (entry !== undefined && entry.kind === "api_key") {
+      return { resource, kind: "api_key", revocation: "unsupported" } as const;
+    }
     const revocation =
       entry === undefined
         ? "unknown"
         : entry.revocationEndpoint === undefined
           ? "unsupported"
           : "supported";
-    return { resource, kind: "oauth", revocation };
+    return { resource, kind: "oauth", revocation } as const;
   });
   return { storage: "plaintext_file", credentials: list };
 }
@@ -68,10 +73,12 @@ export async function seedFromCredentials(
   deps: CliDeps,
   ports: RuntimePorts,
   leaseId: string,
-  credentials: Readonly<Record<string, SeededCredential>>,
+  credentials: Readonly<Record<string, SeedableCredential>>,
   opts: {
     /** Fills in non-secret fields before each credential is written (for example from a run profile). */
-    readonly enrich?: (resource: string, credential: SeededCredential) => SeededCredential;
+    readonly enrich?: (resource: string, credential: SeedableCredential) => SeedableCredential;
+    /** The lease's manifest: how an API key with no origin finds its provider's table origin (10-03). */
+    readonly manifest?: Manifest;
   } = {},
 ): Promise<SeedResult> {
   let result: SeedResult;
@@ -80,7 +87,10 @@ export async function seedFromCredentials(
       ports,
       leaseId,
       credentials,
-      opts.enrich === undefined ? {} : { enrich: opts.enrich },
+      {
+        ...(opts.enrich === undefined ? {} : { enrich: opts.enrich }),
+        ...(opts.manifest === undefined ? {} : { manifest: opts.manifest }),
+      },
     );
   } catch (error) {
     throw toCliError(error);

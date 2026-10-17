@@ -51,12 +51,26 @@ export interface ConsentCustody {
   readonly credentials: readonly ConsentCredential[];
 }
 
+/**
+ * One entered job parameter as the consent screen shows it (Phase 10,
+ * SPEC-08): the declaration's name and type beside the value the user typed.
+ * Non-secret by spec (ALP Section 4): the user entered it precisely so it can
+ * be shown before the grant and bound to the lease.
+ */
+export interface ConsentParameter {
+  readonly name: string;
+  readonly type: string;
+  readonly value: string | number;
+}
+
 /** A request to grant or decline the whole lease at consent time (ALP.md Section 6). */
 export interface ConsentRequest {
   readonly consentId: string;
   readonly manifest: VerifiedManifest;
   /** Absent when the runtime has nothing to say about credential custody. */
   readonly custody?: ConsentCustody;
+  /** Absent when the manifest declares no job parameters or none were entered. */
+  readonly parameters?: readonly ConsentParameter[];
 }
 
 /** `grant` accepts; `decline` carries why — `user_declined` (explicit) or `timeout` (core-decided, D-17). */
@@ -162,7 +176,10 @@ export type TeardownStuckReason = TeardownStuckPayload["reason"];
  * one per-call approval notice, `approval_void`, so the "your approval did not
  * take effect" message reaches the user without a new `HostAdapter` method,
  * and `teardown_stuck`, so a supervisor can tell a host that a lease it cannot
- * tear down on its own still holds a live credential (Phase 9 D-04).
+ * tear down on its own still holds a live credential (Phase 9 D-04). It also
+ * carries `outcome_check_requested` (Phase 10, SPEC-11): the agent asked for an
+ * outcome check. It is a NOTICE only; the host shows the user the command to run
+ * and nothing about it can complete a lease.
  */
 export type LifecycleEvent =
   | { readonly type: "activated"; readonly leaseId: string; readonly at: number }
@@ -184,7 +201,8 @@ export type LifecycleEvent =
       readonly leaseId: string;
       readonly at: number;
       readonly reason: TeardownStuckReason;
-    };
+    }
+  | { readonly type: "outcome_check_requested"; readonly leaseId: string; readonly at: number };
 
 /**
  * The single published contract a platform builder implements (HOST-01).

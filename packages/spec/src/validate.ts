@@ -244,6 +244,27 @@ function collectSemanticErrors(manifest: Manifest): SpecError[] {
     });
   });
 
+  // SPEC-08: a duplicate job parameter name is not expressible in the JSON
+  // Schema (draft-07 has no per-key uniqueness over object arrays, the same
+  // gap the scope-resource rule above works around), so it is necessarily a
+  // semantic (post-schema) rule, exactly like an unknown scope. A manifest
+  // asking the user to enter the same parameter twice is rejected before
+  // consent, with the same fixed, non-interpolated message shape as the scope
+  // duplicate above.
+  const seenParameterNames = new Set<string>();
+  (manifest.job.parameters ?? []).forEach((parameter, index) => {
+    if (seenParameterNames.has(parameter.name)) {
+      const path = `/job/parameters/${String(index)}/name`;
+      errors.push({
+        path,
+        code: "duplicate_item",
+        message: `Duplicate job parameter name at "${path}".`,
+      });
+    } else {
+      seenParameterNames.add(parameter.name);
+    }
+  });
+
   // D-04: a resource_query verifier's predicate is unconstrained-string per
   // the JSON Schema (spec/manifest.schema.json: minLength 1, maxLength
   // 1000), so grammar checking is necessarily a semantic (post-schema) rule,
