@@ -14,6 +14,9 @@ const repoRoot = path.resolve(testDir, "..", "..", "..");
 const codegenScript = path.join(repoRoot, "packages", "spec", "scripts", "codegen.mjs");
 const specDir = path.join(repoRoot, "spec");
 
+// Spawning node + codegen takes ~7-11s cold on Windows; the default 5s timeout is too tight.
+const CODEGEN_TIMEOUT_MS = 60_000;
+
 function runCodegen(args: string[]): { status: number | null; stderr: string; stdout: string } {
   const result = spawnSync(process.execPath, [codegenScript, ...args], { encoding: "utf8" });
   return { status: result.status, stderr: result.stderr, stdout: result.stdout };
@@ -23,7 +26,7 @@ describe("codegen", () => {
   it("codegen check passes on committed output", () => {
     const { status, stderr } = runCodegen(["--check"]);
     expect(status, stderr).toBe(0);
-  });
+  }, CODEGEN_TIMEOUT_MS);
 
   it("codegen check detects stale types", () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "stint-codegen-drift-"));
@@ -48,7 +51,7 @@ describe("codegen", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
-  });
+  }, CODEGEN_TIMEOUT_MS);
 
   it("schemas compile in Ajv strict mode", () => {
     const manifestSchema = JSON.parse(readFileSync(path.join(specDir, "manifest.schema.json"), "utf8")) as object;
