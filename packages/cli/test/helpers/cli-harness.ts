@@ -84,7 +84,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     stdout,
     stderr,
     allOutput: () => [...stdout, ...stderr].join(""),
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    // Windows can briefly hold a handle on a just-closed store dir (ENOTEMPTY/EBUSY) under
+    // the parallel run; rm retries those transient errors when maxRetries is set.
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 
