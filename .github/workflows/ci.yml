@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches-ignore: [keychain-cross-os-spike]
   pull_request:
 
 permissions:

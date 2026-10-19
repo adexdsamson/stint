@@ -1,0 +1,58 @@
+# THROWAWAY (never merges): cross-OS @napi-rs/keyring spike for Phase 11.
+name: keychain-spike
+
+on:
+  push:
+    branches: [keychain-cross-os-spike]
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.18.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      # Ephemeral: the dependency is added inside the runner only and never committed.
+      - name: A1 install @napi-rs/keyring (runner only)
+        run: |
+          uname -a
+          node -p "process.platform + '/' + process.arch + ' node ' + process.version"
+          pnpm --version
+          pnpm --filter @stint/cli add --save-exact @napi-rs/keyring@2.1.1
+
+      - name: Install gnome-keyring + dbus (ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -y && sudo apt-get install -y gnome-keyring dbus dbus-x11
+
+      - name: macOS keychain diagnostics
+        if: runner.os == 'macOS'
+        run: |
+          security list-keychains
+          security default-keychain
+          security show-keychain-info "$(security default-keychain | tr -d ' "')" || true
+
+      - name: Spike (macOS, direct)
+        if: runner.os == 'macOS'
+        run: bash packages/cli/spike/keychain/body.sh
+
+      - name: Spike (ubuntu, inside dbus session + unlocked gnome-keyring)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -c 'rm -f "$HOME/.local/share/keyrings/"*; echo -n test | gnome-keyring-daemon --unlock >/dev/null; bash packages/cli/spike/keychain/body.sh'
