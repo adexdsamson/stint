@@ -36,10 +36,27 @@ export function createKeychainSecretStore({
   validateKey = () => {},
   validatePrefix = () => {},
   entryOptions = { linux: { store: "secret-service" } },
+  serialize = false,
 }) {
   const { AsyncEntry, findCredentialsAsync } = keyring;
-  const entry = (account) => new AsyncEntry(service, account, entryOptions);
-  const list = async () => (await findCredentialsAsync(service)).map((c) => c.account);
+  // serialize=true funnels EVERY native keychain call through one in-process FIFO
+  // queue (the mitigation under test for concurrent-write failures on macOS).
+  let tail = Promise.resolve();
+  const gate = (fn) => {
+    if (!serialize) return fn();
+    const next = tail.then(fn, fn);
+    tail = next.catch(() => {});
+    return next;
+  };
+  const entry = (account) => {
+    const e = new AsyncEntry(service, account, entryOptions);
+    return {
+      setPassword: (v) => gate(() => e.setPassword(v)),
+      getPassword: () => gate(() => e.getPassword()),
+      deletePassword: () => gate(() => e.deletePassword()),
+    };
+  };
+  const list = async () => (await gate(() => findCredentialsAsync(service))).map((c) => c.account);
 
   async function readHead(key) {
     const raw = await entry(`H:${key}`).getPassword();
