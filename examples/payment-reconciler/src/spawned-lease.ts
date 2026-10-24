@@ -136,6 +136,8 @@ export async function prepareSpawnedLease(
 
     const out: string[] = [];
     const err: string[] = [];
+    // The keychain is the default custody; the example keeps the plaintext file store (an explicit opt-in).
+    process.env.STINT_SECRET_STORE ??= "file";
     const real = createRealDeps();
     const scripted = createScriptedAdapter({ consent: "grant", approvals: [] });
     const deps: CliDeps = {

@@ -123,8 +123,18 @@ export interface CliDeps {
   readonly telemetry?: Telemetry;
   /** Operating-system name for platform-specific wording; defaults to `process.platform`. Tests inject `"win32"` or `"linux"`. */
   readonly platform?: string;
-  /** Optional secret custody for a store root; absent means the file store under `<root>/secrets`. */
+  /**
+   * Optional secret custody for a store root; absent means the file store under
+   * `<root>/secrets`. Production (`real-deps.ts`) supplies the keychain-primary
+   * default here unless `STINT_SECRET_STORE=file` opts in to the file store.
+   */
   readonly secrets?: (root: string) => SecretStore;
+  /**
+   * Which custody `secrets` provides, resolved once from the environment.
+   * Absent means the plaintext file store (pre-Phase-11 behaviour), which is what
+   * in-process test deps use.
+   */
+  readonly secretBackend?: "os_keychain" | "plaintext_file";
   /** Optional per-lease artifact storage for a store root; absent means the lease-folder files. */
   readonly artifacts?: (root: string) => LeaseArtifactStore;
   /** Optional key source for a store root; absent means one built from `keys` (the file key files). */

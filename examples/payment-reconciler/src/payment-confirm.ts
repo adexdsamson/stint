@@ -239,6 +239,8 @@ export async function runPaymentConfirmationScenario(
     const adapter: ScriptedAdapter = createScriptedAdapter({ consent: "grant" });
     const out: string[] = [];
     const err: string[] = [];
+    // The keychain is the default custody; the scenario asserts against the file store, so it opts in.
+    process.env.STINT_SECRET_STORE ??= "file";
     const deps: CliDeps = {
       ...createRealDeps(),
       io: {
