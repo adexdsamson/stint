@@ -7,12 +7,13 @@ import { askLine, askSecret } from "./adapter/prompt.js";
 import { createTerminalHostAdapter } from "./adapter/terminal-host-adapter.js";
 import type { CliDeps, SuperviseSeams } from "./deps.js";
 import { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
-import { jobParameterPromptLine } from "./messages.js";
+import { PLAINTEXT_WARNING, PLAINTEXT_WARNING_WINDOWS, jobParameterPromptLine } from "./messages.js";
 import { colorDecision, createStyle } from "./render/style.js";
 import { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
 import type { JobParameterAsk } from "./run/job-parameters.js";
 import { openControllingTerminal } from "./run/terminal.js";
 import { abortableSleep } from "./supervise-timing.js";
+import { createDefaultSecretStore, resolveSecretBackend } from "./store/default-secret-store.js";
 import { createJsonLeaseStore } from "./store/json-lease-store.js";
 import { createJsonReceiptStore } from "./store/json-receipt-store.js";
 import { loadTrustStore } from "./trust/trust-store.js";
@@ -156,6 +157,20 @@ export function createRealDeps(): CliDeps {
     style: (json) => createStyle(colorDecision({ json, env: process.env, output: process.stdout })),
     storeFactory: (root) => createJsonLeaseStore({ root }),
     receiptStoreFactory: (root, leaseId) => createJsonReceiptStore({ root, leaseId }),
+    // The keychain is the default custody; STINT_SECRET_STORE=file is the one opt-in to plaintext.
+    secrets: (root) =>
+      createDefaultSecretStore({
+        root,
+        env: process.env,
+        platform: process.platform,
+        onPlaintextWrite: () => {
+          const windows = process.platform === "win32";
+          process.stderr.write(
+            `stint: ${PLAINTEXT_WARNING}${windows ? ` ${PLAINTEXT_WARNING_WINDOWS}` : ""}\n`,
+          );
+        },
+      }).store,
+    secretBackend: resolveSecretBackend(process.env),
     adapterFactory: (_io, ctx) => {
       // Under --json stdout carries the machine-readable result, so the human prompt goes to stderr.
       const output = ctx.json ? process.stderr : process.stdout;

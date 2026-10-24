@@ -44,6 +44,9 @@ function textOf(result: { content: readonly { type: string; text?: string }[] })
 }
 
 async function run(): Promise<number> {
+  // The keychain is the default custody; the demo keeps the plaintext file store (an explicit opt-in).
+  // The spawned `stint run` child inherits this, so create, run and revoke all share one custody.
+  process.env.STINT_SECRET_STORE ??= "file";
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
   let lease: SpawnedLease | undefined;
 

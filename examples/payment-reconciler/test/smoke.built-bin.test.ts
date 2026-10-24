@@ -24,6 +24,10 @@ import { resolveCliBin } from "../src/launcher.js";
 import { prepareSpawnedLease } from "../src/spawned-lease.js";
 import type { SpawnedLease } from "../src/spawned-lease.js";
 
+// The keychain is the default custody; this smoke test keeps the plaintext file store so the
+// spawned bin (and the in-process lease setup) never touch a real or missing OS keychain.
+process.env.STINT_SECRET_STORE ??= "file";
+
 let lease: SpawnedLease | undefined;
 let client: Client | undefined;
 afterEach(async () => {
@@ -58,6 +62,7 @@ describe("built dist/bin.js over real stdio (D-03)", () => {
           "--credentials",
           lease.credentialsPath,
         ],
+        env: { ...process.env, STINT_SECRET_STORE: "file" },
         stderr: "pipe",
       });
       let stderr = "";

@@ -21,6 +21,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ACCESS_TOKEN, createRunFixture } from "./helpers/run-fixture.js";
 import type { RunFixture } from "./helpers/run-fixture.js";
 
+// The spawned bin must keep using the plaintext file store: the keychain is the default custody now,
+// and CI / MCP-stripped environments have no usable keychain.
+process.env.STINT_SECRET_STORE ??= "file";
+
 const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/bin.js");
 
 let fx: RunFixture | undefined;
@@ -56,6 +60,7 @@ describe("stint run over real stdio (built dist/bin.js)", () => {
           "--credentials",
           fx.credentialsPath,
         ],
+        env: { ...process.env, STINT_SECRET_STORE: "file" },
         stderr: "pipe",
       });
       let stderr = "";
