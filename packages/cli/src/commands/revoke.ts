@@ -13,7 +13,7 @@
 import { reduce, userEvents } from "@stint/core";
 import { appendTransitionReceipt } from "@stint/proxy";
 
-import { seedFromCredentials } from "../custody.js";
+import { ensureSecretCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { assertSafeLeaseId, resolveStoreRoot } from "../paths.js";
@@ -60,6 +60,12 @@ export async function revokeCommand(
         ? "--credentials <file> is required so the lease's OAuth grants can be revoked."
         : "The credentials file does not cover every credential this lease recorded.",
     );
+  }
+
+  // Custody check before the question (KEYC-03): an unavailable keychain refuses with the
+  // fixed opt-in message instead of failing after the user has said yes.
+  if (fileCredentials !== undefined && resolved.expectedResources.length > 0) {
+    await ensureSecretCustody(deps, root);
   }
 
   const declined = await confirmOrDecline(deps, "Revoke this lease? [y/N] ", opts.yes);

@@ -18,6 +18,7 @@ import type {
 import type { TeardownStep } from "@stint/proxy";
 
 import type { Style } from "./render/style.js";
+import type { KeychainBinding } from "./store/keychain-binding.js";
 import type { loadCheckpointPublicKey, loadOrCreateRuntimeKey } from "./keys/runtime-key.js";
 import type { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js";
 import type { JobParameterAsk } from "./run/job-parameters.js";
@@ -135,6 +136,11 @@ export interface CliDeps {
    * in-process test deps use.
    */
   readonly secretBackend?: "os_keychain" | "plaintext_file";
+  /**
+   * Test seam: the keychain binding the availability probe uses when
+   * `secretBackend` is `os_keychain`. Absent means the native binding.
+   */
+  readonly keychainBinding?: KeychainBinding;
   /** Optional per-lease artifact storage for a store root; absent means the lease-folder files. */
   readonly artifacts?: (root: string) => LeaseArtifactStore;
   /** Optional key source for a store root; absent means one built from `keys` (the file key files). */

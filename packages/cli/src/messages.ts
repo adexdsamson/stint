@@ -39,6 +39,10 @@ export function teardownBusyMessage(leaseId: string): string {
 export const CONSENT_PLAINTEXT_LINE =
   "Credentials are stored unencrypted on this machine until the lease ends.";
 
+/** Shown once in the consent Credentials section when the keychain will hold the lease's credentials (KEYC-03). */
+export const CONSENT_KEYCHAIN_LINE =
+  "Credentials are stored in this machine's operating-system keychain until the lease ends.";
+
 /** Shown when at least one credential's revocation capability has not been checked yet (D-28). */
 export const CONSENT_CAPABILITY_UNKNOWN_LINE =
   "Whether these credentials can be revoked is not yet known. It is checked when credentials are supplied.";

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import { credentialSecretKey, leaseSecretPrefix } from "@stint/core";
 
@@ -182,52 +182,6 @@ describe("B2 keychain unavailable (fail closed)", () => {
     binding.failWith = down;
 
     expect(await store.get(key)).toBe("from-file");
-  });
-});
-
-describe("onPlaintextWrite", () => {
-  it("fires once per file-backend put (seed AND refresh) and never on a keychain put", async () => {
-    const key = credentialSecretKey("lease-warn", "res");
-
-    const onFile = vi.fn();
-    const file = createDefaultSecretStore({
-      root: freshRoot(),
-      env: { STINT_SECRET_STORE: "file" },
-      platform: PLATFORM,
-      onPlaintextWrite: onFile,
-    });
-    await file.store.put(key, "seed");
-    expect(onFile).toHaveBeenCalledTimes(1);
-    await file.store.put(key, "refreshed");
-    expect(onFile).toHaveBeenCalledTimes(2);
-    await file.store.get(key);
-    await file.store.delete(key);
-    await file.store.deletePrefix(leaseSecretPrefix("lease-warn"));
-    expect(onFile).toHaveBeenCalledTimes(2);
-
-    const onKeychain = vi.fn();
-    const keychain = createDefaultSecretStore({
-      root: freshRoot(),
-      env: {},
-      platform: PLATFORM,
-      binding: new FakeKeychainBinding(),
-      onPlaintextWrite: onKeychain,
-    });
-    await keychain.store.put(key, "seed");
-    await keychain.store.put(key, "refreshed");
-    expect(onKeychain).not.toHaveBeenCalled();
-  });
-
-  it("does not fire when the file put fails", async () => {
-    const onWrite = vi.fn();
-    const { store } = createDefaultSecretStore({
-      root: freshRoot(),
-      env: { STINT_SECRET_STORE: "file" },
-      platform: PLATFORM,
-      onPlaintextWrite: onWrite,
-    });
-    await expect(store.put("not-a-valid-key", "v")).rejects.toThrow();
-    expect(onWrite).not.toHaveBeenCalled();
   });
 });
 

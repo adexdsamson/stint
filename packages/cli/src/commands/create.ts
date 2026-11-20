@@ -34,7 +34,13 @@ import {
 import { MAX_ENVELOPE_BYTES, parseEnvelope, resolveAuthMode, verifyEnvelope } from "@stint/spec";
 import type { Manifest } from "@stint/spec";
 
-import { buildConsentCustody, grantsFromCustody, seedFromCredentials } from "../custody.js";
+import {
+  buildConsentCustody,
+  ensureSecretCustody,
+  grantsFromCustody,
+  secretBackendOf,
+  seedFromCredentials,
+} from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { apiKeyPrompt, jobParameterInvalidMessage } from "../messages.js";
@@ -202,6 +208,15 @@ export async function createCommand(
   const store = deps.storeFactory(root);
   const ports = buildRuntimePorts(deps, root, { trust: opts.trust });
 
+  // Custody check (KEYC-03), BEFORE any prompt, consent or write: a lease that will hold
+  // credentials at create (a credentials file, or --api-key entry) needs a working store.
+  // An unavailable keychain refuses here with the fixed opt-in message, so nothing is
+  // asked, shown, saved or activated, and no native error text reaches the terminal.
+  const willHoldCredentials =
+    Object.keys(credentials ?? {}).length > 0 ||
+    (opts.apiKey === true && apiKeyEntryResources(manifest, credentials).length > 0);
+  if (willHoldCredentials) await ensureSecretCustody(deps, root);
+
   /** Saves the lease as declined and fails with the fixed consent-declined message (exit 3). */
   const declineLease = async (): Promise<never> => {
     const declined = reduce(proposed, userEvents.consentDeclined(), now);
@@ -304,7 +319,7 @@ export async function createCommand(
       throw new CliError(EXIT_CODES.usage, API_KEY_ORIGIN_UNRESOLVED);
     }
   }
-  const custody = buildConsentCustody(manifest, seededCredentials);
+  const custody = buildConsentCustody(manifest, seededCredentials, secretBackendOf(deps));
 
   // The consent screen shows exactly what will bind, in declaration order (SPEC-08):
   // one `name (type): value` row per entered parameter. Optionals the user skipped

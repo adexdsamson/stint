@@ -46,8 +46,6 @@ export interface DefaultSecretStoreOptions {
   readonly platform: string;
   /** Test seam: the keychain binding. Production leaves it unset (the native binding, loaded lazily). */
   readonly binding?: KeychainBinding;
-  /** Called once per successful plaintext-file `put` (seed AND refresh write-back). Never called for the keychain. */
-  readonly onPlaintextWrite?: () => void;
 }
 
 export interface DefaultSecretStore {
@@ -94,28 +92,11 @@ function createCompositeStore(primary: SecretStore, legacy: SecretStore): Secret
   };
 }
 
-function withPlaintextWriteNotice(inner: SecretStore, onWrite: () => void): SecretStore {
-  return {
-    get: (key) => inner.get(key),
-    async put(key, value) {
-      await inner.put(key, value);
-      onWrite();
-    },
-    delete: (key) => inner.delete(key),
-    deletePrefix: (prefix) => inner.deletePrefix(prefix),
-  };
-}
-
 export function createDefaultSecretStore(opts: DefaultSecretStoreOptions): DefaultSecretStore {
   const { root } = opts;
   const backend = resolveSecretBackend(opts.env);
 
-  if (backend === "plaintext_file") {
-    const file = createFileSecretStore({ root });
-    const store =
-      opts.onPlaintextWrite === undefined ? file : withPlaintextWriteNotice(file, opts.onPlaintextWrite);
-    return { store, backend };
-  }
+  if (backend === "plaintext_file") return { store: createFileSecretStore({ root }), backend };
 
   const primary = createKeychainSecretStore({
     root,
