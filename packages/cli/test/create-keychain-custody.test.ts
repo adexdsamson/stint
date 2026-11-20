@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { credentialSecretKey } from "@stint/core";
 import type { ConsentDecision, ConsentRequest, HostAdapter } from "@stint/core";
 
+import type { CliDeps } from "../src/deps.js";
 import { EXIT_CODES } from "../src/exit.js";
 import {
   CONSENT_KEYCHAIN_LINE,
@@ -66,11 +67,11 @@ async function setup(): Promise<Setup> {
   const binding = new FakeKeychainBinding();
   const requests: ConsentRequest[] = [];
   const inner = harness.deps.adapterFactory;
-  const deps = {
+  const deps: CliDeps = {
     ...harness.deps,
     secrets: (root: string) =>
       createDefaultSecretStore({ root, env: {}, platform: process.platform, binding }).store,
-    secretBackend: "os_keychain" as const,
+    secretBackend: "os_keychain",
     keychainBinding: binding,
     adapterFactory: (...args: Parameters<typeof inner>): HostAdapter => {
       const adapter = inner(...args);
@@ -83,7 +84,7 @@ async function setup(): Promise<Setup> {
       };
     },
   };
-  (harness as { deps: typeof deps }).deps = deps;
+  (harness as { deps: CliDeps }).deps = deps;
   const fixture = await writeSignedManifest(harness.root, delegatedManifest());
   await writeFile(path.join(harness.root, "trust.json"), fixture.trustJson);
   const credentialsPath = path.join(harness.root, "creds.json");
