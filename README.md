@@ -35,6 +35,8 @@ A lease is a signed manifest, the exact thing the user consents to before an age
 
 The access vocabulary is fixed: `read`, `write`, `send`, `pay`. Approvals are required only for what the manifest marks irreversible. The user grants exactly this, and the proxy never lets a tool call exceed it.
 
+![A signed lease strip with holes punched only for read and write; send and pay are not granted](assets/stint-illustrations/01-lease-punched-scopes.png)
+
 ## The problem
 
 MCP tells an agent how to call tools. OAuth 2.1 tells a client how to obtain and revoke a token. Neither defines consent, revocation or uninstall for an agent's job:
@@ -47,7 +49,11 @@ Stint answers these with a **lease**: a signed manifest describes the job, the a
 
 The mechanism that makes the lease real is a lease runtime that runs as an **MCP proxy** between the agent and every system it touches. The agent never holds a real credential. Every tool call is checked against the lease by code outside the model, and the answer is allow, deny or require approval. Anything unbound is denied. So a prompt-injected or simply misbehaving agent cannot use a tool call to act outside the lease the user granted, however it was talked into trying.
 
+![The proxy as a toll booth: tool calls from the agent are allowed, denied or held to ask the user, and the real keys stay inside](assets/stint-illustrations/02-proxy-toll-booth.png)
+
 The second half of the promise is the ending. When a lease ends, whether it completed, expired, hit a limit or was revoked, the runtime runs a fixed teardown: revoke every OAuth grant, invalidate the publisher license, call the publisher's cleanup hook, delete the cached lease data, and write a final signed receipt. A step that fails does not hide the others: the lease ends as `cleanup_incomplete` with each step's result recorded, and teardown can be retried. Receipts outlive the lease, and they say only what was actually observed.
+
+![Teardown as unplugging cords in order: grants revoked, license voided, a stuck step tagged and recorded, then a final receipt](assets/stint-illustrations/03-teardown-unplug.png)
 
 ## Auth modes: delegated, hosted, hybrid
 
@@ -67,6 +73,8 @@ Hosted and hybrid leases put a publisher in the loop, so it matters exactly what
 2. **A lease cannot stop cross-resource data flow.** Once an agent has legitimately read one resource, nothing in the protocol stops it correlating that with another resource it may also legitimately read.
 3. **Publisher-side deletion is attested, not verified.** If a publisher says it deleted the data it retained, the runtime cannot confirm that. It can only record the claim.
 4. **The runtime must be run by the user or a neutral party.** If the party operating the runtime has an interest in weakening enforcement, every guarantee rests on that party's honesty instead of on the protocol. A runtime run by the publisher defeats the point.
+
+![A balance scale: verified claims the runtime saw outweigh attested claims the publisher just says](assets/stint-illustrations/04-verified-vs-attested.png)
 
 Some further limits follow from how the pieces work:
 
