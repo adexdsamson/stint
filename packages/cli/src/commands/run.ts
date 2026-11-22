@@ -19,7 +19,7 @@ import { resolveAuthMode } from "@stint/spec";
 
 import type { PromptOutput } from "../adapter/prompt.js";
 import { createTerminalHostAdapter } from "../adapter/terminal-host-adapter.js";
-import { seedFromCredentials } from "../custody.js";
+import { ensureSecretCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps, GlobalOpts } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import {
@@ -125,6 +125,7 @@ async function serve(deps: CliDeps, leaseId: string, opts: RunOpts): Promise<num
     );
   }
   if (credentials !== undefined) {
+    await ensureSecretCustody(deps, root);
     const enrich = enrichFromProfile(profile, verified.manifest);
     const seeded = await seedFromCredentials(deps, ports, leaseId, credentials, {
       enrich,

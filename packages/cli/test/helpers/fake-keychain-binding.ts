@@ -12,9 +12,21 @@ const SEP = "\u0000";
 export class FakeKeychainBinding implements KeychainBinding {
   private readonly entries = new Map<string, Uint8Array>();
 
+  /** Total binding calls (set + get + delete); lets a test assert "no native call was made". */
+  calls = 0;
+  /** When set, every call rejects with this error (simulates an unavailable keychain). */
+  failWith: Error | undefined;
+
   constructor(private readonly maxEntryBytes = 2560) {}
 
+  private enter(): Promise<void> | undefined {
+    this.calls += 1;
+    return this.failWith === undefined ? undefined : Promise.reject(this.failWith);
+  }
+
   set(service: string, account: string, bytes: Uint8Array): Promise<void> {
+    const failed = this.enter();
+    if (failed !== undefined) return failed;
     if (bytes.length > this.maxEntryBytes) {
       return Promise.reject(new Error("fake keychain: value exceeds the per-entry byte cap"));
     }
@@ -24,11 +36,15 @@ export class FakeKeychainBinding implements KeychainBinding {
   }
 
   get(service: string, account: string): Promise<Uint8Array | undefined> {
+    const failed = this.enter();
+    if (failed !== undefined) return failed as Promise<never>;
     const value = this.entries.get(service + SEP + account);
     return Promise.resolve(value === undefined ? undefined : Uint8Array.from(value));
   }
 
   delete(service: string, account: string): Promise<boolean> {
+    const failed = this.enter();
+    if (failed !== undefined) return failed as Promise<never>;
     return Promise.resolve(this.entries.delete(service + SEP + account));
   }
 

@@ -4,6 +4,7 @@ import type { Manifest } from "@stint/spec";
 
 import {
   CONSENT_CAPABILITY_UNKNOWN_LINE,
+  CONSENT_KEYCHAIN_LINE,
   CONSENT_PLAINTEXT_LINE,
   UNREVOCABLE_ACK_HEADER,
   unrevocableSentence,
@@ -91,7 +92,7 @@ export function renderConsent(
     }
   }
 
-  if (custody !== undefined && custody.storage === "plaintext_file") {
+  if (custody !== undefined && custody.storage !== "none") {
     section("Credentials");
     for (const credential of custody.credentials) {
       const capability =
@@ -103,7 +104,9 @@ export function renderConsent(
       // The kind is a closed enum, so it renders raw beside the capability (SPEC-10, 10-02).
       row(`${s(credential.resource)} (${credential.kind}): ${capability}`);
     }
-    row(CONSENT_PLAINTEXT_LINE);
+    // The storage line names where the credentials actually live: the plaintext
+    // statement only for the file store, never for the keychain.
+    row(custody.storage === "plaintext_file" ? CONSENT_PLAINTEXT_LINE : CONSENT_KEYCHAIN_LINE);
     if (custody.credentials.some((credential) => credential.revocation === "unknown")) {
       row(CONSENT_CAPABILITY_UNKNOWN_LINE);
     }

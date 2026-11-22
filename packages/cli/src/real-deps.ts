@@ -13,6 +13,7 @@ import { loadCredentials, seedVaultFromCredentials } from "./run/credentials.js"
 import type { JobParameterAsk } from "./run/job-parameters.js";
 import { openControllingTerminal } from "./run/terminal.js";
 import { abortableSleep } from "./supervise-timing.js";
+import { createDefaultSecretStore, resolveSecretBackend } from "./store/default-secret-store.js";
 import { createJsonLeaseStore } from "./store/json-lease-store.js";
 import { createJsonReceiptStore } from "./store/json-receipt-store.js";
 import { loadTrustStore } from "./trust/trust-store.js";
@@ -156,6 +157,12 @@ export function createRealDeps(): CliDeps {
     style: (json) => createStyle(colorDecision({ json, env: process.env, output: process.stdout })),
     storeFactory: (root) => createJsonLeaseStore({ root }),
     receiptStoreFactory: (root, leaseId) => createJsonReceiptStore({ root, leaseId }),
+    // The keychain is the default custody; STINT_SECRET_STORE=file is the one opt-in to plaintext.
+    // The plaintext warning is printed once per command by `seedFromCredentials`, keyed off
+    // `secretBackend`, so the store itself stays silent.
+    secrets: (root) =>
+      createDefaultSecretStore({ root, env: process.env, platform: process.platform }).store,
+    secretBackend: resolveSecretBackend(process.env),
     adapterFactory: (_io, ctx) => {
       // Under --json stdout carries the machine-readable result, so the human prompt goes to stderr.
       const output = ctx.json ? process.stderr : process.stdout;

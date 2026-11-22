@@ -22,7 +22,7 @@ import type { Lease } from "@stint/core";
 import { TeardownBlockedError } from "@stint/proxy";
 import { settleExpired } from "@stint/runtime";
 
-import { seedFromCredentials } from "../custody.js";
+import { ensureSecretCustody, seedFromCredentials } from "../custody.js";
 import type { CliDeps } from "../deps.js";
 import { CliError, EXIT_CODES } from "../exit.js";
 import { blockedTeardownMessage } from "../messages.js";
@@ -100,15 +100,19 @@ export async function cleanupCommand(
     first === "retry"
       ? "Retry teardown for this lease? [y/N] "
       : "Run teardown for this lease? [y/N] ";
+  const willSeed =
+    fileCredentials !== undefined &&
+    lease.teardownProgress?.revoke_oauth === undefined &&
+    resolved.expectedResources.length > 0;
+  // Custody check before the question (KEYC-03): an unavailable keychain refuses with the
+  // fixed opt-in message instead of failing after the user has said yes.
+  if (willSeed) await ensureSecretCustody(deps, root);
+
   const declined = await confirmOrDecline(deps, question, opts.yes);
   if (declined !== undefined) return declined;
 
   // Seed only after consent, so a declined cleanup leaves nothing under the secrets root.
-  if (
-    fileCredentials !== undefined &&
-    lease.teardownProgress?.revoke_oauth === undefined &&
-    resolved.expectedResources.length > 0
-  ) {
+  if (willSeed) {
     await seedFromCredentials(deps, ports, leaseId, fileCredentials, {
       manifest: resolved.manifest.manifest,
     });

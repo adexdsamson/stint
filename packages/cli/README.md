@@ -55,12 +55,20 @@ stint: the agent asked for an outcome check; run: stint-cli verify-outcome <id>
 
 That is all it does. It is notice-only: it reads nothing, completes nothing and starts no teardown, so a prompt-injected agent cannot declare its own job done. The notice names the command without `--profile`, so add it yourself for a `resource_query` verifier. On a lease that is not active the call is denied and no notice is shown.
 
+## Where credentials are kept
+
+`stint-cli` keeps every credential it holds in the operating-system keychain by default: Windows Credential Manager, the macOS Keychain, or the Secret Service on Linux. The consent screen says so: `Credentials are stored in this machine's operating-system keychain until the lease ends.` A per-lease `.keychain-index.json` in the store lists entry names and chunk counts only, never a value, so teardown can find and delete every entry.
+
+When the keychain is not available, `create`, `run --credentials`, `revoke` and `cleanup` refuse before they ask or write anything, and exit 1 with `The operating-system keychain is not available. Set STINT_SECRET_STORE=file to store credentials in a plaintext file instead.` A headless Linux machine, a container or an SSH session often has no Secret Service. A lease that holds no credentials never checks the keychain.
+
+`STINT_SECRET_STORE=file` is the one opt-in to the plaintext file store. Under it, every command that writes a credential says so on stderr, and the consent screen keeps the plaintext statement. Use the same setting for every command that works on one store. A lease created before the keychain became the default keeps working: a credential missing from the keychain is read from the file store, and teardown deletes from both.
+
 ## API keys: what Stint does with the one you give it
 
 Some providers use a static API key instead of an OAuth grant. Paystack is the one provider Stint knows by name. The contract is the same everywhere a key appears:
 
 1. **You enter it once.** At `create`, pass `--api-key` and Stint asks for the key for each delegated provider that uses one, with the answer not shown as you type (the prompt reads `Enter the API key for <resource> (not shown as you type):`). `--api-key` is a switch: it takes no value, and there is no flag, argument or environment variable that carries a key. For a script, put the key in the credentials file you pass with `--credentials <file>`, as an entry `{ "<resource>": { "kind": "api_key", "key": "sk_test_..." } }`. Keep that file readable by you only and delete it when you are done. Without `--api-key` nothing is asked, and a prompt you leave unanswered skips that credential rather than failing the create.
-2. **Only the runtime holds it.** It is copied into the credential store (a plaintext file store for now, and the command says so on stderr), never into a receipt, a lease record, the manifest or any output. Receipts hold hashes and redacted summaries only.
+2. **Only the runtime holds it.** It is copied into the credential store (the operating-system keychain by default, see below), never into a receipt, a lease record, the manifest or any output. Receipts hold hashes and redacted summaries only.
 3. **It goes to one origin.** At create time the key is bound to a single provider origin: the entry's `origin` if you set one (https, or loopback http for a test), else the run profile's `providerOrigins`, else Stint's built-in table, which maps `paystack` to `https://api.paystack.co`. A key with no origin it can be bound to is refused before consent. At call time a request to any other origin is refused before it is sent.
 4. **It never follows a redirect.** Every outbound request, with a key or an OAuth token attached, refuses a redirect instead of following it, so a provider cannot bounce the key to another host.
 5. **The agent never sees it.** It is never returned to the agent, never in a tool result, and the Paystack verification the agent can trigger returns a short allowlist of fields plus the verdict, not the provider's response.
@@ -223,7 +231,7 @@ Limits:
 
 ## Running it as a service
 
-Stint ships no install command, and `supervise` has no abandon command and no status command. Use your operating system's scheduler. The examples below are standard ones, so change the paths to match your machine. None of them holds a credential: the supervisor takes credentials only from the store.
+Stint ships no install command, and `supervise` has no abandon command and no status command. Use your operating system's scheduler. The examples below are standard ones, so change the paths to match your machine. None of them holds a credential: the supervisor takes credentials only from the store. Credentials in the store live in the keychain, so run the supervisor as your own user in a session that can reach it (a logged-on Windows or macOS session, or a Linux session with the Secret Service running). A service with no keychain needs `STINT_SECRET_STORE=file`, and then every command on that store needs it too.
 
 ### Windows Task Scheduler
 

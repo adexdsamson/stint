@@ -42,12 +42,14 @@ export interface ConsentCredential {
  * Where the runtime will keep the lease's credentials, and which ones it holds.
  * This block is non-secret by construction: names, kinds and revocation
  * capability only, with no field that could carry a token. A host MUST show the
- * plaintext storage statement when `storage` is `plaintext_file`, and MUST
+ * plaintext storage statement when `storage` is `plaintext_file` (and only
+ * then: `os_keychain` means the credentials are held by the operating-system
+ * keychain, never in a plaintext file), and MUST
  * obtain a separate acknowledgement for each credential whose `revocation` is
  * `unsupported`.
  */
 export interface ConsentCustody {
-  readonly storage: "plaintext_file" | "none";
+  readonly storage: "os_keychain" | "plaintext_file" | "none";
   readonly credentials: readonly ConsentCredential[];
 }
 
